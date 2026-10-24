@@ -29,6 +29,11 @@ public partial class MainWindow
     ComboBox? reviewSourceFilter;
     ComboBox? reviewConfidenceFilter;
     Button? reviewUndoButton;
+    Button? reviewPreviousPageButton;
+    Button? reviewNextPageButton;
+    TextBlock? reviewPageLabel;
+    const int ReviewPageSize = 12;
+    int reviewPageIndex;
     bool updatingReviewSources;
     readonly List<ReviewHistoryEntry> reviewHistory = [];
     static string ReviewHistoryPath => Path.Combine(DataDir, "review-history.jsonl");
@@ -42,7 +47,7 @@ public partial class MainWindow
         reviewConfidenceFilter = MakeReviewFilter(["可信度：全部", "低于 40%", "40–79%", "80% 以上"]);
         foreach (var filter in new[] { reviewStatusFilter, reviewSourceFilter, reviewConfidenceFilter })
         {
-            filter.SelectionChanged += (_, _) => { if (!updatingReviewSources) RefreshReviewQueue(); };
+            filter.SelectionChanged += (_, _) => { if (!updatingReviewSources) { reviewPageIndex = 0; RefreshReviewQueue(); } };
             bar.Children.Add(filter);
         }
         panel.Children.Insert(Math.Max(0, panel.Children.Count - 2), bar);
@@ -59,6 +64,17 @@ public partial class MainWindow
         exportHistory.Click += (_, _) => ExportReviewHistory();
         foreach (var button in new[] { preview, reviewUndoButton, history, export, exportHistory }) actions.Children.Add(button);
         panel.Children.Insert(Math.Max(0, panel.Children.Count - 2), actions);
+        var pager = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+            Margin = new Thickness(0, 7, 0, 0) };
+        reviewPreviousPageButton = new Button { Content = "上一页", Style = (Style)FindResource("Action") };
+        reviewPreviousPageButton.Click += (_, _) => { reviewPageIndex--; RefreshReviewQueue(); ScrollReviewQueueToTop(); };
+        reviewPageLabel = new TextBlock { VerticalAlignment = System.Windows.VerticalAlignment.Center, Margin = new Thickness(7, 0, 14, 0) };
+        reviewNextPageButton = new Button { Content = "下一页", Style = (Style)FindResource("Action") };
+        reviewNextPageButton.Click += (_, _) => { reviewPageIndex++; RefreshReviewQueue(); ScrollReviewQueueToTop(); };
+        pager.Children.Add(reviewPreviousPageButton);
+        pager.Children.Add(reviewPageLabel);
+        pager.Children.Add(reviewNextPageButton);
+        panel.Children.Add(pager);
         try
         {
             if (File.Exists(ReviewHistoryPath))
@@ -76,6 +92,11 @@ public partial class MainWindow
         foreach (var option in options) box.Items.Add(option);
         box.SelectedIndex = 0;
         return box;
+    }
+
+    void ScrollReviewQueueToTop()
+    {
+        if (ReviewQueuePanel.Parent is ScrollViewer queueScroll) queueScroll.ScrollToTop();
     }
 
     void UpdateReviewSourceFilter()
@@ -98,7 +119,6 @@ public partial class MainWindow
     bool ReviewMatchesFilter(AiReviewRecord review)
     {
         var status = reviewStatusFilter?.SelectedIndex ?? 0;
-        if (status == 0 && review.Status == "approved") return false;
         if (status == 1 && review.Status != "pending" || status == 2 && review.Status != "rejected" || status == 3 && review.Status != "approved" || status == 4 && review.Status != "unmatched") return false;
         var source = reviewSourceFilter?.SelectedItem as string;
         if (!string.IsNullOrEmpty(source) && source != "来源：全部" && !string.Equals(source, review.CandidateSource, StringComparison.CurrentCultureIgnoreCase)) return false;
@@ -191,11 +211,18 @@ public partial class MainWindow
     void ShowReviewHistory()
     {
         var window = new Window { Title = "完整审核历史", Owner = this, Width = 850, Height = 530, WindowStartupLocation = WindowStartupLocation.CenterOwner };
-        var grid = new DataGrid { AutoGenerateColumns = false, IsReadOnly = true, CanUserAddRows = false, EnableRowVirtualization = true, ItemsSource = reviewHistory.AsEnumerable().Reverse().SelectMany(entry => entry.After.Values.DefaultIfEmpty().Select(review => new
-        {
-            Time = entry.Time.ToString("yyyy-MM-dd HH:mm:ss"), entry.Action, Title = review?.CandidateTitle ?? "", Source = review?.CandidateSource ?? "", Confidence = review?.Confidence, Status = review?.Status
-        })).ToList() };
-        foreach (var (header, binding, width) in new[] { ("时间", "Time", 150d), ("操作", "Action", 110d), ("候选", "Title", 275d), ("来源", "Source", 110d), ("可信度", "Confidence", 75d), ("结果", "Status", 85d) })
+        var rows = reviewHistory.AsEnumerable().Reverse().SelectMany(entry =>
+            entry.Before.Keys.Concat(entry.After.Keys).Distinct(StringComparer.OrdinalIgnoreCase).DefaultIfEmpty("")
+                .Select(id =>
+                {
+                    entry.Before.TryGetValue(id, out var before);
+                    entry.After.TryGetValue(id, out var after);
+                    return new { Time = entry.Time.ToString("yyyy-MM-dd HH:mm:ss"), entry.Action, Title = after?.CandidateTitle ?? before?.CandidateTitle ?? "",
+                        Source = after?.CandidateSource ?? before?.CandidateSource ?? "", Confidence = after?.Confidence,
+                        BeforeStatus = before?.Status ?? "—", AfterStatus = after?.Status ?? "—" };
+                })).ToList();
+        var grid = new DataGrid { AutoGenerateColumns = false, IsReadOnly = true, CanUserAddRows = false, EnableRowVirtualization = true, ItemsSource = rows };
+        foreach (var (header, binding, width) in new[] { ("时间", "Time", 150d), ("操作", "Action", 110d), ("候选", "Title", 240d), ("来源", "Source", 100d), ("可信度", "Confidence", 75d), ("原状态", "BeforeStatus", 75d), ("结果", "AfterStatus", 75d) })
             grid.Columns.Add(new DataGridTextColumn { Header = header, Binding = new System.Windows.Data.Binding(binding), Width = width });
         window.Content = grid;
         window.ShowDialog();
@@ -206,10 +233,30 @@ public partial class MainWindow
         var dialog = new Microsoft.Win32.SaveFileDialog { Title = "导出完整审核历史", Filter = "CSV 文件|*.csv", FileName = "映格审核历史.csv" };
         if (dialog.ShowDialog(this) != true) return;
         static string Csv(object? value) => "\"" + (value?.ToString() ?? "").Replace("\"", "\"\"") + "\"";
-        var lines = new List<string> { "时间,操作,视频ID,候选标题,来源,可信度,状态,决策来源" };
+        var lines = new List<string> { "时间,操作,视频ID,是否撤销动作,操作前状态,操作后状态,操作前可信度,操作后可信度,操作前来源,操作后来源,操作前候选,操作后候选,操作前审核记录JSON,操作后审核记录JSON,操作前视频信息JSON,操作前标签JSON,操作前自动素人标记" };
         foreach (var entry in reviewHistory)
-            foreach (var review in entry.After.Values)
-                lines.Add(string.Join(",", new object?[] { entry.Time.ToString("O"), entry.Action, review.VideoId, review.CandidateTitle, review.CandidateSource, review.Confidence, review.Status, review.DecisionSource }.Select(Csv)));
+        {
+            var ids = entry.Before.Keys.Concat(entry.After.Keys).Concat(entry.MetadataBefore.Keys)
+                .Concat(entry.TagsBefore.Keys).Concat(entry.AutoAmateurBefore.Keys)
+                .Distinct(StringComparer.OrdinalIgnoreCase).DefaultIfEmpty("");
+            foreach (var id in ids)
+            {
+                entry.Before.TryGetValue(id, out var before);
+                entry.After.TryGetValue(id, out var after);
+                entry.MetadataBefore.TryGetValue(id, out var metadataBefore);
+                entry.TagsBefore.TryGetValue(id, out var tagsBefore);
+                entry.AutoAmateurBefore.TryGetValue(id, out var autoAmateurBefore);
+                lines.Add(string.Join(",", new object?[] {
+                    entry.Time.ToString("O"), entry.Action, id, entry.Undone,
+                    before?.Status, after?.Status, before?.Confidence, after?.Confidence,
+                    before?.CandidateSource, after?.CandidateSource, before?.CandidateTitle, after?.CandidateTitle,
+                    before is null ? "" : JsonSerializer.Serialize(before), after is null ? "" : JsonSerializer.Serialize(after),
+                    metadataBefore is null ? "" : JsonSerializer.Serialize(metadataBefore),
+                    tagsBefore is null ? "" : JsonSerializer.Serialize(tagsBefore),
+                    entry.AutoAmateurBefore.ContainsKey(id) ? autoAmateurBefore : ""
+                }.Select(Csv)));
+            }
+        }
         File.WriteAllLines(dialog.FileName, lines, new UTF8Encoding(true));
     }
 

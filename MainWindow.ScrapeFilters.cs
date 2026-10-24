@@ -26,8 +26,13 @@ public partial class MainWindow
         if (ScrapePanel.Child is not StackPanel panel) return;
         scrapeSkippedTags = ParseTags(config.ScrapeSkipTags).ToHashSet(StringComparer.CurrentCultureIgnoreCase);
         Toolbar.Children.Remove(ScrapeBatchButton);
-        var titleAction = Toolbar.Children.OfType<Button>().FirstOrDefault(button => Equals(button.Content, "标题搜刮"));
-        if (titleAction is not null) Toolbar.Children.Remove(titleAction);
+        var titleAction = Toolbar.Children.OfType<Button>().FirstOrDefault(button => Equals(button.Content, "完整资料搜刮"));
+        if (titleAction is not null)
+        {
+            Toolbar.Children.Remove(titleAction);
+            titleAction.Content = "完整资料搜刮";
+            titleAction.ToolTip = "先选择候选，再读取来源详情、演职员、日期、类别和简介；来源未提供的字段保持空白";
+        }
         var actions = new WrapPanel { Margin = new Thickness(0, 0, 0, 12) };
         ScrapeBatchButton.Style = (Style)FindResource("Primary");
         actions.Children.Add(ScrapeBatchButton);
@@ -36,6 +41,8 @@ public partial class MainWindow
         preview.Click += (_, _) => PreviewScrapeRange();
         actions.Children.Add(preview);
         panel.Children.Insert(3, actions);
+        panel.Children.Insert(4, new TextBlock { Text = "搜刮会读取所选来源的详情信息，低可信度先进入审核。来源未公开或暂不可访问的字段会标明缺失。",
+            TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = System.Windows.Media.Brushes.SlateGray, Margin = new Thickness(0, 0, 0, 12) });
 
         var section = new StackPanel { Margin = new Thickness(0, 2, 0, 18) };
         section.Children.Add(new TextBlock { Text = "批量搜刮条件", FontSize = 16, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) });

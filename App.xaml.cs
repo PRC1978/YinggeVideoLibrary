@@ -12,6 +12,16 @@ public partial class App : System.Windows.Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        if (e.Args.Length > 0 && e.Args[0] is "--apply-update" or "--test-apply-update")
+        {
+            Shutdown(await Task.Run(() => PortableUpdateWorker.Apply(e.Args)));
+            return;
+        }
+        if (e.Args.Length > 1 && e.Args[0] == "--self-test-updater")
+        {
+            Shutdown(PortableUpdateWorker.SelfTest(e.Args[1]));
+            return;
+        }
         if (e.Args.Length > 1 && e.Args[0] == "--self-test-features")
         {
             Shutdown(await FeatureDiagnostics.RunAsync(e.Args[1]));

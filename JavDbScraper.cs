@@ -14,7 +14,36 @@ public sealed class MovieMetadata
     public string SourceUrl { get; set; } = "";
     public string? Poster { get; set; }
     public string? PosterUrl { get; set; }
+    public string? OriginalTitle { get; set; }
+    public string? ReleaseDate { get; set; }
+    public int? RuntimeMinutes { get; set; }
+    public string? Director { get; set; }
+    public string? Studio { get; set; }
+    public string? Series { get; set; }
+    public string? Country { get; set; }
+    public string? Language { get; set; }
+    public string? Summary { get; set; }
+    public string? Rating { get; set; }
+    public List<string> Actors { get; set; } = [];
+    public List<string> Genres { get; set; } = [];
+    public List<string> Keywords { get; set; } = [];
+    // The source record is complete only when its detail page/API was read.
+    // Missing fields remain empty: a source may not publish them at all.
+    public bool DetailFetched { get; set; }
+    public string? DetailNote { get; set; }
     public DateTime ScrapedAt { get; set; } = DateTime.Now;
+
+    public MovieMetadata Clone() => new()
+    {
+        Code = Code, Title = Title, Source = Source, SourceUrl = SourceUrl,
+        Poster = Poster, PosterUrl = PosterUrl, OriginalTitle = OriginalTitle,
+        ReleaseDate = ReleaseDate, RuntimeMinutes = RuntimeMinutes,
+        Director = Director, Studio = Studio, Series = Series, Country = Country,
+        Language = Language, Summary = Summary, Rating = Rating,
+        Actors = Actors?.ToList() ?? [], Genres = Genres?.ToList() ?? [],
+        Keywords = Keywords?.ToList() ?? [],
+        DetailFetched = DetailFetched, DetailNote = DetailNote, ScrapedAt = ScrapedAt
+    };
 }
 
 // A scrape candidate is kept separately from accepted metadata until a
@@ -29,6 +58,7 @@ public sealed class AiReviewRecord
     public string CandidateSourceUrl { get; set; } = "";
     public string? CandidatePoster { get; set; }
     public string? CandidatePosterUrl { get; set; }
+    public MovieMetadata? CandidateDetails { get; set; }
     public int Confidence { get; set; }
     public string Status { get; set; } = "pending";
     // ai/rules describe the automatic verdict; manual marks a later human decision.
@@ -38,16 +68,19 @@ public sealed class AiReviewRecord
     public DateTime CreatedAt { get; set; } = DateTime.Now;
     public DateTime? ReviewedAt { get; set; }
 
-    public MovieMetadata ToMetadata() => new()
+    public MovieMetadata ToMetadata()
     {
-        Code = CandidateCode,
-        Title = CandidateTitle,
-        Source = CandidateSource,
-        SourceUrl = CandidateSourceUrl,
-        Poster = CandidatePoster,
-        PosterUrl = CandidatePosterUrl,
-        ScrapedAt = CreatedAt
-    };
+        // Legacy reviews have only the six original candidate fields.
+        var result = CandidateDetails?.Clone() ?? new MovieMetadata();
+        result.Code = CandidateCode;
+        result.Title = CandidateTitle;
+        result.Source = CandidateSource;
+        result.SourceUrl = CandidateSourceUrl;
+        result.Poster = CandidatePoster ?? result.Poster;
+        result.PosterUrl = CandidatePosterUrl ?? result.PosterUrl;
+        result.ScrapedAt = CreatedAt;
+        return result;
+    }
 }
 
 public static class MetadataStore
@@ -130,6 +163,10 @@ public static class JavDbScraper
     static readonly Regex Title = new("\\btitle=\"(?<value>[^\"]+)\"", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     static readonly Regex Image = new("<img[^>]+(?:src|data-src)=\"(?<value>[^\"]+)\"", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     static readonly Regex FileCode = new(@"(?<![A-Za-z0-9])([A-Za-z]{2,10})[-_ ]?(\d{2,5})(?![A-Za-z0-9])", RegexOptions.Compiled);
+    static readonly Regex DetailBlocks = new("<div\\b[^>]*class=[\"'][^\"']*\\bpanel-block\\b[^\"']*[\"'][^>]*>(?<body>.*?)</div>", RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    static readonly Regex DetailLabel = new("<strong\\b[^>]*>(?<value>.*?)</strong>", RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    static readonly Regex DetailValue = new("<(?:span|div)\\b[^>]*class=[\"'][^\"']*\\bvalue\\b[^\"']*[\"'][^>]*>(?<value>.*?)</(?:span|div)>", RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    static readonly Regex DetailLinks = new("<a\\b[^>]*>(?<value>.*?)</a>", RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
     static readonly HttpClient Client = CreateClient();
 
     static HttpClient CreateClient()
@@ -177,6 +214,16 @@ public static class JavDbScraper
         if (title.Length == 0) title = code;
         var detail = new Uri(new Uri("https://javdb.com"), matched.Groups["href"].Value).ToString();
         var posterUrl = WebUtility.HtmlDecode(Image.Match(matched.Groups["body"].Value).Groups["value"].Value);
+        var record = new MovieMetadata { Code = code, Title = title, SourceUrl = detail, PosterUrl = posterUrl };
+        try
+        {
+            using var detailResponse = await Client.GetAsync(detail, HttpCompletionOption.ResponseContentRead, cancellationToken);
+            if (detailResponse.IsSuccessStatusCode)
+                record = ParseJavDbDetails(record, await detailResponse.Content.ReadAsStringAsync(cancellationToken));
+            else record.DetailNote = $"详情页返回 {(int)detailResponse.StatusCode}；当前仅有搜索摘要，需稍后重试";
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception ex) { record.DetailNote = $"详情暂不可读（{ex.GetType().Name}）；当前仅有搜索摘要"; }
         string? poster = null;
         if (Uri.TryCreate(posterUrl, UriKind.Absolute, out var imageUri) && imageUri.Scheme == Uri.UriSchemeHttps && (imageUri.Host.Equals("jdbstatic.com", StringComparison.OrdinalIgnoreCase) || imageUri.Host.EndsWith(".jdbstatic.com", StringComparison.OrdinalIgnoreCase)))
         {
@@ -194,6 +241,81 @@ public static class JavDbScraper
             }
             catch { /* Keep the title when the image host is unavailable. */ }
         }
-        return new MovieMetadata { Code = code, Title = title, SourceUrl = detail, Poster = poster };
+        record.Poster = poster;
+        return record;
+    }
+
+    static string CleanHtml(string html)
+    {
+        var withBreaks = Regex.Replace(html, @"<br\s*/?>|</(?:p|div)>", "\n", RegexOptions.IgnoreCase);
+        return Regex.Replace(WebUtility.HtmlDecode(Regex.Replace(withBreaks, "<[^>]+>", " ")), @"\s+", " ").Trim();
+    }
+
+    static List<string> DetailNames(string html)
+    {
+        var names = DetailLinks.Matches(html).Select(match => CleanHtml(match.Groups["value"].Value))
+            .Where(name => name.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (names.Count > 0) return names;
+        return CleanHtml(html).Split(new[] { '、', ',', '，', '/' }, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    // Parse only labels actually present on the public detail page. A missing
+    // block never becomes a guessed date, performer, studio or category.
+    internal static MovieMetadata ParseJavDbDetails(MovieMetadata candidate, string html)
+    {
+        var record = candidate.Clone();
+        var recognized = 0;
+        var codeConflict = false;
+        foreach (Match block in DetailBlocks.Matches(html))
+        {
+            var body = block.Groups["body"].Value;
+            var labelMatch = DetailLabel.Match(body);
+            if (!labelMatch.Success) continue;
+            var label = CleanHtml(labelMatch.Groups["value"].Value).TrimEnd(':', '：').Replace(" ", "").ToLowerInvariant();
+            var valueMatch = DetailValue.Match(body);
+            var raw = valueMatch.Success ? valueMatch.Groups["value"].Value : body[(labelMatch.Index + labelMatch.Length)..];
+            var value = CleanHtml(raw);
+            if (value.Length == 0) continue;
+            if (label is "番號" or "番号" or "number" or "識別碼")
+            {
+                // Do not replace the code verified on the search result card.
+                if (string.Equals(value.Replace(" ", ""), record.Code, StringComparison.OrdinalIgnoreCase)) recognized++;
+                else codeConflict = true;
+            }
+            else if (label.Contains("發行日期") || label.Contains("发行日期") || label.Contains("上映日期") || label is "releasedate")
+            { record.ReleaseDate = value; recognized++; }
+            else if (label.Contains("時長") || label.Contains("时长") || label.Contains("片長") || label.Contains("片长") || label is "duration")
+            {
+                var minutes = Regex.Match(value, @"(?<minutes>\d+)\s*(?:分|分鐘|分钟|minutes?|mins?)", RegexOptions.IgnoreCase);
+                if (minutes.Success && int.TryParse(minutes.Groups["minutes"].Value, out var duration) && duration > 0) record.RuntimeMinutes = duration;
+                recognized++;
+            }
+            else if (label.Contains("導演") || label.Contains("导演") || label is "director")
+            { record.Director = string.Join("、", DetailNames(raw)); recognized++; }
+            else if (label.Contains("片商") || label.Contains("製作商") || label.Contains("制作商") || label is "maker" or "studio")
+            { record.Studio = string.Join("、", DetailNames(raw)); recognized++; }
+            else if (label.Contains("系列") || label is "series")
+            { record.Series = string.Join("、", DetailNames(raw)); recognized++; }
+            else if (label.Contains("演員") || label.Contains("演员") || label is "actor" or "actress")
+            { record.Actors = DetailNames(raw); recognized++; }
+            else if (label.Contains("類別") || label.Contains("类别") || label.Contains("標籤") || label.Contains("标签") || label is "genre" or "genres")
+            { record.Genres = DetailNames(raw); recognized++; }
+            else if (label.Contains("評分") || label.Contains("评分") || label is "rating")
+            { record.Rating = value; recognized++; }
+            else if (label.Contains("簡介") || label.Contains("简介") || label.Contains("劇情") || label.Contains("剧情") || label is "summary")
+            { record.Summary = value; recognized++; }
+        }
+        if (codeConflict)
+        {
+            var safe = candidate.Clone();
+            safe.DetailNote = "详情页番号与搜索结果不一致；未采用该页资料，请人工核对";
+            safe.DetailFetched = false;
+            return safe;
+        }
+        record.DetailFetched = recognized > 0;
+        record.DetailNote = recognized > 0 ? $"已读取 JavDB 详情页（{recognized} 项）；来源未提供的字段保持空白"
+            : "详情页未返回可识别字段；当前仅有搜索摘要，请核对来源页面";
+        return record;
     }
 }

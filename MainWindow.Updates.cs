@@ -16,6 +16,7 @@ public partial class MainWindow
     const string UpdateOwner = "PRC1978";
     const string UpdateRepository = "YinggeVideoLibrary";
     const string InstallerAssetName = "YinggeVideoLibrary-Setup.exe";
+    const string PortableAssetName = "YinggeVideoLibrary-win-x64.exe";
     static readonly Uri LatestReleaseApi = new($"https://api.github.com/repos/{UpdateOwner}/{UpdateRepository}/releases/latest");
     static readonly HttpClient UpdateHttp = CreateUpdateHttpClient();
     System.Windows.Controls.Button? updateButton;
@@ -24,7 +25,7 @@ public partial class MainWindow
     bool updateCheckRunning;
     bool updateInstallRunning;
 
-    sealed record ReleaseUpdate(string Tag, Version Version, Uri DownloadUrl, long Size, string Sha256);
+    sealed record ReleaseUpdate(string Tag, Version Version, Uri DownloadUrl, long Size, string Sha256, bool Portable);
 
     static HttpClient CreateUpdateHttpClient()
     {
@@ -45,10 +46,31 @@ public partial class MainWindow
         });
         updateStatus = new TextBlock
         {
-            Text = $"当前版本 {CurrentUpdateVersion()} · 通过 GitHub Releases 检查更新",
+            Text = $"当前版本 {CurrentUpdateVersion()} · 从 GitHub Releases 获取更新",
             Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(105, 123, 150)),
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 7, 0, 9), FontSize = 12
         };
+        try
+        {
+            var resultPath = Path.Combine(DataDir, "updates", "last-update-result.txt");
+            if (File.Exists(resultPath))
+            {
+                var result = File.ReadAllText(resultPath);
+                if (result.StartsWith("更新失败：", StringComparison.Ordinal))
+                {
+                    updateStatus.Text = result;
+                    File.Delete(resultPath);
+                }
+                else if (result.StartsWith("更新成功：", StringComparison.Ordinal))
+                {
+                    var clean = true;
+                    foreach (var oldDownload in Directory.EnumerateFiles(Path.GetDirectoryName(resultPath)!, "YinggeVideoLibrary-win-x64-*.exe"))
+                        try { File.Delete(oldDownload); } catch { clean = false; /* The helper may still be running. */ }
+                    if (clean) File.Delete(resultPath);
+                }
+            }
+        }
+        catch { /* The update result is advisory; startup must continue. */ }
         panel.Children.Add(updateStatus);
         updateButton = new System.Windows.Controls.Button
         {
@@ -58,7 +80,7 @@ public partial class MainWindow
         updateButton.Click += async (_, _) =>
         {
             if (availableUpdate is null) await CheckForUpdatesAsync(true);
-            else await DownloadAndInstallUpdateAsync(availableUpdate);
+            else await DownloadAndApplyUpdateAsync(availableUpdate);
         };
         panel.Children.Add(updateButton);
     }
@@ -89,7 +111,7 @@ public partial class MainWindow
             using var response = await UpdateHttp.GetAsync(LatestReleaseApi);
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
-                if (interactive && updateStatus is not null) updateStatus.Text = "暂未发布安装版，稍后再试。";
+                if (interactive && updateStatus is not null) updateStatus.Text = "暂未发布新版本，稍后再试。";
                 return;
             }
             response.EnsureSuccessStatusCode();
@@ -111,9 +133,12 @@ public partial class MainWindow
             }
             if (!root.TryGetProperty("assets", out var assets))
                 throw new InvalidDataException("新版本没有安装文件");
+            ReleaseUpdate? portable = null;
+            ReleaseUpdate? installer = null;
             foreach (var asset in assets.EnumerateArray())
             {
-                if (asset.GetProperty("name").GetString() != InstallerAssetName) continue;
+                var name = asset.GetProperty("name").GetString();
+                if (name != PortableAssetName && name != InstallerAssetName) continue;
                 var url = asset.GetProperty("browser_download_url").GetString() ?? "";
                 var digest = asset.TryGetProperty("digest", out var digestNode) ? digestNode.GetString() ?? "" : "";
                 var size = asset.GetProperty("size").GetInt64();
@@ -122,14 +147,15 @@ public partial class MainWindow
                     || !uri.AbsolutePath.StartsWith($"/{UpdateOwner}/{UpdateRepository}/releases/download/", StringComparison.OrdinalIgnoreCase)
                     || !digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)
                     || digest.Length != 71 || size < 1_000_000)
-                    throw new InvalidDataException("安装文件的来源或校验值无效");
-                availableUpdate = new ReleaseUpdate(tag, releaseVersion, uri, size, digest[7..]);
-                if (updateStatus is not null) updateStatus.Text = $"发现新版本 {tag}，安装包约 {size / 1024 / 1024} MB。下载后会验证文件，再启动安装。";
-                if (updateButton is not null) updateButton.Content = $"下载并安装 {tag}";
-                Log($"发现软件更新 {tag}，可在设置中下载安装");
-                return;
+                    throw new InvalidDataException("更新文件的来源或校验值无效");
+                var found = new ReleaseUpdate(tag, releaseVersion, uri, size, digest[7..], name == PortableAssetName);
+                if (found.Portable) portable = found; else installer = found;
             }
-            throw new InvalidDataException("新版本没有适用的 Windows 安装包");
+            availableUpdate = portable ?? installer ?? throw new InvalidDataException("新版本没有适用的 Windows 更新文件");
+            var method = availableUpdate.Portable ? "退出后自动替换程序并重启" : "启动一次安装程序";
+            if (updateStatus is not null) updateStatus.Text = $"发现新版本 {tag}，约 {availableUpdate.Size / 1024 / 1024} MB。校验后{method}。";
+            if (updateButton is not null) updateButton.Content = availableUpdate.Portable ? $"更新并重启 {tag}" : $"下载安装 {tag}";
+            Log($"发现软件更新 {tag}，可在设置中更新");
         }
         catch (Exception ex)
         {
@@ -142,14 +168,14 @@ public partial class MainWindow
         }
     }
 
-    async Task DownloadAndInstallUpdateAsync(ReleaseUpdate release)
+    async Task DownloadAndApplyUpdateAsync(ReleaseUpdate release)
     {
         if (updateInstallRunning || updateCheckRunning) return;
         updateInstallRunning = true;
         if (updateButton is not null) updateButton.IsEnabled = false;
         var targetDir = Path.Combine(DataDir, "updates");
-        var target = Path.Combine(targetDir, $"YinggeVideoLibrary-Setup-{release.Version}.exe");
-        var temporary = target + ".part";
+        var target = Path.Combine(targetDir, $"YinggeVideoLibrary-{(release.Portable ? "win-x64" : "Setup")}-{release.Version}.exe");
+        var temporary = target + "." + Environment.ProcessId + ".part";
         try
         {
             Directory.CreateDirectory(targetDir);
@@ -157,16 +183,18 @@ public partial class MainWindow
             {
                 using var response = await UpdateHttp.GetAsync(release.DownloadUrl, HttpCompletionOption.ResponseHeadersRead);
                 response.EnsureSuccessStatusCode();
+                using var downloadTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(20));
                 await using (var input = await response.Content.ReadAsStreamAsync())
                 await using (var output = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 1024, true))
                 {
                     var buffer = new byte[1024 * 1024];
                     long total = 0;
                     int read;
-                    while ((read = await input.ReadAsync(buffer)) > 0)
+                    while ((read = await input.ReadAsync(buffer.AsMemory(), downloadTimeout.Token)) > 0)
                     {
-                        await output.WriteAsync(buffer.AsMemory(0, read));
+                        await output.WriteAsync(buffer.AsMemory(0, read), downloadTimeout.Token);
                         total += read;
+                        if (total > release.Size) throw new InvalidDataException("下载文件大小超出发布信息");
                         if (updateStatus is not null) updateStatus.Text = $"下载 {release.Tag}：{total * 100 / release.Size}%";
                     }
                 }
@@ -174,8 +202,32 @@ public partial class MainWindow
                     throw new InvalidDataException("下载文件的大小或 SHA-256 校验不匹配");
                 File.Move(temporary, target, true);
             }
-            if (updateStatus is not null) updateStatus.Text = "校验通过，正在启动安装程序…";
-            Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
+            if (release.Portable)
+            {
+                var current = Environment.ProcessPath ?? throw new InvalidOperationException("无法确定当前程序路径");
+                // Check write access before closing; the replacement itself is
+                // done by the verified new binary after this process exits.
+                var probe = Path.Combine(Path.GetDirectoryName(current)!, $".yingge-write-{Guid.NewGuid():N}.tmp");
+                try { File.WriteAllText(probe, ""); }
+                finally { if (File.Exists(probe)) File.Delete(probe); }
+                if (updateStatus is not null) updateStatus.Text = "校验通过，正在退出并自动重启新版…";
+                var updater = new ProcessStartInfo(target)
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WorkingDirectory = targetDir
+                };
+                updater.ArgumentList.Add("--apply-update");
+                updater.ArgumentList.Add(current);
+                updater.ArgumentList.Add(Environment.ProcessId.ToString());
+                updater.ArgumentList.Add(release.Sha256);
+                _ = Process.Start(updater) ?? throw new IOException("无法启动更新助手");
+            }
+            else
+            {
+                if (updateStatus is not null) updateStatus.Text = "校验通过，正在启动安装程序…";
+                Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
+            }
             Close();
         }
         catch (Exception ex)

@@ -52,7 +52,7 @@ public partial class MainWindow
         var dialog = new Window { Title = "选择搜刮候选", Owner = this, Width = 700, Height = 480, MinWidth = 530,
             MinHeight = 320, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var layout = new DockPanel { Margin = new Thickness(18) };
-        var caption = new TextBlock { Text = "按标题匹配和来源可信度排序。请核对标题、来源与番号后选择。", Margin = new Thickness(0, 0, 0, 12), TextWrapping = TextWrapping.Wrap };
+        var caption = new TextBlock { Text = "按标题匹配和来源可信度排序。选定候选后会读取来源详情，并在审核资料中展示。", Margin = new Thickness(0, 0, 0, 12), TextWrapping = TextWrapping.Wrap };
         DockPanel.SetDock(caption, Dock.Top); layout.Children.Add(caption);
         var footer = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
         var cancel = new Button { Content = "取消", Width = 82, Height = 32, Style = (Style)FindResource("Action") };
@@ -67,6 +67,9 @@ public partial class MainWindow
             var row = new StackPanel { Margin = new Thickness(8, 5, 8, 6) };
             row.Children.Add(new TextBlock { Text = candidate.Title, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
             row.Children.Add(new TextBlock { Text = $"匹配估分 {score}% · {candidate.Source} · {candidate.Code}", Foreground = System.Windows.Media.Brushes.SlateGray, Margin = new Thickness(0, 3, 0, 0) });
+            var glimpse = string.Join(" · ", new[] { candidate.ReleaseDate, candidate.Rating, candidate.Summary }.Where(value => !string.IsNullOrWhiteSpace(value)));
+            if (glimpse.Length > 0) row.Children.Add(new TextBlock { Text = glimpse, Foreground = System.Windows.Media.Brushes.SlateGray,
+                FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 3, 0, 0) });
             list.Items.Add(row);
         }
         list.MouseDoubleClick += (_, _) => { if (list.SelectedIndex >= 0) dialog.DialogResult = true; };
@@ -76,7 +79,7 @@ public partial class MainWindow
 
     VideoItem? ChooseVideoForTitleScrape()
     {
-        if (videos.Count == 0) { MessageBox.Show(this, "视频库为空。", "标题搜刮"); return null; }
+        if (videos.Count == 0) { MessageBox.Show(this, "视频库为空。", "完整资料搜刮"); return null; }
         var selected = videos.Where(video => selectedVideoIds.Contains(video.Id)).Take(2).ToList();
         if (selected.Count == 1) return selected[0];
         var dialog = new Window { Title = "选择要搜刮的视频", Owner = this, Width = 660, Height = 490,
@@ -88,7 +91,7 @@ public partial class MainWindow
         var footer = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new Thickness(0, 10, 0, 0) };
         var cancel = new Button { Content = "取消", Width = 80, Style = (Style)FindResource("Action") };
         cancel.Click += (_, _) => dialog.DialogResult = false;
-        var accept = new Button { Content = "搜刮选中视频", Width = 130, Style = (Style)FindResource("Primary") };
+        var accept = new Button { Content = "读取完整资料", Width = 130, Style = (Style)FindResource("Primary") };
         accept.Click += (_, _) => { if (list.SelectedItem is VideoItem) dialog.DialogResult = true; };
         footer.Children.Add(cancel); footer.Children.Add(accept);
         DockPanel.SetDock(footer, Dock.Bottom); layout.Children.Add(footer);
@@ -112,10 +115,8 @@ public partial class MainWindow
         var results = new List<MovieMetadata>();
         var completedSources = 0;
         var failedSources = 0;
-        foreach (var source in sources)
+        async Task<(string name, IReadOnlyList<MovieMetadata>? found, Exception? error)> QueryAsync(int source)
         {
-            if (selectedSource == 3 && (source == 0 && TmdbEnabledBox.IsChecked != true || source == 1 && PornhubEnabledBox.IsChecked != true)) continue;
-            if (source == 0 && string.IsNullOrWhiteSpace(config.TmdbToken)) continue;
             var name = source switch { 1 => "Pornhub", 2 => "TVmaze", _ => "TMDB" };
             try
             {
@@ -125,10 +126,21 @@ public partial class MainWindow
                     2 => AdditionalScrapers.SearchTvMazeAsync(title),
                     _ => AdditionalScrapers.SearchTmdbAsync(title, config.TmdbToken)
                 });
-                completedSources++;
-                results.AddRange(found);
+                return (name, found, null);
             }
-            catch (Exception ex) { failedSources++; Log($"{name} 候选查询失败：{ex.Message}"); }
+            catch (Exception ex) { return (name, null, ex); }
+        }
+        var pending = new List<Task<(string name, IReadOnlyList<MovieMetadata>? found, Exception? error)>>();
+        foreach (var source in sources)
+        {
+            if (selectedSource == 3 && (source == 0 && TmdbEnabledBox.IsChecked != true || source == 1 && PornhubEnabledBox.IsChecked != true)) continue;
+            if (source == 0 && string.IsNullOrWhiteSpace(config.TmdbToken)) continue;
+            pending.Add(QueryAsync(source));
+        }
+        foreach (var outcome in await Task.WhenAll(pending))
+        {
+            if (outcome.error is null) { completedSources++; results.AddRange(outcome.found ?? []); }
+            else { failedSources++; Log($"{outcome.name} 候选查询失败：{outcome.error.Message}"); }
         }
         if (completedSources == 0) throw new InvalidOperationException("没有可用的搜刮来源，或所有来源均请求失败；此次不会标记为无匹配。请检查 TMDB 凭据、网络和来源设置。");
         if (results.Count == 0 && failedSources > 0) throw new InvalidOperationException("部分来源请求失败，暂不能确定是否无匹配；此次不会标记为素人。");

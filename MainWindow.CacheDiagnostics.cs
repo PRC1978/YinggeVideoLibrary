@@ -180,13 +180,23 @@ public partial class MainWindow
                 await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
                 if (ScrapeBatchButton.Parent is not System.Windows.Controls.WrapPanel)
                     throw new InvalidOperationException("批量搜刮按钮未移动到搜刮页");
+                if (ScrapePanel.Child is not System.Windows.Controls.StackPanel scrapePanel
+                    || !scrapePanel.Children.OfType<System.Windows.Controls.WrapPanel>()
+                        .SelectMany(panel => panel.Children.OfType<System.Windows.Controls.Button>())
+                        .Any(button => Equals(button.Content, "完整资料搜刮")))
+                    throw new InvalidOperationException("完整资料搜刮入口未显示");
                 if (scrapeExcludedList is null || scrapeKeywordBox is null || scrapeSkipWatchedBox is null)
                     throw new InvalidOperationException("搜刮筛选控件未创建");
+                if (ReviewQueuePanel.Children.Count > ReviewPageSize)
+                    throw new InvalidOperationException("审核队列一次创建了过多记录控件");
+                var approvedRecord = config.AiReviews.Values.FirstOrDefault(item => item.Status == "approved");
+                if (approvedRecord is not null && !ReviewMatchesFilter(approvedRecord))
+                    throw new InvalidOperationException("状态：全部未包含已通过记录");
                 var navTop = OnlineNav.TranslatePoint(new System.Windows.Point(0, 0), Sidebar).Y;
                 var settingsTop = SettingsNav.TranslatePoint(new System.Windows.Point(0, 0), Sidebar).Y;
                 if (navTop + OnlineNav.ActualHeight > settingsTop)
                     throw new InvalidOperationException("在线按钮被底部设置按钮遮挡");
-                RecordCacheDiagnostic("scrape ui verified", $"批量入口与跳过条件已显示；在线按钮底部 {navTop + OnlineNav.ActualHeight:F0}，设置按钮顶部 {settingsTop:F0}");
+                RecordCacheDiagnostic("scrape ui verified", $"批量入口与跳过条件已显示；审核队列当前页 {ReviewQueuePanel.Children.Count} 条；在线按钮底部 {navTop + OnlineNav.ActualHeight:F0}，设置按钮顶部 {settingsTop:F0}");
             }
             RecordCacheDiagnostic("hidden startup probe", $"完成后的阶段：{cacheStartupDiagnostic.Stage}");
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(destination))!);

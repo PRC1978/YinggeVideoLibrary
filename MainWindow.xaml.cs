@@ -1246,7 +1246,7 @@ public partial class MainWindow : Window
             ["folders"] = ("视频文件夹", "管理本地视频的扫描位置。", "已添加的文件夹"),
             ["status"] = ("状态", "查看扫描和搜刮任务的运行情况。", "运行状态"),
             ["settings"] = ("设置", "播放器、性能和备份设置。", "设置"),
-            ["scrape"] = ("搜刮", "管理来源、凭据和标题匹配。", "搜刮设置")
+            ["scrape"] = ("搜刮", "管理来源、凭据和完整资料匹配。", "搜刮设置")
             , ["online"] = ("在线", "在应用内浏览视频网站。", "在线")
         };
         var current = titles[target];
@@ -2718,6 +2718,9 @@ public partial class MainWindow : Window
         var tags = new MenuItem { Header = "🏷 编辑标签…" };
         tags.Click += (_, _) => EditTagsForVideo(video);
         menu.Items.Add(tags);
+        var information = new MenuItem { Header = "查看完整搜刮资料…", IsEnabled = metadata.ContainsKey(video.Id) || config.AiReviews.ContainsKey(video.Id) };
+        information.Click += (_, _) => ShowMetadataDetailsForVideo(video);
+        menu.Items.Add(information);
         var select = new MenuItem { Header = video.IsSelected ? "□ 取消选择" : "☑ 加入批量选择" };
         select.Click += (_, _) =>
         {
@@ -3532,6 +3535,14 @@ public partial class MainWindow : Window
                 model = "local-rules (AI unavailable)";
             }
         }
+        if (!candidate.DetailFetched)
+        {
+            // A search card can identify a plausible work, but it must not be
+            // silently approved as a complete record when its detail failed.
+            confidence = Math.Min(confidence, ReviewManualThreshold - 1);
+            verdict = "review";
+            reason = string.IsNullOrWhiteSpace(candidate.DetailNote) ? reason + "；未取得详情，需人工核对" : reason + "；" + candidate.DetailNote;
+        }
         return new AiReviewRecord
         {
             VideoId = video.Id,
@@ -3541,6 +3552,7 @@ public partial class MainWindow : Window
             CandidateSourceUrl = candidate.SourceUrl,
             CandidatePoster = candidate.Poster,
             CandidatePosterUrl = candidate.PosterUrl,
+            CandidateDetails = candidate.Clone(),
             Confidence = confidence,
             Status = ReviewStatusFor(confidence, verdict),
             DecisionSource = decisionSource,
@@ -3583,7 +3595,8 @@ public partial class MainWindow : Window
             }
         }
         ApplyReviewBadge(video);
-        SetAutomaticAmateurTag(video, !metadata.ContainsKey(video.Id) && (review.Status is "pending" or "rejected") && review.Confidence < ReviewManualThreshold);
+        SetAutomaticAmateurTag(video, candidate.DetailFetched && !metadata.ContainsKey(video.Id) &&
+            (review.Status is "pending" or "rejected") && review.Confidence < ReviewManualThreshold);
         SaveConfig();
         RecordReviewAction(review.Status == "approved" ? "auto-approved" : "candidate", reviewBefore, metadataBefore);
         return review.Status;
@@ -3670,9 +3683,15 @@ public partial class MainWindow : Window
         var records = config.AiReviews.Values
             .Where(review => available.ContainsKey(review.VideoId) && (review.Status is "pending" or "rejected" or "approved" or "unmatched"))
             .Where(ReviewMatchesFilter)
-            .OrderBy(review => review.Confidence)
+            .OrderBy(review => review.Status is "pending" or "rejected" ? 0 : 1)
+            .ThenBy(review => review.Confidence)
             .ThenByDescending(review => review.CreatedAt)
             .ToList();
+        var reviewPageCount = Math.Max(1, (records.Count + ReviewPageSize - 1) / ReviewPageSize);
+        reviewPageIndex = Math.Clamp(reviewPageIndex, 0, reviewPageCount - 1);
+        if (reviewPreviousPageButton is not null) reviewPreviousPageButton.IsEnabled = reviewPageIndex > 0;
+        if (reviewNextPageButton is not null) reviewNextPageButton.IsEnabled = reviewPageIndex + 1 < reviewPageCount;
+        if (reviewPageLabel is not null) reviewPageLabel.Text = $"第 {reviewPageIndex + 1} / {reviewPageCount} 页 · 每页最多 {ReviewPageSize} 条";
         var ids = records.Select(review => review.VideoId).ToHashSet(StringComparer.OrdinalIgnoreCase);
         reviewSelection.RemoveWhere(id => !ids.Contains(id));
         ReviewQueuePanel.Children.Clear();
@@ -3697,7 +3716,9 @@ public partial class MainWindow : Window
             ReviewQueuePanel.Children.Add(new TextBlock { Text = "搜刮结果会先经过可信度判断。低于阈值的匹配会出现在这里。", Foreground = new SolidColorBrush(Color.FromRgb(131, 144, 163)), Margin = new Thickness(8, 15, 8, 15), TextWrapping = TextWrapping.Wrap });
             return;
         }
-        foreach (var review in records)
+        // Build controls only for the current page. A large audit history can
+        // contain thousands of records and must not block the UI thread.
+        foreach (var review in records.Skip(reviewPageIndex * ReviewPageSize).Take(ReviewPageSize))
         {
             var row = new Border { Background = review.Status == "rejected" ? new SolidColorBrush(Color.FromRgb(255, 247, 247)) : new SolidColorBrush(Color.FromRgb(248, 250, 255)), BorderBrush = new SolidColorBrush(Color.FromRgb(224, 231, 244)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9), Padding = new Thickness(8), Margin = new Thickness(0, 0, 0, 7) };
             var grid = new Grid();
@@ -3721,6 +3742,8 @@ public partial class MainWindow : Window
             detail.Children.Add(new TextBlock { Text = $"评估：{review.Model} · 依据：{review.Reason}", Foreground = new SolidColorBrush(Color.FromRgb(111, 122, 143)), FontSize = 11, TextWrapping = TextWrapping.Wrap });
             Grid.SetColumn(detail, 2); grid.Children.Add(detail);
             var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            var information = new Button { Content = "资料", Style = (Style)FindResource("Action"), Padding = new Thickness(10, 0, 10, 0) };
+            information.Click += (_, _) => ShowMetadataDetails(review.ToMetadata(), review.Confidence, review.Status);
             var approve = new Button { Content = "通过", Style = (Style)FindResource("Action"), Padding = new Thickness(10, 0, 10, 0) }; approve.Click += (_, _) =>
             {
                 if (!TryCommitReviewDecisions([review.VideoId], true, out var error)) { MessageBox.Show(this, "通过失败，已恢复待审核状态：" + error, "审核保存失败", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
@@ -3734,7 +3757,7 @@ public partial class MainWindow : Window
             };
             approve.IsEnabled = review.Status is "pending" or "rejected";
             reject.IsEnabled = review.Status is "pending" or "rejected";
-            actions.Children.Add(approve); actions.Children.Add(reject); Grid.SetColumn(actions, 3); grid.Children.Add(actions);
+            actions.Children.Add(information); actions.Children.Add(approve); actions.Children.Add(reject); Grid.SetColumn(actions, 3); grid.Children.Add(actions);
             row.Child = grid; ReviewQueuePanel.Children.Add(row);
         }
     }
@@ -3843,7 +3866,7 @@ public partial class MainWindow : Window
     async void ScrapeVideo(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is not VideoItem video) return;
-        var code = PromptText("JavDB 搜刮", "确认视频番号：", JavDbScraper.GuessCode(video.Title));
+        var code = PromptText("JavDB 完整资料搜刮", "确认视频番号：", JavDbScraper.GuessCode(video.Title));
         if (string.IsNullOrEmpty(code)) return;
         PageSubtitle.Text = $"正在从 JavDB 查找 {code}…";
         TaskStatusText.Text = $"正在搜刮 {code}";
@@ -3857,7 +3880,7 @@ public partial class MainWindow : Window
             Log($"搜刮成功：{record.Code} · 可信度审核={status}");
             MessageBox.Show(this, status switch
             {
-                "approved" => $"已找到 {record.Code}，可信度较高，标题和封面已加入视频库。",
+                "approved" => $"已找到 {record.Code}，可信度较高，已保存来源提供的完整资料。右键视频卡可查看。",
                 "rejected" => $"已找到 {record.Code}，AI 判断可信度过低，未写入视频信息。可到“搜刮”页查看并人工处理。",
                 _ => $"已找到 {record.Code}，但可信度不足，已放入人工审核队列。"
             }, "搜刮审核", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -3873,11 +3896,11 @@ public partial class MainWindow : Window
             video = ChooseVideoForTitleScrape();
             if (video is null) return;
         }
-        var title = PromptText("标题搜刮", "电影、剧集或 Pornhub 关键词：", AdditionalScrapers.CleanTitle(video.Title));
+        var title = PromptText("完整资料搜刮", "电影、剧集或 Pornhub 关键词：", AdditionalScrapers.CleanTitle(video.Title));
         if (string.IsNullOrWhiteSpace(title)) return;
         try
         {
-            TaskStatusText.Text = "正在标题搜刮…";
+            TaskStatusText.Text = "正在搜索并读取完整资料…";
             var source = ScrapeSourceBox?.SelectedIndex ?? 0;
             var results = await SearchCandidatesAsync(title, source);
             var ranked = results.Select(candidate => (candidate, score: Math.Clamp(LocalScrapeConfidence(video, candidate, out _) + SourceTrust(candidate.Source), 0, 100)))
@@ -3888,11 +3911,11 @@ public partial class MainWindow : Window
                 if (metadata.ContainsKey(video.Id))
                 {
                     TaskStatusText.Text = "未找到新的候选，原搜刮信息已保留";
-                    MessageBox.Show(this, "没有找到新的候选；已有的视频信息和标签保持不变。", "标题搜刮");
+                    MessageBox.Show(this, "没有找到新的候选；已有的视频信息和标签保持不变。", "完整资料搜刮");
                     return;
                 }
                 StoreUnmatchedScrape(video, source switch { 1 => "Pornhub", 2 => "TVmaze", 3 => "全部来源", _ => "TMDB" }, "已查询公开来源，没有找到候选结果。");
-                TaskStatusText.Text = "标题搜刮完成 · 未找到匹配，已标记素人";
+                TaskStatusText.Text = "完整资料搜刮完成 · 未找到匹配，已标记素人";
                 RenderCards();
                 return;
             }
@@ -3901,19 +3924,23 @@ public partial class MainWindow : Window
                 record = ChooseScrapeCandidate(ranked);
                 if (record is null) { TaskStatusText.Text = "已取消搜刮"; return; }
             }
+            var chosen = record;
+            record = (await ScrapeCandidateCache.GetOrFetchAsync(DataDir, chosen.Source + " 详情", chosen.SourceUrl,
+                async () => [await AdditionalScrapers.FetchFullDetailsAsync(chosen, config.TmdbToken)])).FirstOrDefault()
+                ?? throw new InvalidOperationException("来源未返回候选详情，请稍后重试。");
             await AdditionalScrapers.DownloadPosterAsync(record, video.Id, DataDir);
             var status = await StoreScrapeReviewAsync(video, record);
             RenderCards();
-            TaskStatusText.Text = status == "approved" ? "标题搜刮完成 · 已自动通过" : status == "rejected" ? "标题搜刮完成 · AI 否决" : "标题搜刮完成 · 待人工审核";
-            Log($"标题搜刮成功：{record.Source} · {record.Title} · 可信度审核={status}");
+            TaskStatusText.Text = status == "approved" ? "完整资料搜刮完成 · 已自动通过" : status == "rejected" ? "完整资料搜刮完成 · AI 否决" : "完整资料搜刮完成 · 待人工审核";
+            Log($"完整资料搜刮成功：{record.Source} · {record.Title} · 可信度审核={status}");
             MessageBox.Show(this, status switch
             {
-                "approved" => $"已匹配：{record.Title}\n来源：{record.Source}\n可信度较高，已写入视频库。",
+                "approved" => $"已匹配：{record.Title}\n来源：{record.Source}\n已保存来源提供的完整资料。右键视频卡可查看。",
                 "rejected" => $"已匹配：{record.Title}\n来源：{record.Source}\nAI 判断可信度过低，未写入视频信息。",
                 _ => $"已匹配：{record.Title}\n来源：{record.Source}\n可信度不足，已放入人工审核队列。"
             }, "搜刮审核", MessageBoxButton.OK, MessageBoxImage.Information);
         }
-        catch (Exception ex) { TaskStatusText.Text = "标题搜刮失败"; Log("标题搜刮失败 · " + ex.Message); MessageBox.Show(this, ex.Message, "标题搜刮失败", MessageBoxButton.OK, MessageBoxImage.Warning); }
+        catch (Exception ex) { TaskStatusText.Text = "完整资料搜刮失败"; Log("完整资料搜刮失败 · " + ex.Message); MessageBox.Show(this, ex.Message, "完整资料搜刮失败", MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
     async void ScrapeBatch(object sender, RoutedEventArgs e) => await EnqueueScrapeBatchAsync();
 

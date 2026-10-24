@@ -180,7 +180,8 @@ public static class AdditionalScrapers
 
     // Search responses are intentionally small. Enrich only the chosen match to
     // avoid 10–20 extra network requests and UI stalls for each search.
-    public static async Task<MovieMetadata> FetchFullDetailsAsync(MovieMetadata candidate, string tmdbToken)
+    public static async Task<MovieMetadata> FetchFullDetailsAsync(MovieMetadata candidate, string tmdbToken,
+        string javinfoKey = "", string javinfoDataDir = "", int javinfoDailyLimit = JavinfoScraper.DefaultDailyRequestLimit)
     {
         if (candidate.Source.StartsWith("TMDB", StringComparison.OrdinalIgnoreCase))
             return await FetchTmdbDetailsAsync(candidate, tmdbToken);
@@ -188,8 +189,14 @@ public static class AdditionalScrapers
             return await FetchTvMazeDetailsAsync(candidate);
         if (candidate.Source.Equals("Bangumi", StringComparison.OrdinalIgnoreCase))
             return await BangumiScraper.FetchFullDetailsAsync(candidate);
+        if (candidate.Source.Equals("AniList", StringComparison.OrdinalIgnoreCase))
+            return await AniListScraper.FetchFullDetailsAsync(candidate);
         if (candidate.Source.Equals("JavDB", StringComparison.OrdinalIgnoreCase))
             return await JavDbScraper.FetchCandidateDetailsAsync(candidate);
+        if (candidate.Source.Equals("JAVDatabase", StringComparison.OrdinalIgnoreCase))
+            return await JavDatabaseScraper.FetchCandidateDetailsAsync(candidate);
+        if (candidate.Source.StartsWith("Javinfo", StringComparison.OrdinalIgnoreCase))
+            return await JavinfoScraper.FetchCandidateDetailsAsync(candidate, javinfoKey, javinfoDataDir, javinfoDailyLimit);
         return candidate.Clone();
     }
 
@@ -250,6 +257,8 @@ public static class AdditionalScrapers
         record.RefreshChangedFieldProvenance(candidate, "详情接口");
         record.DetailFetched = true;
         record.DetailNote = "已读取 TMDB 详情和演职员表；来源未提供的字段保持空白";
+        var tmdbRating = RatingAggregation.FromMetadata(record, "详情接口作品一致");
+        if (tmdbRating is not null) RatingAggregation.AddOrUpdate(record, tmdbRating);
         return record;
     }
 
@@ -298,6 +307,8 @@ public static class AdditionalScrapers
         record.RefreshChangedFieldProvenance(candidate, "详情接口");
         record.DetailFetched = true;
         record.DetailNote = "已读取 TVmaze 剧集详情及公开演职员信息；未提供的字段保持空白";
+        var tvMazeRating = RatingAggregation.FromMetadata(record, "详情接口作品一致");
+        if (tvMazeRating is not null) RatingAggregation.AddOrUpdate(record, tvMazeRating);
         return record;
     }
 
@@ -310,10 +321,18 @@ public static class AdditionalScrapers
                 ? uri.Host.Equals("static.tvmaze.com", StringComparison.OrdinalIgnoreCase)
                 : record.Source.Equals("Bangumi", StringComparison.OrdinalIgnoreCase)
                     ? uri.Host.Equals("lain.bgm.tv", StringComparison.OrdinalIgnoreCase)
+                    : record.Source.Equals("AniList", StringComparison.OrdinalIgnoreCase)
+                        ? uri.Host.EndsWith(".anilist.co", StringComparison.OrdinalIgnoreCase)
                     : record.Source.Equals("JavDB", StringComparison.OrdinalIgnoreCase)
                         ? uri.Host.Equals("jdbstatic.com", StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith(".jdbstatic.com", StringComparison.OrdinalIgnoreCase)
                         : record.Source.Equals("JAVDatabase", StringComparison.OrdinalIgnoreCase)
                             ? uri.Host.Equals("www.javdatabase.com", StringComparison.OrdinalIgnoreCase) || uri.Host.Equals("javdatabase.com", StringComparison.OrdinalIgnoreCase) || uri.Host.Equals("pics.dmm.co.jp", StringComparison.OrdinalIgnoreCase)
+                            : record.Source.StartsWith("Javinfo", StringComparison.OrdinalIgnoreCase)
+                                ? uri.Host.Equals("pics.dmm.co.jp", StringComparison.OrdinalIgnoreCase)
+                                  || uri.Host.Equals("www.javdatabase.com", StringComparison.OrdinalIgnoreCase)
+                                  || uri.Host.Equals("javdatabase.com", StringComparison.OrdinalIgnoreCase)
+                                  || uri.Host.Equals("jdbstatic.com", StringComparison.OrdinalIgnoreCase)
+                                  || uri.Host.EndsWith(".jdbstatic.com", StringComparison.OrdinalIgnoreCase)
                             : record.Source.Equals("Pornhub", StringComparison.OrdinalIgnoreCase) &&
                               (uri.Host.EndsWith(".phncdn.com", StringComparison.OrdinalIgnoreCase) || uri.Host.Equals("phncdn.com", StringComparison.OrdinalIgnoreCase));
         if (!allowed) return;

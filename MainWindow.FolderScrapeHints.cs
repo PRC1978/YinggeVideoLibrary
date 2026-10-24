@@ -32,10 +32,11 @@ public partial class MainWindow
     async Task<List<MovieMetadata>> SearchWithFolderPersonHintAsync(
         VideoItem video, string title, int selectedSource,
         IReadOnlyList<MovieMetadata> firstCandidates,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, bool bulk = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var originals = firstCandidates.ToList();
+        if (selectedSource == 8) return originals; // Never make an implicit second paid Javinfo request.
         if (!config.UseFolderPersonHint) return originals;
         if (originals.Count > 0 && originals.Max(candidate => LocalScrapeConfidence(video, candidate, out _)) >= 65)
             return originals;
@@ -53,7 +54,7 @@ public partial class MainWindow
 
         try
         {
-            var extra = await SearchCandidatesAsync(query, selectedSource).WaitAsync(cancellationToken);
+            var extra = await SearchCandidatesAsync(query, selectedSource, bulk).WaitAsync(cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             return originals.Concat(extra)
                 .GroupBy(item => item.Source + "|" + item.SourceUrl + "|" + item.Title,

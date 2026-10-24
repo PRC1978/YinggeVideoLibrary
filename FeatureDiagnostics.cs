@@ -15,11 +15,34 @@ internal static class FeatureDiagnostics
         var directory = Path.Combine(Path.GetTempPath(), "YinggeFeatureTest-" + Guid.NewGuid().ToString("N"));
         try
         {
+            findings["sphereExactTagCategoryLinks"] = MainWindow.VerifySphereRelationsForDiagnostics();
             WindowsCredentialStore.Write(credentialName, "temporary-secret-中文");
             findings["windowsCredentialRoundTrip"] = WindowsCredentialStore.Read(credentialName) == "temporary-secret-中文";
             WindowsCredentialStore.Write(credentialName, "");
             findings["windowsCredentialDelete"] = WindowsCredentialStore.Read(credentialName) is null;
             Directory.CreateDirectory(directory);
+            findings["personalRatingSharedStore"] = PersonalRatingStore.VerifyForDiagnostics(directory);
+            var scoreFromJavDb = RatingAggregation.FromMetadata(new MovieMetadata
+            {
+                Source = "JavDB", SourceUrl = "https://javdb.com/v/example", Rating = "4.57分"
+            });
+            var scoreFromJavDatabase = RatingAggregation.FromMetadata(new MovieMetadata
+            {
+                Source = "JAVDatabase", SourceUrl = "https://www.javdatabase.com/movies/abc-123/", Rating = "4.2/5（123 票）"
+            });
+            var scoreFromTmdb = RatingAggregation.FromMetadata(new MovieMetadata
+            {
+                Source = "TMDB 电影", SourceUrl = "https://www.themoviedb.org/movie/1", Rating = "7.6/10（900 票）"
+            });
+            var scoreFromJavinfoRelay = RatingAggregation.FromMetadata(new MovieMetadata
+            {
+                Source = "Javinfo · JAVDatabase", SourceUrl = "https://api.javinfo.dev/movie?q=ABC-123", Rating = "4.2/5（123 票）"
+            });
+            var combinedScore = RatingAggregation.Summarize([scoreFromJavDatabase!, scoreFromTmdb!, scoreFromJavinfoRelay!]);
+            findings["platformRatingIdentityAndScale"] = scoreFromJavDb is null
+                && scoreFromJavDatabase?.VoteCount == 123 && scoreFromJavDatabase.Maximum == 5
+                && combinedScore?.SourceCount == 2 && combinedScore.ScoreOutOfTen is > 7.6 and < 8.4
+                && RatingAggregation.Summarize([scoreFromJavDatabase!]) is null;
             var fetches = 0;
             async Task<List<MovieMetadata>> Fetch()
             {
@@ -63,6 +86,20 @@ internal static class FeatureDiagnostics
                 && ScrapeSearchHints.FindWorkTitleHint(Path.Combine(hintRoot, "ICICIS", "作品标题", "Proper Name.mp4"), [hintRoot]) is null
                 && ScrapeSearchHints.IsWeakTitle("Video_0001")
                 && !ScrapeSearchHints.IsWeakTitle("Example Title");
+            var indexedFolder = Path.Combine(directory, "indexed", "person", "work");
+            var indexedAncestors = MainWindow.BuildKnownVideoDirectorySet([indexedFolder]);
+            findings["incrementalIndexIgnoresUnrelatedSidecars"] =
+                !MainWindow.IsRelevantIncrementalPath(Path.Combine(indexedFolder, "poster.jpg"), false, indexedAncestors)
+                && !MainWindow.IsRelevantIncrementalPath(Path.Combine(indexedFolder, "subtitle.srt"), false, indexedAncestors)
+                && MainWindow.IsRelevantIncrementalPath(Path.Combine(indexedFolder, "new.mp4"), false, indexedAncestors);
+            findings["incrementalIndexRetainsDirectoryChanges"] =
+                indexedAncestors.Contains(Path.Combine(directory, "indexed", "person"))
+                && MainWindow.IsRelevantIncrementalPath(Path.Combine(directory, "indexed", "person"), false, indexedAncestors)
+                && MainWindow.IsRelevantIncrementalPath(Path.Combine(directory, "indexed", "new-person"), true, indexedAncestors)
+                && !MainWindow.ShouldQueueDirectoryChange(WatcherChangeTypes.Changed, true)
+                && MainWindow.ShouldQueueDirectoryChange(WatcherChangeTypes.Created, true)
+                && MainWindow.ShouldQueueDirectoryChange(WatcherChangeTypes.Deleted, false)
+                && MainWindow.ShouldQueueDirectoryChange(WatcherChangeTypes.Renamed, true);
             var queueDirectory = Path.Combine(directory, "scrape-queue");
             var mixedJobs = Enumerable.Range(0, 1001).Select(index => new ScrapeQueueItem
             {
@@ -135,7 +172,9 @@ internal static class FeatureDiagnostics
                 var review = new AiReviewRecord { CandidateTitle = full.Title, CandidateSource = full.Source, CandidateDetails = full };
                 var restored = JsonSerializer.Deserialize<AiReviewRecord>(JsonSerializer.Serialize(review))!.ToMetadata();
                 findings["tmdbFullMetadataReviewRoundTrip"] = restored.DetailFetched && restored.RuntimeMinutes == 112 && restored.Studio == "示例片厂"
-                    && restored.Actors.SequenceEqual(["演员甲"]) && restored.Director == "导演乙" && restored.Keywords.SequenceEqual(["关键词"]);
+                    && restored.Actors.SequenceEqual(["演员甲"]) && restored.Director == "导演乙" && restored.Keywords.SequenceEqual(["关键词"])
+                    && restored.PlatformRatings.Count == 1 && restored.PlatformRatings[0].Platform == "TMDB"
+                    && restored.PlatformRatings[0].VoteCount == 10;
                 var independent = restored.Clone();
                 independent.FieldProvenance[nameof(MovieMetadata.Actors)].Stage = "changed-in-clone";
                 findings["metadataFieldProvenance"] = candidate.FieldProvenance[nameof(MovieMetadata.Title)].Stage == "搜索结果"
@@ -165,6 +204,29 @@ internal static class FeatureDiagnostics
             findings["javDbDetailMetadata"] = javdb.DetailFetched && javdb.ReleaseDate == "2025-02-03" && javdb.RuntimeMinutes == 120 && javdb.Actors.SequenceEqual(["演員戊"])
                 && javdb.FieldProvenance[nameof(MovieMetadata.Actors)].Source == "JavDB"
                 && javdb.FieldProvenance[nameof(MovieMetadata.Actors)].Stage == "详情页";
+            var linkedJavDb = JavDbScraper.ParseJavDbDetails(new MovieMetadata
+            {
+                Code = "ABC-123", Source = "JavDB", SourceUrl = "https://javdb.com/v/sample"
+            }, "<div class='panel-block'><strong>番號:</strong><span class='value'>ABC-123</span></div>" +
+               "<div class='panel-block'><strong>演員:</strong><span class='value'><a href='/actors/0R1n3'>甲</a></span></div>" +
+               "<div class='panel-block'><strong>類別:</strong><span class='value'><a href='/tags?c7=11'>乙</a></span></div>" +
+               "<div class='panel-block'><strong>系列:</strong><span class='value'><a href='/series/P899'>丙</a></span></div>");
+            findings["javDbCatalogLinksFromVerifiedDetail"] = linkedJavDb.CatalogLinks.Count == 3
+                && linkedJavDb.CatalogLinks.Any(link => link.Kind == "演员" && link.Url == "https://javdb.com/actors/0R1n3")
+                && linkedJavDb.CatalogLinks.Any(link => link.Kind == "标签" && link.Url == "https://javdb.com/tags?c7=11")
+                && linkedJavDb.CatalogLinks.Any(link => link.Kind == "系列" && link.Url == "https://javdb.com/series/P899");
+            findings["javDbCatalogLinkValidation"] = !JavDbScraper.TryCatalogUrl("https://javdb.com.evil.test/actors/0R1n3", out _, out _)
+                && !JavDbScraper.TryCatalogUrl("/tags/11", out _, out _)
+                && !JavDbScraper.TryCatalogUrl("/tags?c7=11&script=x", out _, out _)
+                && JavDbScraper.TryCatalogUrl("/tags?c7=11", out _, out _);
+            var catalogCards = JavDbScraper.ParseCatalogPage("<a class='box card' href='/v/abc123'><img title=\"作品甲\" src=\"https://c0.jdbstatic.com/a.jpg\"><strong>ABC-123</strong></a>" +
+                "<a href=\"/v/def456\" class=\"box\"><img title=\"作品乙\" src=\"https://c0.jdbstatic.com/b.jpg\"><strong>DEF-456</strong></a>");
+            bool catalogRateLimitThrows;
+            try { JavDbScraper.ParseCatalogPage("<html><body>操作過於頻繁，請等一会再試</body></html>"); catalogRateLimitThrows = false; }
+            catch (InvalidOperationException) { catalogRateLimitThrows = true; }
+            findings["javDbCatalogCardsAndRateLimit"] = catalogCards.Count == 2
+                && catalogCards[0].Code == "ABC-123" && catalogCards[1].Code == "DEF-456"
+                && catalogRateLimitThrows;
             using (var bangumi = JsonDocument.Parse("""{"data":[{"id":123,"type":2,"name":"Example","name_cn":"示例动画","date":"2025-01-01"}]}"""))
             using (var bangumiDetail = JsonDocument.Parse("""{"id":123,"type":2,"name":"Example","name_cn":"示例动画","date":"2025-01-01","infobox":[{"key":"导演","value":"导演甲"},{"key":"动画制作","value":"工作室乙"}]}"""))
             {
@@ -173,6 +235,23 @@ internal static class FeatureDiagnostics
                 findings["bangumiCandidateToFullDetail"] = full.DetailFetched && full.Title == "示例动画"
                     && full.Director == "导演甲" && full.Studio == "工作室乙"
                     && full.FieldProvenance[nameof(MovieMetadata.Director)].Source == "Bangumi";
+            }
+            using (var aniListSearch = JsonDocument.Parse("""{"data":{"Page":{"media":[{"id":123,"title":{"romaji":"Example Anime","english":"Example Anime","native":"例のアニメ"},"startDate":{"year":2025,"month":4,"day":3},"coverImage":{"large":"https://s4.anilist.co/example.jpg"},"genres":["Adventure"]}]}}}"""))
+            using (var aniListDetail = JsonDocument.Parse("""{"data":{"Media":{"id":123,"title":{"romaji":"Example Anime","english":"Example Anime","native":"例のアニメ"},"description":"A <b>new</b> story","startDate":{"year":2025,"month":4,"day":3},"duration":24,"episodes":12,"countryOfOrigin":"JP","format":"TV","genres":["Adventure"],"averageScore":81,"tags":[{"name":"Journey","rank":85,"isGeneralSpoiler":false,"isMediaSpoiler":false},{"name":"Ending spoiler","rank":90,"isGeneralSpoiler":false,"isMediaSpoiler":true}],"coverImage":{"large":"https://s4.anilist.co/example.jpg"},"studios":{"edges":[{"isMain":true,"node":{"name":"Studio A"}}]},"staff":{"edges":[{"role":"Director","node":{"name":{"full":"Director B"}}}]},"characters":{"edges":[{"voiceActors":[{"name":{"full":"Voice C"}}]}]}}}}"""))
+            {
+                var found = AniListScraper.ParseSearchResults(aniListSearch.RootElement);
+                var full = AniListScraper.ParseDetail(found.Single(), aniListDetail.RootElement);
+                findings["aniListSearchToFullMetadata"] = full.DetailFetched && full.Source == "AniList"
+                    && full.SourceUrl == "https://anilist.co/anime/123" && full.ReleaseDate == "2025-04-03"
+                    && full.RuntimeMinutes == 24 && full.Studio == "Studio A" && full.Director == "Director B"
+                    && full.Actors.SequenceEqual(["Voice C"]) && full.Keywords.SequenceEqual(["Journey"])
+                    && full.Summary == "A new story" && full.Rating == "8.1/10"
+                    && full.FieldProvenance[nameof(MovieMetadata.Director)].Stage == "详情接口"
+                    && full.PlatformRatings.Single().Platform == "AniList"
+                    && Math.Abs(full.PlatformRatings.Single().Value - 8.1) < 0.01;
+                findings["aniListCandidateUrlValidation"] = AniListScraper.TryMediaId(full.SourceUrl, out var id) && id == 123
+                    && !AniListScraper.TryMediaId("https://anilist.co.evil.test/anime/123", out _)
+                    && !AniListScraper.TryMediaId("http://anilist.co/anime/123", out _);
             }
             var javDbTitle = JavDbScraper.ParseTitleSearch("<a href=\"/v/sample\" class=\"box\"><img title=\"作品甲\" src=\"https://c0.jdbstatic.com/a.jpg\"><strong>ABC-123</strong></a>");
             findings["javDbTitleCandidate"] = javDbTitle.Count == 1 && javDbTitle[0].Code == "ABC-123"
@@ -185,6 +264,76 @@ internal static class FeatureDiagnostics
                "<p class='mb-1'><b>Release Date</b>2025-03-01</p><p class='mb-1'><b>Runtime</b>120 min</p></body></html>");
             findings["javDatabaseExactCodeDetail"] = javDatabase.DetailFetched && javDatabase.ReleaseDate == "2025-03-01"
                 && javDatabase.RuntimeMinutes == 120 && javDatabase.Title == "Example";
+            var ratedJavDatabase = JavDatabaseScraper.ParseDetail(new MovieMetadata
+            {
+                Code = "ABC-123", Title = "ABC-123", Source = "JAVDatabase", SourceUrl = "https://www.javdatabase.com/movies/abc-123/"
+            }, "<html><body>" + new string(' ', 500) +
+               "<h1>ABC-123 Example</h1><p class='mb-1'><b>DVD ID</b>ABC-123</p>" +
+               "<div class='wp-postratings'><span>4.2 / 5 from 123 votes</span></div></body></html>");
+            findings["javDatabaseExplicitRatingAndVotes"] = ratedJavDatabase.Rating == "4.2/5（123 票）"
+                && ratedJavDatabase.PlatformRatings.Single().Platform == "JAVDatabase"
+                && ratedJavDatabase.PlatformRatings.Single().VoteCount == 123;
+            var javDatabaseTitle = JavDatabaseScraper.ParseTitleSearch("<html><body>" + new string(' ', 500) +
+                "<div class='borderlesscard card extra'><p class='pcard'><a href='/movies/abc-123/'><b>ABC-123</b></a></p>" +
+                "<div class='mt-auto'><a href='/movies/abc-123/'>A &amp; B</a></div>" +
+                "<span class='btn-primary'><a>Example Studio</a></span><p>2024-01-02</p></div></body></html>");
+            findings["javDatabaseTitleCandidate"] = javDatabaseTitle.Count == 1 && javDatabaseTitle[0].Code == "ABC-123"
+                && javDatabaseTitle[0].Title == "A & B" && javDatabaseTitle[0].ReleaseDate == "2024-01-02"
+                && javDatabaseTitle[0].Studio == "Example Studio" && !javDatabaseTitle[0].DetailFetched
+                && javDatabaseTitle[0].SourceUrl == "https://www.javdatabase.com/movies/abc-123/";
+            using (var javinfoSearch = JsonDocument.Parse("""{"q":"ABC-123","source":"javdatabase","count":2,"results":[{"id":"abc00123","dvdId":"ABC-123","title":"Example Film","cover":"https://www.javdatabase.com/covers/a.jpg","releaseDate":"2024-01-02","extra":{"studio":"Example Studio","url":"https://www.javdatabase.com/movies/abc-123/"}},{"id":"abc00124","dvdId":"ABC-124","title":"Second Film"}]}"""))
+            using (var javinfoDetail = JsonDocument.Parse("""{"q":"ABC-123","source":"fanza","result":{"dvdId":"ABC-123","titleEn":"Example Film Full","titleJa":"作品原标题","commentEn":"Complete description","runtimeMins":120,"releaseDate":"2024-01-02T00:00:00.000Z","makers":["Studio A"],"series":"Series B","categories":["Drama","Portrait"],"actresses":["Actor C"],"actors":["Actor D"],"directors":["Director E"],"jacketFullUrl":"https://pics.dmm.co.jp/example.jpg","extra":{"sampleUrl":"https://cdn.javinfo.dev/paid-preview.mp4"}}}"""))
+            {
+                var found = JavinfoScraper.ParseSearchResults(javinfoSearch.RootElement);
+                var full = JavinfoScraper.ParseMovieDetails(found[0], javinfoDetail.RootElement);
+                findings["javinfoOptInCandidateAndFullMetadata"] = found.Count == 2 && !found[0].DetailFetched
+                    && found[0].SourceUrl == "https://www.javdatabase.com/movies/abc-123/"
+                    && full.DetailFetched && full.Code == "ABC-123" && full.Title == "Example Film Full"
+                    && full.OriginalTitle == "作品原标题" && full.Summary == "Complete description"
+                    && full.RuntimeMinutes == 120 && full.Studio == "Studio A" && full.Series == "Series B"
+                    && full.Genres.SequenceEqual(["Drama", "Portrait"])
+                    && full.Actors.SequenceEqual(["Actor C", "Actor D"]) && full.Director == "Director E"
+                    && full.FieldProvenance[nameof(MovieMetadata.Actors)].Stage == "详情接口"
+                    && full.SourceUrl == "https://api.javinfo.dev/movie?q=ABC-123"
+                    && full.FieldProvenance[nameof(MovieMetadata.Actors)].SourceUrl == full.SourceUrl
+                    && full.FieldProvenance[nameof(MovieMetadata.ReleaseDate)].SourceUrl == found[0].SourceUrl
+                    && !JsonSerializer.Serialize(full).Contains("sampleUrl", StringComparison.Ordinal);
+                try
+                {
+                    JavinfoScraper.ParseMovieDetails(new MovieMetadata { Code = "ABC-999", Source = "Javinfo" }, javinfoDetail.RootElement);
+                    findings["javinfoRejectsMismatchedNumber"] = false;
+                }
+                catch (InvalidDataException) { findings["javinfoRejectsMismatchedNumber"] = true; }
+            }
+            var paidBudgetDir = Path.Combine(directory, "javinfo-budget");
+            var budgetDay = new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero);
+            var firstWait = JavinfoUsageLedger.Reserve(paidBudgetDir, 2, budgetDay);
+            var secondWait = JavinfoUsageLedger.Reserve(paidBudgetDir, 2, budgetDay);
+            var stoppedAtLimit = false;
+            try { JavinfoUsageLedger.Reserve(paidBudgetDir, 2, budgetDay); }
+            catch (InvalidOperationException) { stoppedAtLimit = true; }
+            var budgetUsed = JavinfoUsageLedger.ReadForDiagnostics(paidBudgetDir);
+            JavinfoUsageLedger.Reserve(paidBudgetDir, 2, budgetDay.AddDays(1));
+            var nextDayUsed = JavinfoUsageLedger.ReadForDiagnostics(paidBudgetDir);
+            findings["javinfoDurableDailyPaidLimit"] = firstWait == TimeSpan.Zero && secondWait >= TimeSpan.FromSeconds(13)
+                && stoppedAtLimit && budgetUsed.reservedCalls == 2 && nextDayUsed.reservedCalls == 1;
+            File.WriteAllText(Path.Combine(paidBudgetDir, "javinfo-usage.json"), "{broken");
+            try { JavinfoUsageLedger.Reserve(paidBudgetDir, 2, budgetDay.AddDays(2)); findings["javinfoCorruptLedgerFailsClosed"] = false; }
+            catch (JsonException) { findings["javinfoCorruptLedgerFailsClosed"] = true; }
+            var javDatabaseRich = JavDatabaseScraper.ParseDetail(javDatabaseTitle[0], "<html><body>" + new string(' ', 500) +
+                "<h1>ABC-123 A &amp; B</h1><div id='poster-container'><div><img data-src='/images/cover.jpg'></div></div>" +
+                "<p><strong>DVD ID:</strong> ABC-123</p><p><b>Released:</b> 2024-01-02 <b>Runtime:</b> 2 hours 10 minutes</p>" +
+                "<p><b>Studio:</b> <a>Long Studio</a></p><p><b>Director:</b> <span>Director A</span></p>" +
+                "<p><b>Series:</b> Collection</p><p><b>Genre(s):</b> <a>Drama</a>, <a>Comedy</a></p>" +
+                "<p><b>Idol(s)/Actress(es):</b> <a>Actor A</a></p>" +
+                "<h2><span>About</span> ABC-123 JAV Movie</h2><p>First paragraph.</p><p>Second paragraph.</p>" +
+                "<h2>Related movies</h2><p>Not part of summary.</p></body></html>");
+            findings["javDatabaseRichDetail"] = javDatabaseRich.DetailFetched && javDatabaseRich.RuntimeMinutes == 130
+                && javDatabaseRich.Studio == "Long Studio" && javDatabaseRich.Director == "Director A"
+                && javDatabaseRich.Series == "Collection" && javDatabaseRich.Genres.SequenceEqual(["Drama", "Comedy"])
+                && javDatabaseRich.Actors.SequenceEqual(["Actor A"])
+                && javDatabaseRich.Summary == "First paragraph.\n\nSecond paragraph."
+                && javDatabaseRich.PosterUrl == "https://www.javdatabase.com/images/cover.jpg";
             var recommendationSamples = new[]
             {
                 new RecommendationSnapshot("a", true, "已看", DateTime.Today.AddDays(-1), ["动漫"], ["个人私密标签"]),
@@ -194,6 +343,30 @@ internal static class FeatureDiagnostics
             findings["recommendationLocalAndOnlinePrivacy"] = RecommendationEngine.Rank(recommendationSamples, 2).Count == 2
                 && recommendationTopics.Any(topic => topic.Keyword == "动画推荐")
                 && recommendationTopics.All(topic => !topic.Keyword.Contains("个人私密标签", StringComparison.Ordinal));
+            var distinctRecommendations = new[]
+            {
+                new RecommendationSnapshot("favorite", true, "已看", DateTime.Today, ["私人收藏"], ["仅我知道的人名"]),
+                new RecommendationSnapshot("animation-1", false, "未看", DateTime.Today, ["动画"], []),
+                new RecommendationSnapshot("animation-2", false, "未看", DateTime.Today, ["动画"], []),
+                new RecommendationSnapshot("animation-3", false, "未看", DateTime.Today, ["动画"], []),
+                new RecommendationSnapshot("documentary", false, "未看", DateTime.Today, ["纪录片"], [])
+            };
+            var allRecommendations = RecommendationEngine.Rank(distinctRecommendations, distinctRecommendations.Length);
+            var firstTwo = allRecommendations.Take(2).Select(item => item.VideoId).ToArray();
+            findings["recommendationNoSelfReinforcement"] = allRecommendations.Single(item => item.VideoId == "favorite").Reason == "你收藏的视频";
+            findings["recommendationDiverseAndComplete"] = firstTwo.Contains("documentary")
+                && firstTwo.Any(id => id.StartsWith("animation-", StringComparison.Ordinal))
+                && allRecommendations.Select(item => item.VideoId).Distinct(StringComparer.Ordinal).Count() == distinctRecommendations.Length
+                && RecommendationEngine.Rank(distinctRecommendations, 2).Select(item => item.VideoId).SequenceEqual(firstTwo);
+            findings["recommendationPrivateLabelsNeverSent"] = RecommendationEngine.BuildBilibiliTopics(distinctRecommendations)
+                .All(topic => !topic.Keyword.Contains("仅我知道", StringComparison.Ordinal)
+                    && !topic.Keyword.Contains("私人收藏", StringComparison.Ordinal));
+            var onlinePreference = Enumerable.Range(0, 100)
+                .Select(index => new RecommendationSnapshot($"unwatched-{index}", false, "未看", DateTime.Today, ["电影"], []))
+                .Append(new RecommendationSnapshot("favorite-animation", true, "已看", DateTime.Today, ["动画"], []))
+                .ToArray();
+            findings["recommendationOnlinePrefersObservedInterest"] =
+                RecommendationEngine.BuildBilibiliTopics(onlinePreference)[0].Keyword == "动画推荐";
             var searchFields = new MovieMetadata { Title = "剧集", Source = "TVmaze", Genres = ["喜剧"], Summary = "搜索摘要" };
             searchFields.StampAvailableFields("搜索结果");
             var refreshedFields = searchFields.Clone();

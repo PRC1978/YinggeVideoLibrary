@@ -27,6 +27,11 @@ public partial class App : System.Windows.Application
             Shutdown(await FeatureDiagnostics.RunAsync(e.Args[1]));
             return;
         }
+        if (e.Args.Length > 1 && e.Args[0] == "--diagnose-batch")
+        {
+            Shutdown(await YinggeVideoLibrary.MainWindow.WriteHeadlessBatchDiagnosticAsync(e.Args[1]));
+            return;
+        }
         if (e.Args.Length > 0 && e.Args[0] == "--diagnose-cache")
         {
             var destination = e.Args.Length > 1 ? e.Args[1] : null;
@@ -53,7 +58,7 @@ public partial class App : System.Windows.Application
             };
             MainWindow = probeWindow;
             probeWindow.Show();
-            var result = await probeWindow.WriteHiddenStartupDiagnosticAsync(e.Args[1], e.Args.Length > 2 && e.Args[2] == "--categories", e.Args.Length > 2 && e.Args[2] == "--scrape", e.Args.Length > 2 && e.Args[2] == "--settings");
+            var result = await probeWindow.WriteHiddenStartupDiagnosticAsync(e.Args[1], e.Args.Length > 2 && e.Args[2] == "--categories", e.Args.Length > 2 && e.Args[2] == "--scrape", e.Args.Length > 2 && e.Args[2] == "--settings", e.Args.Length > 2 && e.Args[2] == "--selection");
             probeWindow.Close();
             Shutdown(result);
             return;

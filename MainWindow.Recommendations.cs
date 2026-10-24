@@ -10,13 +10,21 @@ namespace YinggeVideoLibrary;
 
 public partial class MainWindow
 {
+    private const int RecommendationPageSize = 16;
     private int recommendationVersion;
+    private int recommendationPage;
+    private IReadOnlyList<LocalRecommendation> rankedRecommendations = [];
+    private Dictionary<string, VideoItem> recommendationVideos = new(StringComparer.OrdinalIgnoreCase);
+    private StackPanel? recommendationCardsSection;
 
     void NavRecommendations(object sender, RoutedEventArgs e) => ShowView("recommendations");
 
     async void RenderRecommendations()
     {
         var version = ++recommendationVersion;
+        recommendationPage = 0;
+        rankedRecommendations = [];
+        recommendationCardsSection = null;
         RecommendationPanel.Children.Clear();
         RecommendationPanel.Children.Add(new TextBlock
         {
@@ -33,14 +41,16 @@ public partial class MainWindow
         try
         {
             var result = await Task.Run(() => (
-                Local: RecommendationEngine.Rank(snapshot, 16),
+                Local: RecommendationEngine.Rank(snapshot, snapshot.Length),
                 Topics: RecommendationEngine.BuildBilibiliTopics(snapshot, 6)));
             if (version != recommendationVersion || view != "recommendations") return;
+            rankedRecommendations = result.Local;
+            recommendationVideos = videos.ToDictionary(item => item.Id, StringComparer.OrdinalIgnoreCase);
             RecommendationPanel.Children.Clear();
             CountText.Text = $"从 {snapshot.Length:N0} 部视频中挑选";
             RenderRecommendationIntro(snapshot.Length);
             RenderRecommendationTopics(result.Topics);
-            RenderRecommendationCards(result.Local);
+            RenderRecommendationCards();
         }
         catch (Exception ex)
         {
@@ -65,7 +75,7 @@ public partial class MainWindow
         var layout = new DockPanel();
         var refresh = new Button
         {
-            Content = "↻ 重新推荐", Padding = new Thickness(13, 8, 13, 8),
+            Content = "↻ 更新推荐", Padding = new Thickness(13, 8, 13, 8),
             BorderThickness = new Thickness(0), Background = Brush("#E6FFFFFF"),
             Foreground = Brush("#25375C"), VerticalAlignment = VerticalAlignment.Center,
             Cursor = System.Windows.Input.Cursors.Hand
@@ -127,29 +137,64 @@ public partial class MainWindow
         RecommendationPanel.Children.Add(shell);
     }
 
-    void RenderRecommendationCards(IReadOnlyList<LocalRecommendation> recommendations)
+    void RenderRecommendationCards()
     {
-        RecommendationPanel.Children.Add(new TextBlock
+        if (recommendationCardsSection is not null)
+            RecommendationPanel.Children.Remove(recommendationCardsSection);
+        var section = new StackPanel();
+        recommendationCardsSection = section;
+        var pageCount = Math.Max(1, (rankedRecommendations.Count + RecommendationPageSize - 1) / RecommendationPageSize);
+        recommendationPage = Math.Clamp(recommendationPage, 0, pageCount - 1);
+        var header = new DockPanel { Margin = new Thickness(0, 2, 0, 5) };
+        var pager = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+        var previous = new Button
+        {
+            Content = "上一批", Padding = new Thickness(10, 5, 10, 5),
+            Background = Brushes.White, BorderBrush = Brush("#D7E3FF"),
+            Foreground = Brush("#405DAD"), IsEnabled = recommendationPage > 0,
+            Cursor = System.Windows.Input.Cursors.Hand
+        };
+        previous.Click += (_, _) => { recommendationPage--; RenderRecommendationCards(); };
+        pager.Children.Add(previous);
+        pager.Children.Add(new TextBlock
+        {
+            Text = $"{recommendationPage + 1} / {pageCount}",
+            Foreground = Brush("#7286A1"), VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(10, 0, 10, 0)
+        });
+        var next = new Button
+        {
+            Content = "换一批", Padding = new Thickness(10, 5, 10, 5),
+            Background = Brush("#EDF3FF"), BorderBrush = Brush("#D7E3FF"),
+            Foreground = Brush("#405DAD"), IsEnabled = recommendationPage + 1 < pageCount,
+            Cursor = System.Windows.Input.Cursors.Hand
+        };
+        next.Click += (_, _) => { recommendationPage++; RenderRecommendationCards(); };
+        pager.Children.Add(next);
+        DockPanel.SetDock(pager, Dock.Right);
+        header.Children.Add(pager);
+        header.Children.Add(new TextBlock
         {
             Text = "本地推荐", FontSize = 17, FontWeight = FontWeights.SemiBold,
-            Foreground = Brush("#263347"), Margin = new Thickness(0, 2, 0, 5)
+            Foreground = Brush("#263347"), VerticalAlignment = VerticalAlignment.Center
         });
-        RecommendationPanel.Children.Add(new TextBlock
+        section.Children.Add(header);
+        section.Children.Add(new TextBlock
         {
-            Text = "播放和分类仍在本机进行，推荐结果会随你的收藏与观看记录变化。",
+            Text = "按兴趣、观看状态和分类挑选；每批尽量呈现不同分类。推荐会随你的收藏与观看记录变化。",
             FontSize = 12, Foreground = Brush("#7286A1"), Margin = new Thickness(0, 0, 0, 14)
         });
-        if (recommendations.Count == 0)
+        if (rankedRecommendations.Count == 0)
         {
-            RecommendationPanel.Children.Add(new TextBlock { Text = "还没有可推荐的视频。", Foreground = Brush("#7286A1") });
+            section.Children.Add(new TextBlock { Text = "还没有可推荐的视频。", Foreground = Brush("#7286A1") });
+            RecommendationPanel.Children.Add(section);
             return;
         }
 
-        var itemsById = videos.ToDictionary(item => item.Id, StringComparer.OrdinalIgnoreCase);
         var cards = new WrapPanel();
-        foreach (var recommendation in recommendations)
+        foreach (var recommendation in rankedRecommendations.Skip(recommendationPage * RecommendationPageSize).Take(RecommendationPageSize))
         {
-            if (!itemsById.TryGetValue(recommendation.VideoId, out var video)) continue;
+            if (!recommendationVideos.TryGetValue(recommendation.VideoId, out var video)) continue;
             var card = new Border
             {
                 Width = 251, MinHeight = 150, Margin = new Thickness(0, 0, 14, 14),
@@ -189,7 +234,8 @@ public partial class MainWindow
             card.Child = content;
             cards.Children.Add(card);
         }
-        RecommendationPanel.Children.Add(cards);
+        section.Children.Add(cards);
+        RecommendationPanel.Children.Add(section);
     }
 
     private static SolidColorBrush Brush(string color) => new(ColorOf(color));

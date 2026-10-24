@@ -77,10 +77,12 @@ internal static class PortableUpdateWorker
     internal static int SelfTest(string destination)
     {
         var directory = Path.Combine(Path.GetTempPath(), "YinggeUpdateTest-" + Guid.NewGuid().ToString("N"));
+        var testUninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\YinggeVideoLibrarySelfTest-"
+            + Guid.NewGuid().ToString("N");
         try
         {
             Directory.CreateDirectory(directory);
-            var oldFile = Path.Combine(directory, "application.exe");
+            var oldFile = Path.Combine(directory, "映格视频库.exe");
             var newFile = Path.Combine(directory, "downloaded.exe");
             File.WriteAllText(oldFile, "old-version");
             File.WriteAllText(newFile, "new-version");
@@ -95,8 +97,30 @@ internal static class PortableUpdateWorker
             RestorePreviousFile(oldFile);
             if (File.ReadAllText(oldFile) != "old-version")
                 throw new InvalidDataException("更新失败时不能恢复旧版");
+            // `dotnet app.dll` uses dotnet.exe as ProcessPath, whose FileVersion is
+            // not guaranteed to be a parseable System.Version. Prefer this app's exe.
+            var versionSource = Path.Combine(AppContext.BaseDirectory, "映格视频库.exe");
+            if (!File.Exists(versionSource))
+                versionSource = Environment.ProcessPath ?? throw new InvalidOperationException("找不到测试程序路径");
+            var versionText = FileVersionInfo.GetVersionInfo(versionSource).FileVersion;
+            if (!Version.TryParse(versionText, out var sourceVersion))
+                throw new InvalidDataException($"测试程序没有有效文件版本号：{versionSource}；{versionText}");
+            using (var uninstall = Registry.CurrentUser.CreateSubKey(testUninstallKey, true)
+                ?? throw new IOException("无法创建隔离的更新测试记录"))
+            {
+                uninstall.SetValue("DisplayVersion", "0.0.0");
+                uninstall.SetValue("InstallLocation", Path.Combine(directory, "other-install"));
+                UpdateInstalledVersion(versionSource, oldFile, testUninstallKey);
+                if (!Equals(uninstall.GetValue("DisplayVersion"), "0.0.0"))
+                    throw new InvalidDataException("更新修改了其他安装目录的版本记录");
+                uninstall.SetValue("InstallLocation", directory);
+                UpdateInstalledVersion(versionSource, oldFile, testUninstallKey);
+                if (!Equals(uninstall.GetValue("DisplayVersion"), sourceVersion.ToString(3)))
+                    throw new InvalidDataException("安装目录更新后未同步版本记录");
+            }
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(destination))!);
-            File.WriteAllText(destination, JsonSerializer.Serialize(new { passed = true, badHashRejected = true, replacementVerified = true, previousVersionPreserved = true, rollbackVerified = true }));
+            File.WriteAllText(destination, JsonSerializer.Serialize(new { passed = true, badHashRejected = true, replacementVerified = true,
+                previousVersionPreserved = true, rollbackVerified = true, otherInstallVersionPreserved = true, installedVersionUpdated = true }));
             return 0;
         }
         catch (Exception ex)
@@ -107,6 +131,7 @@ internal static class PortableUpdateWorker
         }
         finally
         {
+            try { Registry.CurrentUser.DeleteSubKeyTree(testUninstallKey, false); } catch { }
             if (Directory.Exists(directory))
             {
                 foreach (var file in Directory.EnumerateFiles(directory)) File.Delete(file);
@@ -162,12 +187,12 @@ internal static class PortableUpdateWorker
         return Convert.ToHexString(SHA256.HashData(stream)).Equals(expectedHash, StringComparison.OrdinalIgnoreCase);
     }
 
-    static void UpdateInstalledVersion(string source, string target)
+    static void UpdateInstalledVersion(string source, string target, string? uninstallKeyName = null)
     {
         try
         {
             using var uninstall = Registry.CurrentUser.OpenSubKey(
-                @"Software\Microsoft\Windows\CurrentVersion\Uninstall\PRC1978.YinggeVideoLibrary_is1", true);
+                uninstallKeyName ?? @"Software\Microsoft\Windows\CurrentVersion\Uninstall\PRC1978.YinggeVideoLibrary_is1", true);
             var installedDirectory = uninstall?.GetValue("InstallLocation") as string;
             if (uninstall is not null && !string.IsNullOrWhiteSpace(installedDirectory)
                 && Path.GetFullPath(Path.Combine(installedDirectory, "映格视频库.exe"))

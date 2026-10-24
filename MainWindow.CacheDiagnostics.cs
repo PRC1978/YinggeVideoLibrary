@@ -134,12 +134,56 @@ public partial class MainWindow
         }
     }
 
-    public async Task<int> WriteHiddenStartupDiagnosticAsync(string destination, bool verifyGraph = false, bool verifyScrape = false, bool verifySettings = false)
+    public async Task<int> WriteHiddenStartupDiagnosticAsync(string destination, bool verifyGraph = false, bool verifyScrape = false, bool verifySettings = false, bool verifySelection = false)
     {
         for (var attempt = 0; attempt < 120 && cacheStartupDiagnostic.Stage is not ("refresh finished" or "index error" or "ui startup exception"); attempt++)
             await Task.Delay(250);
         try
         {
+            if (verifySelection)
+            {
+                ShowView("all");
+                await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
+                if (videos.Count == 0 || !SelectionBar.IsVisible || SelectionBar.Parent is not System.Windows.Controls.Grid)
+                    throw new InvalidOperationException("选择栏未显示在完整列表上方，或视频索引为空");
+                var allCount = videos.Count;
+                var allStarted = System.Diagnostics.Stopwatch.StartNew();
+                SelectAllLibraryVideos(this, new System.Windows.RoutedEventArgs());
+                var allMs = allStarted.ElapsedMilliseconds;
+                if (selectedVideoIds.Count != allCount || videos.Any(item => !item.IsSelected))
+                    throw new InvalidOperationException("全选全部视频未涵盖分页外的视频");
+                ClearVideoSelection();
+                var savedFiltered = currentFilteredVideos;
+                try
+                {
+                    currentFilteredVideos = videos.Take(Math.Min(17, videos.Count)).ToList();
+                    SelectFilteredVideos(this, new System.Windows.RoutedEventArgs());
+                    if (selectedVideoIds.Count != currentFilteredVideos.Count)
+                        throw new InvalidOperationException("全选筛选结果错误地选择了其他视频");
+                }
+                finally
+                {
+                    ClearVideoSelection();
+                    currentFilteredVideos = savedFiltered;
+                }
+                var one = videos[0];
+                var toggles = System.Diagnostics.Stopwatch.StartNew();
+                for (var index = 0; index < 200; index++)
+                {
+                    one.IsSelected = true;
+                    selectedVideoIds.Add(one.Id);
+                    UpdateSelectionToolbar();
+                    one.IsSelected = false;
+                    selectedVideoIds.Remove(one.Id);
+                    UpdateSelectionToolbar();
+                }
+                var toggleMs = toggles.ElapsedMilliseconds;
+                if (selectedVideoIds.Count != 0 || videos.Any(item => item.IsSelected))
+                    throw new InvalidOperationException("清空选择后仍有残留选择");
+                RecordCacheDiagnostic("selection ui verified", $"全库 {allCount:N0} 部均可选择；筛选结果可单独全选；全库耗时 {allMs} ms，400 次单卡切换 {toggleMs} ms；未写入用户数据");
+                RecordCacheDiagnostic("batch picker verified", await VerifyBatchCategoryPickerOffscreenAsync());
+                RecordCacheDiagnostic("batch operation verified", await VerifyLargeBatchOffscreenAsync());
+            }
             if (verifyGraph)
             {
                 var graphStarted = System.Diagnostics.Stopwatch.StartNew();
@@ -154,12 +198,22 @@ public partial class MainWindow
                 if (sphere.NodeCount != graphIndex.AllCategoryCounts.Count + graphIndex.TagCounts.Count ||
                     !sphere.EveryNodeLinked || sphereGraphTimer.IsEnabled || sphereGraphCanvas?.Children.Count != 1)
                     throw new InvalidOperationException("分类图节点关系不完整，或未使用单层合并绘制");
+                var mostConnectedTag = graphIndex.CategoriesByTag.OrderByDescending(pair => pair.Value.Count)
+                    .FirstOrDefault(pair => pair.Value.Count > 0);
+                if (mostConnectedTag.Key is not null)
+                {
+                    sphere.SetHover("\u0001" + mostConnectedTag.Key);
+                    if (sphere.FocusAssociationCount != mostConnectedTag.Value.Count)
+                        throw new InvalidOperationException("标签与分类的真实关联未全部绘出");
+                    sphere.SetHover(null);
+                }
                 var firstTag = graphIndex.RelatedTags.Where(pair => pair.Value.Count > 0)
                     .OrderByDescending(pair => pair.Value.Count).ThenByDescending(pair => graphIndex.TagCounts[pair.Key])
                     .Select(pair => pair.Key).FirstOrDefault()
                     ?? graphIndex.TagCounts.OrderByDescending(pair => pair.Value).Select(pair => pair.Key).FirstOrDefault();
                 var tagNodes = 0;
                 var tagSwitchMs = 0L;
+                var selectedTagRelations = 0;
                 if (firstTag is not null)
                 {
                     var started = System.Diagnostics.Stopwatch.StartNew();
@@ -173,6 +227,17 @@ public partial class MainWindow
                         !sphere.EveryNodeLinked || sphereGraphCanvas?.Children.Count != 1)
                         throw new InvalidOperationException("按标签筛选后关联节点或连线不完整");
                     tagNodes = sphere.NodeCount;
+                    selectedTagRelations = sphere.FocusAssociationCount;
+                    if (selectedTagRelations != graphIndex.CategoriesByTag[firstTag].Count)
+                        throw new InvalidOperationException($"所选标签与全部相关分类的直接连接不完整：{selectedTagRelations}/{graphIndex.CategoriesByTag[firstTag].Count}，悬停={sphere.HoverPath}，选择={sphere.SelectedPath}");
+                    var firstRelated = graphIndex.RelatedTags[firstTag].Keys.FirstOrDefault();
+                    if (firstRelated is not null)
+                    {
+                        sphere.SetHover("\u0001" + firstRelated);
+                        if (sphere.FocusAssociationCount == 0)
+                            throw new InvalidOperationException("所选标签下的真实共现关系未画出");
+                        sphere.SetHover(null);
+                    }
                     if (started.Elapsed > TimeSpan.FromSeconds(8))
                         throw new InvalidOperationException($"按标签重建图耗时过长：{started.Elapsed.TotalSeconds:F1} 秒");
                     SaveSpherePreview(sphere, Path.ChangeExtension(destination, ".tag.png"));
@@ -224,10 +289,43 @@ public partial class MainWindow
                 await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
                 if (viewport.ActualHeight <= oldHeight)
                     throw new InvalidOperationException("分类图高度调整失败");
+                // Render several actual rotation frames off screen. This
+                // measures the painting work that a dense library performs
+                // while spinning without showing a window to the user.
+                var frameBitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                    (int)sphere.Width, (int)sphere.Height, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                var frameTimes = new List<double>();
+                for (var frame = 0; frame < 12; frame++)
+                {
+                    var frameClock = System.Diagnostics.Stopwatch.StartNew();
+                    sphere.Rotation = frame * .025;
+                    sphere.InvalidateVisual();
+                    frameBitmap.Render(sphere);
+                    frameTimes.Add(frameClock.Elapsed.TotalMilliseconds);
+                }
+                var focusedFrameTimes = new List<double>();
+                if (mostConnectedTag.Key is not null)
+                {
+                    sphere.SetHover("\u0001" + mostConnectedTag.Key);
+                    for (var frame = 0; frame < 8; frame++)
+                    {
+                        var frameClock = System.Diagnostics.Stopwatch.StartNew();
+                        sphere.Rotation = .31 + frame * .025;
+                        sphere.InvalidateVisual();
+                        frameBitmap.Render(sphere);
+                        focusedFrameTimes.Add(frameClock.Elapsed.TotalMilliseconds);
+                    }
+                    sphere.SetHover(null);
+                }
+                sphere.Rotation = .48;
+                sphere.InvalidateVisual();
+                SaveSpherePreview(sphere, Path.ChangeExtension(destination, ".rotated.png"));
+                sphere.Rotation = 0;
+                sphere.InvalidateVisual();
                 var previewStarted = System.Diagnostics.Stopwatch.StartNew();
                 SaveSpherePreview(sphere, Path.ChangeExtension(destination, ".png"));
                 var previewMs = previewStarted.ElapsedMilliseconds;
-                RecordCacheDiagnostic("graph verified", $"全部相关节点 {sphere.NodeCount}，选中标签关联节点 {tagNodes}，全部节点经 {navigationPages} 页可访问且连线完整；视口 {viewport.ActualWidth:F0}×{viewport.ActualHeight:F0}；首次构建 {graphBuildMs} ms，标签切换 {tagSwitchMs} ms，离屏绘制与 PNG 保存 {previewMs} ms；缩放、平移、调高正常");
+                RecordCacheDiagnostic("graph verified", $"全部相关节点 {sphere.NodeCount}，选中标签关联节点 {tagNodes}，该标签实际共现连线 {selectedTagRelations}，全部节点经 {navigationPages} 页可访问；视口 {viewport.ActualWidth:F0}×{viewport.ActualHeight:F0}；首次构建 {graphBuildMs} ms，标签切换 {tagSwitchMs} ms，12 帧离屏旋转平均 {frameTimes.Average():F1} ms、最慢 {frameTimes.Max():F1} ms，最密标签 {mostConnectedTag.Value?.Count ?? 0} 条关联聚焦平均 {(focusedFrameTimes.Count == 0 ? 0 : focusedFrameTimes.Average()):F1} ms，离屏 PNG 保存 {previewMs} ms；缩放、平移、调高正常");
             }
             if (verifyScrape)
             {

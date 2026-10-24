@@ -15,6 +15,15 @@ public sealed class MetadataFieldProvenance
     public MetadataFieldProvenance Clone() => new() { Source = Source, SourceUrl = SourceUrl, Stage = Stage };
 }
 
+public sealed class JavDbCatalogLink
+{
+    public string Kind { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Url { get; set; } = "";
+    public string DisplayName => $"{Kind} · {Name}";
+    public JavDbCatalogLink Clone() => new() { Kind = Kind, Name = Name, Url = Url };
+}
+
 public sealed class MovieMetadata
 {
     public string Code { get; set; } = "";
@@ -33,6 +42,12 @@ public sealed class MovieMetadata
     public string? Language { get; set; }
     public string? Summary { get; set; }
     public string? Rating { get; set; }
+    // A rating is kept with its own scale and provenance. Old records retain
+    // Rating until a source supplies structured ratings.
+    public List<PlatformRating> PlatformRatings { get; set; } = [];
+    // Only links that occurred on the verified JavDB detail page are kept.
+    // They allow manual actor/series/tag browsing without guessing site IDs.
+    public List<JavDbCatalogLink> CatalogLinks { get; set; } = [];
     public List<string> Actors { get; set; } = [];
     public List<string> Genres { get; set; } = [];
     public List<string> Keywords { get; set; } = [];
@@ -52,6 +67,8 @@ public sealed class MovieMetadata
         ReleaseDate = ReleaseDate, RuntimeMinutes = RuntimeMinutes,
         Director = Director, Studio = Studio, Series = Series, Country = Country,
         Language = Language, Summary = Summary, Rating = Rating,
+        PlatformRatings = PlatformRatings?.Where(value => value is not null).Select(value => value.Clone()).ToList() ?? [],
+        CatalogLinks = CatalogLinks?.Where(value => value is not null).Select(value => value.Clone()).ToList() ?? [],
         Actors = Actors?.ToList() ?? [], Genres = Genres?.ToList() ?? [],
         Keywords = Keywords?.ToList() ?? [],
         FieldProvenance = FieldProvenance?.Where(pair => pair.Value is not null)
@@ -210,12 +227,13 @@ public sealed class ScrapeHttpException(string message, HttpStatusCode statusCod
 
 public sealed class ScrapeNotFoundException(string message) : Exception(message);
 
-public static class JavDbScraper
+public static partial class JavDbScraper
 {
-    static readonly Regex Cards = new("<a\\s+href=\"(?<href>/v/[^\"]+)\"\\s+class=\"box\"[^>]*>(?<body>.*?)</a>", RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    static readonly Regex Codes = new("<strong>\\s*(?<code>[^<]+)\\s*</strong>", RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    static readonly Regex Title = new("\\btitle=\"(?<value>[^\"]+)\"", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    static readonly Regex Image = new("<img[^>]+(?:src|data-src)=\"(?<value>[^\"]+)\"", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    // Both attribute orders and quote styles occur in public result cards.
+    static readonly Regex Cards = new("""<a\b(?=[^>]*\bhref\s*=\s*['\"](?<href>/v/[^'\"]+)['\"])(?=[^>]*\bclass\s*=\s*['\"][^'\"]*\bbox\b[^'\"]*['\"])[^>]*>(?<body>.*?)</a>""", RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    static readonly Regex Codes = new("<strong\\b[^>]*>\\s*(?<code>[^<]+)\\s*</strong>", RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    static readonly Regex Title = new("""\btitle\s*=\s*['\"](?<value>[^'\"]+)['\"]""", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    static readonly Regex Image = new("""<img\b[^>]*\b(?:data-src|src)\s*=\s*['\"](?<value>[^'\"]+)['\"]""", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     static readonly Regex FileCode = new(@"(?<![A-Za-z0-9])([A-Za-z]{2,10})[-_ ]?(\d{2,5})(?![A-Za-z0-9])", RegexOptions.Compiled);
     static readonly Regex DetailBlocks = new("<div\\b[^>]*class=[\"'][^\"']*\\bpanel-block\\b[^\"']*[\"'][^>]*>(?<body>.*?)</div>", RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
     static readonly Regex DetailLabel = new("<strong\\b[^>]*>(?<value>.*?)</strong>", RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -258,10 +276,16 @@ public static class JavDbScraper
     }
 
     internal static List<MovieMetadata> ParseTitleSearch(string html)
+        => ParseCandidateCards(html, 12, true);
+
+    internal static List<MovieMetadata> ParseCatalogPage(string html)
+        => ParseCandidateCards(html, 48, false);
+
+    static List<MovieMetadata> ParseCandidateCards(string html, int limit, bool searchPage)
     {
         EnsureReadablePage(html);
         var cards = Cards.Matches(html);
-        var results = new List<MovieMetadata>(Math.Min(cards.Count, 12));
+        var results = new List<MovieMetadata>(Math.Min(cards.Count, limit));
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (Match card in cards)
         {
@@ -276,11 +300,11 @@ public static class JavDbScraper
             {
                 Code = number, Title = title, Source = "JavDB", SourceUrl = sourceUrl,
                 PosterUrl = SafePosterUrl(poster),
-                DetailNote = "搜索摘要；选择候选后读取公开详情，标题匹配须人工审核"
+                DetailNote = searchPage ? "搜索摘要；选择候选后读取公开详情，标题匹配须人工审核" : "关系目录摘要；选择后读取公开详情并人工审核"
             };
             candidate.StampAvailableFields("搜索结果");
             results.Add(candidate);
-            if (results.Count == 12) break;
+            if (results.Count == limit) break;
         }
         if (results.Count > 0) return results;
         if (cards.Count > 0) throw new InvalidOperationException("JavDB 搜索结果缺少可核对的标题或番号，页面结构可能已变化。");
@@ -288,10 +312,11 @@ public static class JavDbScraper
         // A blank/blocked/changed page is not evidence that the title was not
         // found. Return an empty list only for a recognizable JavDB empty page.
         var plain = CleanHtml(html);
-        var looksLikeSearch = html.Contains("javdb", StringComparison.OrdinalIgnoreCase)
-            && html.Contains("/search", StringComparison.OrdinalIgnoreCase);
-        if (looksLikeSearch && EmptySearchMessage.IsMatch(plain)) return results;
-        throw new InvalidOperationException("JavDB 未返回可识别的搜索结果页，无法判断是否没有匹配。");
+        var looksLikeJavDb = html.Contains("javdb", StringComparison.OrdinalIgnoreCase);
+        if (looksLikeJavDb && EmptySearchMessage.IsMatch(plain)) return results;
+        throw new InvalidOperationException(searchPage
+            ? "JavDB 未返回可识别的搜索结果页，无法判断是否没有匹配。"
+            : "JavDB 未返回可识别的关系目录页，无法判断是否没有作品。");
     }
 
     public static async Task<MovieMetadata> FetchCandidateDetailsAsync(MovieMetadata candidate, CancellationToken cancellationToken = default)
@@ -329,6 +354,10 @@ public static class JavDbScraper
     static void EnsureReadablePage(string html)
     {
         if (string.IsNullOrWhiteSpace(html)) throw new InvalidOperationException("JavDB 返回了空白页面，无法判断匹配情况。");
+        if (html.Contains("操作過於頻繁", StringComparison.OrdinalIgnoreCase)
+            || html.Contains("操作过于频繁", StringComparison.OrdinalIgnoreCase)
+            || html.Contains("too many requests", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("JavDB 提示操作过于频繁，请稍后再试；当前不会把它当作未找到作品。");
         if (html.Contains("Due to copyright restrictions", StringComparison.OrdinalIgnoreCase)
             || html.Contains("版權限制", StringComparison.OrdinalIgnoreCase)
             || html.Contains("版权限制", StringComparison.OrdinalIgnoreCase))
@@ -372,13 +401,9 @@ public static class JavDbScraper
         if (code.Length is < 3 or > 35 || !Regex.IsMatch(code, @"^[A-Z0-9-]+$")) throw new InvalidOperationException("番号格式无效。请使用字母、数字和连字符。");
         var searchUrl = "https://javdb.com/search?q=" + Uri.EscapeDataString(code) + "&f=all";
         using var response = await Client.GetAsync(searchUrl, HttpCompletionOption.ResponseContentRead, cancellationToken);
-        if (!response.IsSuccessStatusCode)
-        {
-            var retryHeader = response.Headers.RetryAfter;
-            var retryAfter = retryHeader?.Delta ?? (retryHeader?.Date is DateTimeOffset date ? date - DateTimeOffset.UtcNow : null);
-            throw new ScrapeHttpException($"JavDB 返回 {(int)response.StatusCode}，请稍后重试。", response.StatusCode, retryAfter);
-        }
+        EnsureSuccessfulResponse(response);
         var html = await response.Content.ReadAsStringAsync(cancellationToken);
+        EnsureReadablePage(html);
         Match? matched = null;
         foreach (Match card in Cards.Matches(html))
         {
@@ -392,16 +417,18 @@ public static class JavDbScraper
         }
         var title = WebUtility.HtmlDecode(Title.Match(matched.Value).Groups["value"].Value.Trim());
         if (title.Length == 0) title = code;
-        var detail = new Uri(new Uri("https://javdb.com"), matched.Groups["href"].Value).ToString();
+        if (!TryCandidateUrl(matched.Groups["href"].Value, out var detail))
+            throw new InvalidOperationException("JavDB 结果卡片包含无效详情链接，未读取该页面。");
         var posterUrl = WebUtility.HtmlDecode(Image.Match(matched.Groups["body"].Value).Groups["value"].Value);
-        var record = new MovieMetadata { Code = code, Title = title, Source = "JavDB", SourceUrl = detail, PosterUrl = posterUrl };
+        var record = new MovieMetadata { Code = code, Title = title, Source = "JavDB", SourceUrl = detail, PosterUrl = SafePosterUrl(posterUrl) };
         record.StampAvailableFields("搜索结果");
         try
         {
             using var detailResponse = await Client.GetAsync(detail, HttpCompletionOption.ResponseContentRead, cancellationToken);
-            if (detailResponse.IsSuccessStatusCode)
-                record = ParseJavDbDetails(record, await detailResponse.Content.ReadAsStringAsync(cancellationToken));
-            else record.DetailNote = $"详情页返回 {(int)detailResponse.StatusCode}；当前仅有搜索摘要，需稍后重试";
+            EnsureSuccessfulResponse(detailResponse);
+            var detailHtml = await detailResponse.Content.ReadAsStringAsync(cancellationToken);
+            EnsureReadablePage(detailHtml);
+            record = ParseJavDbDetails(record, detailHtml);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex) { record.DetailNote = $"详情暂不可读（{ex.GetType().Name}）；当前仅有搜索摘要"; }
@@ -494,10 +521,15 @@ public static class JavDbScraper
             safe.DetailFetched = false;
             return safe;
         }
+        record.CatalogLinks = ExtractCatalogLinks(html);
         record.RefreshChangedFieldProvenance(candidate, "详情页");
         record.DetailFetched = recognized > 0;
         record.DetailNote = recognized > 0 ? $"已读取 JavDB 详情页（{recognized} 项）；来源未提供的字段保持空白"
             : "详情页未返回可识别字段；当前仅有搜索摘要，请核对来源页面";
+        // Preserve free-form site ratings as text. Only an explicit scale can
+        // be compared with ratings from other platforms.
+        var platformRating = RatingAggregation.FromMetadata(record, "详情页番号一致");
+        if (platformRating is not null) RatingAggregation.AddOrUpdate(record, platformRating);
         return record;
     }
 }

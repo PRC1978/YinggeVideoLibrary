@@ -38,7 +38,17 @@ public partial class MainWindow
         actions.Children.Add(ScrapeBatchButton);
         if (titleAction is not null) actions.Children.Add(titleAction);
         var preview = new Button { Content = "预览入队范围", Style = (Style)FindResource("Action") };
-        preview.Click += async (_, _) => await PreviewScrapeRangeAsync();
+        preview.Click += async (_, _) =>
+        {
+            preview.IsEnabled = false;
+            ScrapeBatchButton.IsEnabled = false;
+            try { await PreviewScrapeRangeAsync(); }
+            finally
+            {
+                preview.IsEnabled = true;
+                ScrapeBatchButton.IsEnabled = !scrapeQueueChanging;
+            }
+        };
         actions.Children.Add(preview);
         panel.Children.Insert(3, actions);
         panel.Children.Insert(4, new TextBlock { Text = "搜刮会读取所选来源的详情信息，低可信度先进入审核。来源未公开或暂不可访问的字段会标明缺失。",
@@ -130,24 +140,37 @@ public partial class MainWindow
         if (!ReadScrapeFilterSettings()) return;
         var candidate = videos.Where(CanQueueForFullMetadata)
             .Where(video => scrapeOnlySelectedBox?.IsChecked != true || selectedVideoIds.Contains(video.Id)).ToList();
-        var evaluated = candidate.Select(video => (video, item: CreateScrapeQueueItem(video), reason: ScrapeSkipReason(video))).ToList();
+        var evaluated = candidate.Select(video => (video, reason: ScrapeSkipReason(video))).ToList();
         var groups = evaluated.Where(item => item.reason is not null).GroupBy(item => item.reason).Select(group => $"{group.Key}：{group.Count()} 部");
-        var eligible = evaluated.Where(item => item.reason is null && item.item is not null).ToList();
+        var accepted = evaluated.Where(item => item.reason is null).Select(item => item.video).ToArray();
+        var hasCodeSource = HasEnabledCodeSource;
+        var useFolderHint = config.UseFolderPersonHint;
+        var libraryFolders = config.Folders.ToArray();
+        List<PlannedScrapeItem> plans;
         List<ScrapeQueueItem> queued;
-        try { queued = await Task.Run(() => ScrapeQueueStore.Load(DataDir)); }
+        try
+        {
+            var planningTask = Task.Run(() => accepted.Select(video =>
+                PlanScrapeQueueItem(video, hasCodeSource, useFolderHint, libraryFolders)).ToList());
+            var queueTask = Task.Run(() => ScrapeQueueStore.Load(DataDir));
+            await Task.WhenAll(planningTask, queueTask);
+            plans = planningTask.Result;
+            queued = queueTask.Result;
+        }
         catch (Exception ex)
         {
-            MessageBox.Show(this, "读取搜刮队列失败：" + ex.Message, "搜刮范围预览", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, "准备搜刮范围失败：" + ex.Message, "搜刮范围预览", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
+        var eligible = plans.Where(plan => plan.Item is not null).ToList();
         var known = queued.Select(item => item.VideoId).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var newlyQueued = eligible.Where(item => !known.Contains(item.video.Id)).ToList();
+        var newlyQueued = eligible.Where(plan => !known.Contains(plan.Video.Id)).ToList();
         var pendingCount = queued.Count(item => !item.Failed);
         var skipped = string.Join("\n", groups);
         MessageBox.Show(this,
-            $"候选视频：{candidate.Count} 部\n排除条件后：{eligible.Count} 部（番号 {eligible.Count(item => item.item!.Kind == "code")}，标题 {eligible.Count(item => item.item!.Kind == "title")}）\n已在队列：{eligible.Count - newlyQueued.Count} 部；本次可新增：{newlyQueued.Count} 部。\n当前待处理：{pendingCount} 项；全部加入后最少约 {FormatScrapeMinimumDuration(pendingCount + newlyQueued.Count)}，不含网络耗时和重试。\n\n"
+            $"候选视频：{candidate.Count} 部\n排除条件后：{eligible.Count} 部（番号 {eligible.Count(plan => plan.Item!.Kind == "code")}，标题 {eligible.Count(plan => plan.Item!.Kind == "title")}）\n目录补出作品标题：{eligible.Count(plan => plan.UsedFolderTitle)} 部；仍只有编号、需补标题：{eligible.Count(plan => plan.NeedsManualTitle)} 部。\n已在队列：{eligible.Count - newlyQueued.Count} 部；本次可新增：{newlyQueued.Count} 部。\n当前待处理：{pendingCount} 项；全部加入后最少约 {FormatScrapeMinimumDuration(pendingCount + newlyQueued.Count)}，不含网络耗时和重试。\n\n"
             + (skipped.Length > 0 ? "排除明细：\n" + skipped + "\n\n" : "")
-            + "本次前几项：\n" + string.Join("\n", newlyQueued.Take(8).Select(item => item.video.Title)),
+            + "本次前几项：\n" + string.Join("\n", newlyQueued.Take(8).Select(plan => plan.Video.Title)),
             "搜刮范围预览");
     }
 }

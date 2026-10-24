@@ -172,16 +172,22 @@ public partial class MainWindow
         }
     }
 
-    ScrapeQueueItem? CreateScrapeQueueItem(VideoItem video)
+    readonly record struct PlannedScrapeItem(VideoItem Video, ScrapeQueueItem? Item, bool UsedFolderTitle, bool NeedsManualTitle);
+
+    // Only the immutable identity, title and path of VideoItem are read here.
+    // Capture UI settings first, then plan large batches away from the UI thread.
+    static PlannedScrapeItem PlanScrapeQueueItem(VideoItem video, bool hasCodeSource, bool useFolderHint, string[] libraryFolders)
     {
-        var code = HasEnabledCodeSource ? JavDbScraper.GuessCode(video.Title) : null;
+        var code = hasCodeSource ? JavDbScraper.GuessCode(video.Title) : null;
         if (!string.IsNullOrWhiteSpace(code))
-            return new ScrapeQueueItem { VideoId = video.Id, Kind = "code", Code = code };
+            return new(video, new ScrapeQueueItem { VideoId = video.Id, Kind = "code", Code = code }, false, false);
         var title = AdditionalScrapers.CleanTitle(video.Title).Trim();
-        if (config.UseFolderPersonHint && ScrapeSearchHints.IsWeakTitle(title))
-            title = ScrapeSearchHints.FindWorkTitleHint(video.Path, config.Folders) ?? title;
+        var folderTitle = useFolderHint && ScrapeSearchHints.IsWeakTitle(title)
+            ? ScrapeSearchHints.FindWorkTitleHint(video.Path, libraryFolders) : null;
+        if (folderTitle is not null) title = folderTitle;
         if (title.Length == 0) title = video.Title.Trim();
-        return title.Length == 0 ? null : new ScrapeQueueItem { VideoId = video.Id, Kind = "title", SearchTitle = title };
+        return new(video, title.Length == 0 ? null : new ScrapeQueueItem { VideoId = video.Id, Kind = "title", SearchTitle = title },
+            folderTitle is not null, ScrapeSearchHints.IsWeakTitle(title));
     }
 
     async Task EnqueueScrapeBatchAsync()
@@ -194,11 +200,16 @@ public partial class MainWindow
             if (!ReadScrapeFilterSettings()) return;
             var queued = await Task.Run(() => ScrapeQueueStore.Load(DataDir));
             var known = queued.Select(x => x.VideoId).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var pending = videos.Where(v => CanQueueForFullMetadata(v) && !known.Contains(v.Id))
+            var candidates = videos.Where(v => CanQueueForFullMetadata(v) && !known.Contains(v.Id))
                 .Where(v => scrapeOnlySelectedBox?.IsChecked != true || selectedVideoIds.Contains(v.Id))
-                .Where(v => ScrapeSkipReason(v) is null)
-                .Select(CreateScrapeQueueItem)
-                .OfType<ScrapeQueueItem>().ToList();
+                .Where(v => ScrapeSkipReason(v) is null).ToArray();
+            var hasCodeSource = HasEnabledCodeSource;
+            var useFolderHint = config.UseFolderPersonHint;
+            var libraryFolders = config.Folders.ToArray();
+            TaskStatusText.Text = $"正在准备 {candidates.Length} 项搜刮任务…";
+            var plans = await Task.Run(() => candidates.Select(video =>
+                PlanScrapeQueueItem(video, hasCodeSource, useFolderHint, libraryFolders)).ToList());
+            var pending = plans.Select(plan => plan.Item).OfType<ScrapeQueueItem>().ToList();
             if (pending.Count == 0 && queued.All(x => x.Failed))
             {
                 var failed = queued.Count(x => x.Failed);

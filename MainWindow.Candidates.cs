@@ -14,6 +14,7 @@ public partial class MainWindow
 {
     TextBox? sourceWeightBox;
     CheckBox? bangumiEnabledBox;
+    CheckBox? aniListEnabledBox;
     CheckBox? javDbTitleEnabledBox;
     CheckBox? javDatabaseEnabledBox;
     CheckBox? tvMazeEnabledBox;
@@ -24,16 +25,20 @@ public partial class MainWindow
         ScrapeSourceBox.Items.Add(new ComboBoxItem { Content = "全部已启用来源" });
         ScrapeSourceBox.Items.Add(new ComboBoxItem { Content = "Bangumi 动画 / 真人" });
         ScrapeSourceBox.Items.Add(new ComboBoxItem { Content = "JavDB 标题" });
+        ScrapeSourceBox.Items.Add(new ComboBoxItem { Content = "AniList 动画" });
+        ScrapeSourceBox.Items.Add(new ComboBoxItem { Content = "JAVDatabase 标题" });
         ScrapeSourceBox.SelectedIndex = 3;
         JavDbEnabledBox.IsChecked = config.EnableJavDb;
         PornhubEnabledBox.IsChecked = config.EnablePornhub;
         TmdbEnabledBox.IsChecked = config.EnableTmdb;
         var toggleGroup = new StackPanel { Margin = new Thickness(0, 5, 0, 0) };
-        javDatabaseEnabledBox = new CheckBox { Content = "启用 JAVDatabase 番号补充来源", IsChecked = config.EnableJavDatabase, Margin = new Thickness(0, 0, 0, 10) };
+        javDatabaseEnabledBox = new CheckBox { Content = "启用 JAVDatabase 番号及标题候选", IsChecked = config.EnableJavDatabase, Margin = new Thickness(0, 0, 0, 10) };
         javDbTitleEnabledBox = new CheckBox { Content = "启用 JavDB 标题候选", IsChecked = config.EnableJavDbTitle, Margin = new Thickness(0, 0, 0, 10) };
         bangumiEnabledBox = new CheckBox { Content = "启用 Bangumi 动画 / 真人作品", IsChecked = config.EnableBangumi, Margin = new Thickness(0, 0, 0, 10) };
+        aniListEnabledBox = new CheckBox { Content = "启用 AniList 动画（手动搜索；不用于全量队列）", IsChecked = config.EnableAniList,
+            Margin = new Thickness(0, 0, 0, 10), ToolTip = "AniList 官方 API 禁止大量采集；手动搜刮会按官方限速请求。" };
         tvMazeEnabledBox = new CheckBox { Content = "启用 TVmaze 剧集", IsChecked = config.EnableTvMaze, Margin = new Thickness(0, 0, 0, 10) };
-        foreach (var box in new[] { javDatabaseEnabledBox, javDbTitleEnabledBox, bangumiEnabledBox, tvMazeEnabledBox }) toggleGroup.Children.Add(box);
+        foreach (var box in new[] { javDatabaseEnabledBox, javDbTitleEnabledBox, bangumiEnabledBox, aniListEnabledBox, tvMazeEnabledBox }) toggleGroup.Children.Add(box);
         var folderHintBox = new CheckBox
         {
             Content = "标题不明确时，参考目录中的人物名字",
@@ -50,13 +55,14 @@ public partial class MainWindow
             config.EnableJavDatabase = javDatabaseEnabledBox.IsChecked == true;
             config.EnableJavDbTitle = javDbTitleEnabledBox.IsChecked == true;
             config.EnableBangumi = bangumiEnabledBox.IsChecked == true;
+            config.EnableAniList = aniListEnabledBox.IsChecked == true;
             config.EnablePornhub = PornhubEnabledBox.IsChecked == true;
             config.EnableTmdb = TmdbEnabledBox.IsChecked == true;
             config.EnableTvMaze = tvMazeEnabledBox.IsChecked == true;
             config.UseFolderPersonHint = folderHintBox.IsChecked == true;
             SaveConfig();
         }
-        foreach (var box in new[] { JavDbEnabledBox, PornhubEnabledBox, TmdbEnabledBox, javDatabaseEnabledBox, javDbTitleEnabledBox, bangumiEnabledBox, tvMazeEnabledBox, folderHintBox })
+        foreach (var box in new[] { JavDbEnabledBox, PornhubEnabledBox, TmdbEnabledBox, javDatabaseEnabledBox, javDbTitleEnabledBox, bangumiEnabledBox, aniListEnabledBox, tvMazeEnabledBox, folderHintBox })
         {
             box.Checked += SaveSourceToggles;
             box.Unchecked += SaveSourceToggles;
@@ -85,6 +91,7 @@ public partial class MainWindow
         };
         section.Children.Add(button);
         panel.Children.Insert(panel.Children.IndexOf(ScrapeSourceBox) + 1, section);
+        InitializeJavDbCatalog(panel, toggleGroup);
     }
 
     int SourceTrust(string source) => config.SourceTrustWeights
@@ -157,15 +164,19 @@ public partial class MainWindow
         return dialog.ShowDialog() == true ? list.SelectedItem as VideoItem : null;
     }
 
-    async Task<List<MovieMetadata>> SearchCandidatesAsync(string title, int selectedSource)
+    async Task<List<MovieMetadata>> SearchCandidatesAsync(string title, int selectedSource, bool bulk = false)
     {
-        var sources = selectedSource == 3 ? new[] { 0, 1, 2, 4, 5 } : new[] { selectedSource };
+        if (selectedSource == 8 && (bulk || !config.EnableJavinfo))
+            throw new InvalidOperationException("Javinfo 为付费手动来源，请先在搜刮页启用，再单独选择它搜索。");
+        if (selectedSource == 8 && string.IsNullOrWhiteSpace(config.JavinfoKey))
+            throw new InvalidOperationException("请先在搜刮页保存 Javinfo API Key。");
+        var sources = selectedSource == 3 ? new[] { 0, 1, 2, 4, 5, 6, 7 } : new[] { selectedSource };
         var results = new List<MovieMetadata>();
         var completedSources = 0;
         var failedSources = 0;
         async Task<(string name, IReadOnlyList<MovieMetadata>? found, Exception? error)> QueryAsync(int source)
         {
-            var name = source switch { 1 => "Pornhub", 2 => "TVmaze", 4 => "Bangumi", 5 => "JavDB 标题", _ => "TMDB" };
+            var name = source switch { 1 => "Pornhub", 2 => "TVmaze", 4 => "Bangumi", 5 => "JavDB 标题", 6 => "AniList", 7 => "JAVDatabase 标题", 8 => "Javinfo 手动", _ => "TMDB" };
             try
             {
                 var found = await ScrapeCandidateCache.GetOrFetchAsync(DataDir, name, title, () => source switch
@@ -174,6 +185,9 @@ public partial class MainWindow
                     2 => AdditionalScrapers.SearchTvMazeAsync(title),
                     4 => BangumiScraper.SearchAsync(title),
                     5 => JavDbScraper.SearchTitleAsync(title),
+                    6 => AniListScraper.SearchAsync(title),
+                    7 => JavDatabaseScraper.SearchTitleAsync(title),
+                    8 => JavinfoScraper.SearchAsync(title, config.JavinfoKey, DataDir, config.JavinfoDailyRequestLimit),
                     _ => AdditionalScrapers.SearchTmdbAsync(title, config.TmdbToken)
                 });
                 return (name, found, null);
@@ -187,14 +201,22 @@ public partial class MainWindow
                                         source == 1 && PornhubEnabledBox.IsChecked != true ||
                                         source == 2 && tvMazeEnabledBox?.IsChecked != true ||
                                         source == 4 && bangumiEnabledBox?.IsChecked != true ||
-                                        source == 5 && javDbTitleEnabledBox?.IsChecked != true)) continue;
+                                        source == 5 && javDbTitleEnabledBox?.IsChecked != true ||
+                                        source == 6 && aniListEnabledBox?.IsChecked != true ||
+                                        source == 7 && javDatabaseEnabledBox?.IsChecked != true)) continue;
+            if (bulk && source == 6) continue; // AniList terms prohibit mass collection.
             if (source == 0 && string.IsNullOrWhiteSpace(config.TmdbToken)) continue;
             pending.Add(QueryAsync(source));
         }
         foreach (var outcome in await Task.WhenAll(pending))
         {
             if (outcome.error is null) { completedSources++; results.AddRange(outcome.found ?? []); }
-            else { failedSources++; Log($"{outcome.name} 候选查询失败：{outcome.error.Message}"); }
+            else
+            {
+                failedSources++;
+                if (selectedSource == 8) throw outcome.error;
+                Log($"{outcome.name} 候选查询失败：{outcome.error.Message}");
+            }
         }
         if (completedSources == 0) throw new InvalidOperationException("没有可用的搜刮来源，或所有来源均请求失败；此次不会标记为无匹配。请检查 TMDB 凭据、网络和来源设置。");
         if (results.Count == 0 && failedSources > 0) throw new InvalidOperationException("部分来源请求失败，暂不能确定是否无匹配；此次不会标记为素人。");

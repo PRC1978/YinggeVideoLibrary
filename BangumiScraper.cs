@@ -155,6 +155,8 @@ public static class BangumiScraper
         record.RefreshChangedFieldProvenance(candidate, "详情接口");
         record.DetailFetched = true;
         record.DetailNote = "已读取 Bangumi 完整条目；来源未提供的字段保持空白";
+        var platformRating = RatingAggregation.FromMetadata(record, "详情接口条目一致");
+        if (platformRating is not null) RatingAggregation.AddOrUpdate(record, platformRating);
         return record;
     }
 

@@ -20,6 +20,14 @@ internal sealed record BilibiliRecommendationTopic(string Label, string Keyword,
 
 internal static class RecommendationEngine
 {
+    private sealed record RankedCandidate(LocalRecommendation Recommendation, string Group);
+
+    private sealed class GroupCursor(List<RankedCandidate> candidates)
+    {
+        public List<RankedCandidate> Candidates { get; } = candidates;
+        public int Index { get; set; }
+    }
+
     private static readonly (string Label, string Keyword, string[] Aliases)[] PublicTopics =
     [
         ("电影", "电影解说", ["电影", "影片", "movie", "cinema"]),
@@ -46,12 +54,7 @@ internal static class RecommendationEngine
         var tagInterest = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         foreach (var video in videos)
         {
-            var weight = video.Favorite ? 5d : video.WatchStatus switch
-            {
-                "观看中" => 2d,
-                "已看" => 1d,
-                _ => 0d
-            };
+            var weight = InterestWeight(video);
             if (weight == 0) continue;
             foreach (var category in CleanTokens(video.Categories, 8, true))
                 categoryInterest[category] = categoryInterest.GetValueOrDefault(category) + weight;
@@ -60,14 +63,17 @@ internal static class RecommendationEngine
         }
 
         var newest = videos.Max(video => video.Modified);
-        var top = new PriorityQueue<LocalRecommendation, double>();
+        var ranked = new List<RankedCandidate>(videos.Count);
         foreach (var video in videos)
         {
             var categories = CleanTokens(video.Categories, 8, true);
             var tags = CleanTokens(video.Tags, 12, false);
-            var bestTag = tags.Select(tag => (tag, affinity: tagInterest.GetValueOrDefault(tag)))
+            // The candidate must not count its own favorite/watch signals as evidence
+            // that somebody with similar interests also liked it.
+            var ownWeight = InterestWeight(video);
+            var bestTag = tags.Select(tag => (tag, affinity: Math.Max(0, tagInterest.GetValueOrDefault(tag) - ownWeight)))
                 .OrderByDescending(hit => hit.affinity).FirstOrDefault();
-            var bestCategory = categories.Select(category => (category, affinity: categoryInterest.GetValueOrDefault(category)))
+            var bestCategory = categories.Select(category => (category, affinity: Math.Max(0, categoryInterest.GetValueOrDefault(category) - ownWeight)))
                 .OrderByDescending(hit => hit.affinity).FirstOrDefault();
             var baseScore = video.WatchStatus switch
             {
@@ -78,39 +84,75 @@ internal static class RecommendationEngine
             if (video.Favorite) baseScore += 8;
             var daysFromNewest = Math.Max(0, (newest - video.Modified).TotalDays);
             var freshness = 14d / (1d + daysFromNewest / 45d);
-            var affinity = Math.Min(24d, 6d * Math.Log2(1d + bestTag.affinity))
-                + Math.Min(18d, 5d * Math.Log2(1d + bestCategory.affinity));
-            var score = baseScore + freshness + affinity;
-            var reason = bestTag.affinity >= bestCategory.affinity && bestTag.affinity > 0
+            var tagBonus = Math.Min(24d, 6d * Math.Log2(1d + bestTag.affinity));
+            var categoryBonus = Math.Min(18d, 5d * Math.Log2(1d + bestCategory.affinity));
+            var score = baseScore + freshness + tagBonus + categoryBonus;
+            var reason = tagBonus >= categoryBonus && tagBonus > 0
                 ? $"与你常看的标签「{bestTag.tag}」相关"
-                : bestCategory.affinity > 0
+                : categoryBonus > 0
                     ? $"与你常看的分类「{bestCategory.category}」相关"
                     : video.WatchStatus == "观看中" ? "继续观看"
-                    : video.Favorite ? "你收藏的视频" : "最近加入 · 尚未观看";
-            var result = new LocalRecommendation(video.Id, score, reason);
-            if (top.Count < limit) top.Enqueue(result, score);
-            else if (top.TryPeek(out _, out var lowest) && score > lowest)
-            {
-                top.Dequeue();
-                top.Enqueue(result, score);
-            }
+                    : video.Favorite ? "你收藏的视频"
+                    : video.WatchStatus == "已看" ? "重温已看视频" : "最近加入 · 尚未观看";
+            var group = categories.Length > 0 ? categories[0].Split(" / ", 2, StringSplitOptions.TrimEntries)[0]
+                : tags.Length > 0 ? tags[0] : "未分类";
+            ranked.Add(new RankedCandidate(new LocalRecommendation(video.Id, score, reason), group));
         }
-        return top.UnorderedItems.Select(item => item.Element)
-            .OrderByDescending(item => item.Score).ThenBy(item => item.VideoId, StringComparer.Ordinal).ToList();
+
+        // A category with thousands of matching videos should not fill every
+        // recommendation page. Group heads stay score ordered; a small penalty
+        // after each pick gives other categories room without hiding any video.
+        var groups = ranked.GroupBy(item => item.Group, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new GroupCursor(group.OrderByDescending(item => item.Recommendation.Score)
+                .ThenBy(item => item.Recommendation.VideoId, StringComparer.Ordinal).ToList()))
+            .ToArray();
+        var comparer = Comparer<(double Score, string Group)>.Create((left, right) =>
+        {
+            var byScore = right.Score.CompareTo(left.Score);
+            return byScore != 0 ? byScore : StringComparer.Ordinal.Compare(left.Group, right.Group);
+        });
+        var queue = new PriorityQueue<GroupCursor, (double Score, string Group)>(comparer);
+        foreach (var group in groups)
+        {
+            var head = group.Candidates[0];
+            queue.Enqueue(group, (head.Recommendation.Score, head.Group));
+        }
+        var result = new List<LocalRecommendation>(Math.Min(limit, videos.Count));
+        while (result.Count < limit && queue.TryDequeue(out var group, out _))
+        {
+            result.Add(group.Candidates[group.Index].Recommendation);
+            group.Index++;
+            if (group.Index >= group.Candidates.Count) continue;
+            var next = group.Candidates[group.Index];
+            var fairnessPenalty = 9d * Math.Log2(1d + group.Index);
+            queue.Enqueue(group, (next.Recommendation.Score - fairnessPenalty, next.Group));
+        }
+        return result;
     }
+
+    private static double InterestWeight(RecommendationSnapshot video) => video.Favorite ? 5d : video.WatchStatus switch
+    {
+        "观看中" => 2d,
+        "已看" => 1d,
+        _ => 0d
+    };
 
     public static List<BilibiliRecommendationTopic> BuildBilibiliTopics(IReadOnlyList<RecommendationSnapshot> videos, int limit = 6)
     {
         if (limit <= 0) return [];
         var scores = new double[PublicTopics.Length];
+        var hasExplicitInterest = videos.Any(video => video.Favorite || video.WatchStatus is "观看中" or "已看");
         foreach (var video in videos)
         {
             var weight = video.Favorite ? 4d : video.WatchStatus switch
             {
                 "观看中" => 2d,
                 "已看" => 1d,
-                _ => 0.25d
+                // A very large unwatched library should not drown out actual
+                // favorites and viewing history. Use its topics only for a cold start.
+                _ => hasExplicitInterest ? 0d : 0.25d
             };
+            if (weight == 0) continue;
             var interests = CleanTokens(video.Categories, 8, true)
                 .Concat(CleanTokens(video.Tags, 12, false)).ToArray();
             for (var index = 0; index < PublicTopics.Length; index++)
@@ -126,9 +168,12 @@ internal static class RecommendationEngine
                 PublicTopics[index].Label, PublicTopics[index].Keyword,
                 "根据本机收藏、观看状态、分类和标签生成"))
             .ToList();
-        if (selected.Count == 0)
-            selected.AddRange(new[] { PublicTopics[0], PublicTopics[3], PublicTopics[10] }.Take(limit).Select(topic => new BilibiliRecommendationTopic(
-                topic.Label, topic.Keyword, "通用主题；不包含本地视频信息")));
+        foreach (var fallback in new[] { PublicTopics[0], PublicTopics[3], PublicTopics[10], PublicTopics[2], PublicTopics[5], PublicTopics[9] })
+        {
+            if (selected.Count >= limit) break;
+            if (selected.Any(topic => topic.Keyword == fallback.Keyword)) continue;
+            selected.Add(new BilibiliRecommendationTopic(fallback.Label, fallback.Keyword, "通用主题；不包含本地视频信息"));
+        }
         return selected;
     }
 

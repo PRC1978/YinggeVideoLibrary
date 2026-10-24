@@ -21,7 +21,10 @@ public partial class MainWindow
         }
         else if (config.AiReviews.TryGetValue(video.Id, out var candidate) && candidate.Status != "unmatched")
             ShowMetadataDetails(candidate.ToMetadata(), candidate.Confidence, candidate.Status, video);
-        else MessageBox.Show(this, "这个视频还没有可查看的搜刮资料。", "搜刮资料", MessageBoxButton.OK, MessageBoxImage.Information);
+        else ShowMetadataDetails(new MovieMetadata
+        {
+            Title = video.Title, Source = "本地视频", DetailNote = "尚未搜刮；可先设置个人评分。"
+        }, status: "local-only", video: video);
     }
 
     void ShowMetadataDetails(MovieMetadata record, int? confidence = null, string? status = null, VideoItem? video = null)
@@ -63,7 +66,7 @@ public partial class MainWindow
         var panel = new StackPanel();
         panel.Children.Add(new TextBlock { Text = record.Title, FontSize = 22, FontWeight = FontWeights.SemiBold,
             Foreground = new SolidColorBrush(Color.FromRgb(35, 49, 74)), TextWrapping = TextWrapping.Wrap });
-        var statusText = status switch { "approved" => "已通过", "pending" => "待人工审核", "rejected" => "已否决", "unmatched" => "未找到", _ => "已保存" };
+        var statusText = status switch { "approved" => "已通过", "pending" => "待人工审核", "rejected" => "已否决", "unmatched" => "未找到", "local-only" => "未搜刮", _ => "已保存" };
         panel.Children.Add(new TextBlock { Text = $"{record.Source}  ·  {statusText}" + (confidence is null ? "" : $"  ·  可信度 {confidence}%"),
             Margin = new Thickness(0, 7, 0, 10), Foreground = new SolidColorBrush(Color.FromRgb(78, 107, 187)) });
         var note = string.IsNullOrWhiteSpace(record.DetailNote)
@@ -72,6 +75,8 @@ public partial class MainWindow
         panel.Children.Add(new TextBlock { Text = note, Margin = new Thickness(0, 0, 0, 12),
             Foreground = record.DetailFetched ? new SolidColorBrush(Color.FromRgb(90, 114, 143)) : new SolidColorBrush(Color.FromRgb(174, 99, 47)),
             TextWrapping = TextWrapping.Wrap });
+        var savedRecord = video is not null && metadata.TryGetValue(video.Id, out var accepted) && ReferenceEquals(accepted, record);
+        AddMetadataRatings(panel, dialog, record, video, savedRecord);
         void AddSourcedField(string label, string? value, string field)
         {
             MetadataFieldProvenance? origin = null;
@@ -80,6 +85,14 @@ public partial class MainWindow
         }
         if (video is not null)
             AddMetadataRow(panel, "本地文件", Path.GetFileName(video.Path));
+        if (status == "local-only")
+        {
+            scroll.Content = panel;
+            root.Children.Add(scroll);
+            dialog.Content = root;
+            dialog.ShowDialog();
+            return;
+        }
         AddSourcedField("标题", record.Title, nameof(MovieMetadata.Title));
         AddSourcedField("番号 / 编号", record.Code, nameof(MovieMetadata.Code));
         AddSourcedField("原始标题", record.OriginalTitle, nameof(MovieMetadata.OriginalTitle));

@@ -19,9 +19,14 @@ public static class JavDatabaseScraper
     static readonly Regex Anchors = new(@"<a\b[^>]*\bhref\s*=\s*(['""'])(?<href>.*?)\1", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
     static readonly Regex Heading = new(@"<h1\b[^>]*>(?<value>.*?)</h1>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
     static readonly Regex DetailRows = new(@"<p\b[^>]*class\s*=\s*(['""'])[^'""']*\bmb-1\b[^'""']*\1[^>]*>\s*<b\b[^>]*>(?<label>.*?)</b>(?<value>.*?)</p>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+    static readonly Regex Paragraphs = new(@"<p\b[^>]*>(?<body>.*?)</p>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+    static readonly Regex FieldInParagraph = new(@"<(?:b|strong)\b[^>]*>(?<label>.*?)</(?:b|strong)>(?<value>.*?)(?=<(?:b|strong)\b|$)", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
     static readonly Regex MetaTags = new(@"<meta\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
     static readonly Regex Attribute = new(@"(?<name>[\w:-]+)\s*=\s*(['""'])(?<value>.*?)\1", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
     static readonly Regex Links = new(@"<a\b[^>]*>(?<value>.*?)</a>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+    static readonly Regex SearchCards = new(@"<(?:div|article)\b[^>]*\bclass\s*=\s*(['""'])[^'""']*\bborderlesscard\b[^'""']*\1[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+    static readonly Regex SearchCode = new(@"<p\b[^>]*\bclass\s*=\s*(['""'])[^'""']*\bpcard\b[^'""']*\1[^>]*>(?<body>.*?)</p>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+    static readonly Regex SearchTitleBlock = new(@"<(?:div|p)\b[^>]*\bclass\s*=\s*(['""'])[^'""']*\bmt-auto\b[^'""']*\1[^>]*>(?<body>.*?)</(?:div|p)>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
     static readonly HttpClient Client = CreateClient();
 
     static HttpClient CreateClient()
@@ -62,6 +67,80 @@ public static class JavDatabaseScraper
         if (!result.DetailFetched)
             throw new InvalidOperationException(result.DetailNote ?? "JAVDatabase 详情页缺少可识别字段。");
         return result;
+    }
+
+    // Based on the public JAVDatabase search structure documented by the
+    // javdb-python project. Search results remain candidates until the user
+    // chooses one and its code is verified against the detail page.
+    public static async Task<List<MovieMetadata>> SearchTitleAsync(string query, CancellationToken cancellationToken = default)
+    {
+        query = (query ?? "").Trim();
+        if (query.Length == 0) throw new ArgumentException("请填写 JAVDatabase 搜索词。", nameof(query));
+        if (query.Length > 200) query = query[..200];
+        var url = new Uri(Site, "?post_type=movies%2Cuncensored&s=" + Uri.EscapeDataString(query) + "&paged=1");
+        var html = await GetHtmlAsync(url, cancellationToken);
+        EnsureNormalPage(html, "搜索");
+        return ParseTitleSearch(html);
+    }
+
+    internal static List<MovieMetadata> ParseTitleSearch(string html)
+    {
+        EnsureNormalPage(html, "搜索");
+        var cardStarts = SearchCards.Matches(html);
+        var found = new List<MovieMetadata>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Match start in cardStarts.Cast<Match>().Take(30))
+        {
+            var next = start.NextMatch();
+            var end = next.Success ? next.Index : html.Length;
+            var card = html[start.Index..end];
+            var codeBlock = SearchCode.Match(card);
+            if (!codeBlock.Success) continue;
+            var codeLink = Regex.Match(codeBlock.Groups["body"].Value, @"<a\b[^>]*\bhref\s*=\s*(['""'])(?<href>.*?)\1[^>]*>(?<text>.*?)</a>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+            if (!codeLink.Success || !TryMovieUri(codeLink.Groups["href"].Value, out var movieUri) || movieUri is null) continue;
+            var code = CleanHtml(codeLink.Groups["text"].Value).ToUpperInvariant();
+            if (!ValidCode.IsMatch(code) ||
+                !string.Equals(movieUri.AbsolutePath["/movies/".Length..].TrimEnd('/'), code, StringComparison.OrdinalIgnoreCase) ||
+                !seen.Add(movieUri.AbsoluteUri)) continue;
+            var titleBlock = SearchTitleBlock.Match(card);
+            var titleLink = titleBlock.Success ? Links.Match(titleBlock.Groups["body"].Value) : Match.Empty;
+            var title = titleLink.Success ? CleanHtml(titleLink.Groups["value"].Value) : code;
+            if (title.Length == 0) title = code;
+            var record = new MovieMetadata
+            {
+                Code = code, Title = title, Source = SourceName, SourceUrl = movieUri.AbsoluteUri,
+                DetailNote = "搜索摘要；选定后读取并核对完整详情"
+            };
+            var cover = Regex.Match(card, @"<img\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+            if (cover.Success)
+            {
+                var attributes = Attribute.Matches(cover.Value).Cast<Match>()
+                    .ToDictionary(match => match.Groups["name"].Value, match => WebUtility.HtmlDecode(match.Groups["value"].Value), StringComparer.OrdinalIgnoreCase);
+                var rawCover = attributes.GetValueOrDefault("data-src") ?? attributes.GetValueOrDefault("src");
+                if (rawCover is not null && Uri.TryCreate(movieUri, rawCover, out var coverUri) && coverUri.Scheme == Uri.UriSchemeHttps &&
+                    IsAllowedPosterHost(coverUri.Host)) record.PosterUrl = coverUri.AbsoluteUri;
+            }
+            var date = Regex.Match(card, @"\b(?:19|20)\d{2}-\d{2}-\d{2}\b");
+            if (date.Success) record.ReleaseDate = date.Value;
+            var studio = Regex.Match(card, @"<(?:span|div)\b[^>]*\bclass\s*=\s*(['""'])[^'""']*\bbtn(?:-primary)?\b[^'""']*\1[^>]*>(?<value>.*?)</(?:span|div)>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+            if (studio.Success) record.Studio = CleanHtml(studio.Groups["value"].Value);
+            record.StampAvailableFields("搜索结果");
+            found.Add(record);
+            if (found.Count == 12) break;
+        }
+        if (found.Count == 0 && !Regex.IsMatch(html, @"No results found\.|No Results Found|Nothing Found", RegexOptions.IgnoreCase))
+            throw new InvalidOperationException("JAVDatabase 搜索页没有可识别的候选，无法确认没有匹配结果。");
+        return found;
+    }
+
+    public static async Task<MovieMetadata> FetchCandidateDetailsAsync(MovieMetadata candidate, CancellationToken cancellationToken = default)
+    {
+        if (candidate.Source != SourceName || !TryMovieUri(candidate.SourceUrl, out var uri) || uri is null)
+            throw new ArgumentException("JAVDatabase 候选链接无效。", nameof(candidate));
+        var html = await GetHtmlAsync(uri, cancellationToken);
+        var detail = ParseDetail(candidate, html);
+        if (!detail.DetailFetched) throw new InvalidOperationException(detail.DetailNote ?? "JAVDatabase 详情页缺少资料。");
+        return detail;
     }
 
     static async Task<string> GetHtmlAsync(Uri url, CancellationToken cancellationToken)
@@ -139,6 +218,12 @@ public static class JavDatabaseScraper
             var label = CleanHtml(row.Groups["label"].Value).Trim().TrimEnd(':', '：');
             if (!rows.ContainsKey(label)) rows[label] = row.Groups["value"].Value;
         }
+        foreach (Match paragraph in Paragraphs.Matches(html))
+            foreach (Match field in FieldInParagraph.Matches(paragraph.Groups["body"].Value))
+            {
+                var label = CleanHtml(field.Groups["label"].Value).Trim().TrimEnd(':', '：');
+                if (label.Length > 0 && !rows.ContainsKey(label)) rows[label] = field.Groups["value"].Value;
+            }
         if (!rows.TryGetValue("DVD ID", out var rawId))
             throw new InvalidOperationException("JAVDatabase 详情页缺少 DVD ID，无法验证番号。");
         if (!string.Equals(CleanHtml(rawId), expectedCode, StringComparison.OrdinalIgnoreCase))
@@ -148,22 +233,49 @@ public static class JavDatabaseScraper
         var title = Regex.Replace(headingText, @"^" + Regex.Escape(expectedCode) + @"\s*[-–—:]?\s*", "", RegexOptions.IgnoreCase).Trim();
         if (title.Length > 0) result.Title = title;
         var recognized = title.Length > 0 ? 1 : 0;
-        if (TryRow(rows, "Release Date", out var date) &&
+        if ((TryRow(rows, "Release Date", out var date) || TryRow(rows, "Released", out date)) &&
             DateOnly.TryParseExact(date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
         { result.ReleaseDate = date; recognized++; }
         if (TryRow(rows, "Runtime", out var runtime))
         {
             var minutes = Regex.Match(runtime, @"\b(?<value>\d{1,4})\s*min", RegexOptions.IgnoreCase);
-            if (minutes.Success && int.TryParse(minutes.Groups["value"].Value, out var value) && value is > 0 and <= 3000)
-            { result.RuntimeMinutes = value; recognized++; }
+            var hours = Regex.Match(runtime, @"\b(?<value>\d{1,2})\s*hours?\b", RegexOptions.IgnoreCase);
+            var value = (hours.Success && int.TryParse(hours.Groups["value"].Value, out var h) ? h * 60 : 0) +
+                (minutes.Success && int.TryParse(minutes.Groups["value"].Value, out var m) ? m : 0);
+            if (value is > 0 and <= 3000) { result.RuntimeMinutes = value; recognized++; }
         }
         if (TryRow(rows, "Studio", out var studio)) { result.Studio = studio; recognized++; }
         if (TryRow(rows, "Director", out var director)) { result.Director = director; recognized++; }
-        if (TryRow(rows, "JAV Series", out var series)) { result.Series = series; recognized++; }
+        if (TryRow(rows, "JAV Series", out var series) || TryRow(rows, "Series", out series)) { result.Series = series; recognized++; }
         if (rows.TryGetValue("Genre(s)", out var rawGenres))
         { result.Genres = LinkNames(rawGenres); if (result.Genres.Count > 0) recognized++; }
         if (rows.TryGetValue("Idol(s)/Actress(es)", out var rawActors))
         { result.Actors = LinkNames(rawActors); if (result.Actors.Count > 0) recognized++; }
+
+        var ratingBlock = Regex.Match(html, @"<div\b[^>]*\bclass\s*=\s*(['""'])[^'""']*\bwp-postratings\b[^'""']*\1[^>]*>(?<body>.*?)</div>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        if (ratingBlock.Success)
+        {
+            var rating = Regex.Match(CleanHtml(ratingBlock.Groups["body"].Value),
+                @"(?<value>\d+(?:\.\d+)?)\s*/\s*(?<maximum>\d+(?:\.\d+)?)\s+from\s+(?<votes>[\d,]+)\s+votes?", RegexOptions.IgnoreCase);
+            if (rating.Success && double.TryParse(rating.Groups["value"].Value, CultureInfo.InvariantCulture, out var value) &&
+                double.TryParse(rating.Groups["maximum"].Value, CultureInfo.InvariantCulture, out var maximum) &&
+                int.TryParse(rating.Groups["votes"].Value.Replace(",", ""), out var votes) &&
+                maximum > 0 && value >= 0 && value <= maximum && votes > 0)
+            {
+                result.Rating = $"{value.ToString("0.##", CultureInfo.InvariantCulture)}/{maximum.ToString("0.##", CultureInfo.InvariantCulture)}（{votes} 票）";
+                recognized++;
+            }
+        }
+
+        var about = Regex.Matches(html, @"<h[2-4]\b[^>]*>(?<heading>.*?)</h[2-4]>(?<body>.*?)(?=<h[2-4]\b|</body>|$)", RegexOptions.IgnoreCase | RegexOptions.Singleline)
+            .Cast<Match>().FirstOrDefault(section => Regex.IsMatch(CleanHtml(section.Groups["heading"].Value), @"\bAbout\b.*\bJAV Movie\b", RegexOptions.IgnoreCase));
+        if (about is not null)
+        {
+            var paragraphs = Paragraphs.Matches(about.Groups["body"].Value).Cast<Match>()
+                .Select(match => CleanHtml(match.Groups["body"].Value))
+                .Where(value => value.Length > 0).Take(8).ToArray();
+            if (paragraphs.Length > 0) { result.Summary = string.Join("\n\n", paragraphs); recognized++; }
+        }
 
         foreach (Match meta in MetaTags.Matches(html))
         {
@@ -176,11 +288,26 @@ public static class JavDatabaseScraper
             recognized++;
             break;
         }
+        if (result.PosterUrl is null)
+        {
+            var posterContainer = Regex.Match(html, @"<div\b[^>]*\bid\s*=\s*(['""'])poster-container\1[^>]*>(?<body>.*?</div>)", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+            var image = posterContainer.Success ? Regex.Match(posterContainer.Groups["body"].Value, @"<img\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline) : Match.Empty;
+            if (image.Success)
+            {
+                var attributes = Attribute.Matches(image.Value).Cast<Match>()
+                    .ToDictionary(match => match.Groups["name"].Value, match => WebUtility.HtmlDecode(match.Groups["value"].Value), StringComparer.OrdinalIgnoreCase);
+                var rawPoster = attributes.GetValueOrDefault("data-src") ?? attributes.GetValueOrDefault("src");
+                if (rawPoster is not null && Uri.TryCreate(sourceUri, rawPoster, out var imageUri) && imageUri.Scheme == Uri.UriSchemeHttps &&
+                    IsAllowedPosterHost(imageUri.Host)) { result.PosterUrl = imageUri.AbsoluteUri; recognized++; }
+            }
+        }
         result.RefreshChangedFieldProvenance(candidate, "详情页");
         result.DetailFetched = recognized > 0;
         result.DetailNote = result.DetailFetched
             ? $"已读取 JAVDatabase 公开详情（{recognized} 项）；缺失字段保持空白"
             : "JAVDatabase 详情页没有可识别的资料字段";
+        var platformRating = RatingAggregation.FromMetadata(result, "番号一致");
+        if (platformRating is not null) RatingAggregation.AddOrUpdate(result, platformRating);
         return result;
     }
 

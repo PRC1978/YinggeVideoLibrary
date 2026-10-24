@@ -63,11 +63,15 @@ public sealed class LibraryConfig
     // Keep a short, privacy-friendly local history so repeated searches can
     // be reused without making the toolbar wider or sending anything online.
     [JsonPropertyName("searchHistory")] public List<string> SearchHistory { get; set; } = [];
-    [JsonPropertyName("sourceTrustWeights")] public Dictionary<string, int> SourceTrustWeights { get; set; } = new(StringComparer.OrdinalIgnoreCase) { ["TMDB"] = 12, ["JavDB"] = 10, ["Bangumi"] = 8, ["JAVDatabase"] = 7, ["TVmaze"] = 8, ["Pornhub"] = 4 };
+    [JsonPropertyName("sourceTrustWeights")] public Dictionary<string, int> SourceTrustWeights { get; set; } = new(StringComparer.OrdinalIgnoreCase) { ["TMDB"] = 12, ["JavDB"] = 10, ["Bangumi"] = 8, ["AniList"] = 9, ["JAVDatabase"] = 7, ["Javinfo"] = 7, ["TVmaze"] = 8, ["Pornhub"] = 4 };
     [JsonPropertyName("enableJavDb")] public bool EnableJavDb { get; set; } = true;
     [JsonPropertyName("enableJavDatabase")] public bool EnableJavDatabase { get; set; } = true;
     [JsonPropertyName("enableJavDbTitle")] public bool EnableJavDbTitle { get; set; } = true;
     [JsonPropertyName("enableBangumi")] public bool EnableBangumi { get; set; } = true;
+    [JsonPropertyName("enableAniList")] public bool EnableAniList { get; set; } = true;
+    [JsonPropertyName("enableJavinfo")] public bool EnableJavinfo { get; set; }
+    [JsonPropertyName("javinfoKey")] public string JavinfoKey { get; set; } = "";
+    [JsonPropertyName("javinfoDailyRequestLimit")] public int JavinfoDailyRequestLimit { get; set; } = JavinfoScraper.DefaultDailyRequestLimit;
     [JsonPropertyName("enablePornhub")] public bool EnablePornhub { get; set; } = true;
     [JsonPropertyName("enableTmdb")] public bool EnableTmdb { get; set; } = true;
     [JsonPropertyName("enableTvMaze")] public bool EnableTvMaze { get; set; } = true;
@@ -249,6 +253,9 @@ public partial class MainWindow : Window
     List<VideoItem> currentFilteredVideos = [];
     List<List<VideoItem>> virtualRows = [];
     readonly HashSet<string> selectedVideoIds = new(StringComparer.OrdinalIgnoreCase);
+    // A replacement library list is the only time card selection needs a
+    // full synchronization. Clicking one checkbox must stay O(1).
+    List<VideoItem>? selectionSyncedLibrary;
     readonly HashSet<string> reviewSelection = new(StringComparer.OrdinalIgnoreCase);
     List<string> categoryPaths = [];
     FrameworkElement? graphDragNode;
@@ -303,6 +310,7 @@ public partial class MainWindow : Window
         InitializeReviewWorkflowUi();
         InitializeAiQueueSettings();
         InitializeCandidateSettings();
+        InitializeJavinfoSettings();
         InitializeLibraryUtilities();
         PlayerPathBox.Text = FindPlayer() ?? "";
         TmdbTokenBox.Password = config.TmdbToken;
@@ -327,6 +335,12 @@ public partial class MainWindow : Window
             _ = RefreshChangedPathsAsync();
         };
         sphereGraphTimer.Tick += (_, _) => RotateSphereGraph();
+        Closing += (_, e) =>
+        {
+            if (!batchOperationInProgress) return;
+            e.Cancel = true;
+            Log("正在完成批量保存，保存完成后即可关闭窗口");
+        };
         Closed += (_, _) =>
         {
             isClosing = true;
@@ -424,10 +438,12 @@ public partial class MainWindow : Window
             loaded.AiEndpoint ??= "";
             loaded.AiModel ??= "";
             loaded.AiKey ??= "";
+            loaded.JavinfoKey ??= "";
+            loaded.JavinfoDailyRequestLimit = Math.Clamp(loaded.JavinfoDailyRequestLimit, 1, 100);
             loaded.AiReviews ??= [];
             loaded.SearchHistory ??= [];
             loaded.SourceTrustWeights ??= new(StringComparer.OrdinalIgnoreCase);
-            foreach (var (name, weight) in new[] { ("TMDB", 12), ("JavDB", 10), ("Bangumi", 8), ("JAVDatabase", 7), ("TVmaze", 8), ("Pornhub", 4) })
+            foreach (var (name, weight) in new[] { ("TMDB", 12), ("JavDB", 10), ("Bangumi", 8), ("AniList", 9), ("JAVDatabase", 7), ("Javinfo", 7), ("TVmaze", 8), ("Pornhub", 4) })
                 loaded.SourceTrustWeights.TryAdd(name, weight);
             loaded.SmartFilters ??= [];
             loaded.AutoAmateurTags ??= [];
@@ -532,35 +548,44 @@ public partial class MainWindow : Window
     void SaveConfig()
     {
         categoryDataVersion++;
-        var temporary = $"{ConfigPath}.{Environment.ProcessId}.{Environment.CurrentManagedThreadId}.tmp";
+        var merged = WriteConfigSnapshot(configBaseline, config, ConfigPath, credentialStoreReady, javinfoCredentialReady);
+        merged.TmdbToken = config.TmdbToken;
+        merged.AiKey = config.AiKey;
+        merged.JavinfoKey = config.JavinfoKey;
+        config = merged;
+        configBaseline = CloneLibraryConfig(merged);
+        configSource = "config.json";
+    }
+
+    static LibraryConfig WriteConfigSnapshot(LibraryConfig baseline, LibraryConfig current, string path,
+        bool scrubCredentials, bool scrubJavinfo)
+    {
+        var temporary = $"{path}.{Environment.ProcessId}.{Environment.CurrentManagedThreadId}.tmp";
         var ownsMutex = false;
         try
         {
             try { ConfigWriteMutex.WaitOne(); ownsMutex = true; }
             catch (AbandonedMutexException) { ownsMutex = true; }
             LibraryConfig latest;
-            var healthyPrimary = TryReadJson(ConfigPath, out LibraryConfig? primary) && primary is not null;
+            var healthyPrimary = TryReadJson(path, out LibraryConfig? primary) && primary is not null;
             if (healthyPrimary) latest = primary!;
-            else if (TryReadJson(ConfigPath + ".bak", out LibraryConfig? backup) && backup is not null) latest = backup;
-            else if (!File.Exists(ConfigPath) && !File.Exists(ConfigPath + ".bak")) latest = new();
+            else if (TryReadJson(path + ".bak", out LibraryConfig? backup) && backup is not null) latest = backup;
+            else if (!File.Exists(path) && !File.Exists(path + ".bak")) latest = new();
             else throw new InvalidDataException("配置文件和恢复副本均无法读取；已停止保存以保护已有设置。");
 
-            var merged = MergeLibraryConfig(configBaseline, config, latest);
+            var merged = MergeLibraryConfig(baseline, current, latest);
             // Secrets live only in Windows Credential Manager, including backups.
             var persisted = CloneLibraryConfig(merged);
-            if (credentialStoreReady) { persisted.TmdbToken = ""; persisted.AiKey = ""; }
+            if (scrubCredentials) { persisted.TmdbToken = ""; persisted.AiKey = ""; }
+            if (scrubJavinfo) persisted.JavinfoKey = "";
             var json = JsonSerializer.Serialize(persisted, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
             File.WriteAllText(temporary, json);
             // Preserve the last readable config before replacing it. A broken
             // primary file must not overwrite a healthy recovery copy.
             if (healthyPrimary)
-                File.Replace(temporary, ConfigPath, ConfigPath + ".bak");
-            else File.Move(temporary, ConfigPath, true);
-            merged.TmdbToken = config.TmdbToken;
-            merged.AiKey = config.AiKey;
-            config = merged;
-            configBaseline = CloneLibraryConfig(merged);
-            configSource = "config.json";
+                File.Replace(temporary, path, path + ".bak");
+            else File.Move(temporary, path, true);
+            return merged;
         }
         finally
         {
@@ -896,7 +921,14 @@ public partial class MainWindow : Window
         folderWatchers.Clear();
     }
 
-    void FolderWatcherChanged(object? sender, FileSystemEventArgs e) { changedPaths[e.FullPath] = 0; QueueFolderRefresh(); }
+    void FolderWatcherChanged(object? sender, FileSystemEventArgs e)
+    {
+        // Creating/removing a child emits its own event. A directory's Changed
+        // timestamp must not start a recursive rescan of the whole library.
+        if (!ShouldQueueDirectoryChange(e.ChangeType, Directory.Exists(e.FullPath))) return;
+        changedPaths[e.FullPath] = 0;
+        QueueFolderRefresh();
+    }
     void FolderWatcherRenamed(object? sender, RenamedEventArgs e) { changedPaths[e.OldFullPath] = 0; changedPaths[e.FullPath] = 0; QueueFolderRefresh(); }
     void FolderWatcherError(object? sender, ErrorEventArgs e) { watcherOverflow = true; QueueFolderRefresh(); }
 
@@ -1345,36 +1377,39 @@ public partial class MainWindow : Window
     void UpdateSelectionToolbar()
     {
         if (SelectionSummary is null) return;
-        // Remove ids for files that disappeared during a refresh and keep the
-        // view model in sync for recycled card containers.
-        var known = videos.Select(v => v.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        selectedVideoIds.RemoveWhere(id => !known.Contains(id));
-        foreach (var video in videos) video.IsSelected = selectedVideoIds.Contains(video.Id);
+        // Index loads and scans replace the library list. Reconcile only then;
+        // a single checkbox click should never visit the entire library.
+        if (!ReferenceEquals(selectionSyncedLibrary, videos))
+        {
+            var known = new HashSet<string>(videos.Select(v => v.Id), StringComparer.OrdinalIgnoreCase);
+            selectedVideoIds.RemoveWhere(id => !known.Contains(id));
+            foreach (var video in videos) video.IsSelected = selectedVideoIds.Contains(video.Id);
+            selectionSyncedLibrary = videos;
+        }
         var count = selectedVideoIds.Count;
         var hasLibraryView = view is "all" or "recent" or "favorites" or "categories";
         var hasScope = hasLibraryView && currentFilteredVideos.Count > 0;
-        SelectionSummary.Text = count == 0 ? "批量操作" : $"已选 {count} 部";
-        var visibility = hasScope ? Visibility.Visible : Visibility.Collapsed;
+        var visibility = hasLibraryView && videos.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        SelectionSummary.Text = batchOperationInProgress ? batchProgressText : count == 0
+            ? $"当前 {currentFilteredVideos.Count:N0} 部 · 全库 {videos.Count:N0} 部"
+            : $"已选 {count:N0} 部 · 全库 {videos.Count:N0} 部";
         SelectionBar.Visibility = visibility;
-        SelectionSummary.Visibility = visibility;
-        BatchCategoryAction.Visibility = visibility;
-        BatchTagAction.Visibility = visibility;
-        BatchStatusAction.Visibility = visibility;
-        BatchFavoriteAction.Visibility = visibility;
-        AiTagAction.Visibility = visibility;
-        SelectVisibleAction.Visibility = visibility;
-        SelectFilteredAction.Visibility = visibility;
-        InvertSelectionAction.Visibility = visibility;
-        ClearSelectionAction.Visibility = count > 0 ? Visibility.Visible : Visibility.Collapsed;
         var hasSelection = count > 0;
-        BatchCategoryAction.IsEnabled = hasSelection;
-        BatchTagAction.IsEnabled = hasSelection;
-        BatchStatusAction.IsEnabled = hasSelection;
-        BatchFavoriteAction.IsEnabled = hasSelection;
-        AiTagAction.IsEnabled = hasSelection && Volatile.Read(ref aiRequestRunning) == 0;
-        SelectVisibleAction.IsEnabled = hasScope;
-        SelectFilteredAction.IsEnabled = hasScope;
-        InvertSelectionAction.IsEnabled = hasScope;
+        BatchSelectionActions.Visibility = hasSelection ? Visibility.Visible : Visibility.Collapsed;
+        SelectVisibleAction.Visibility = config.ShowAll ? Visibility.Collapsed : Visibility.Visible;
+        ClearSelectionAction.Visibility = hasSelection ? Visibility.Visible : Visibility.Collapsed;
+        BatchUndoAction.Visibility = lastBatchUndo is null ? Visibility.Collapsed : Visibility.Visible;
+        BatchUndoAction.IsEnabled = lastBatchUndo is not null && !batchOperationInProgress;
+        ClearSelectionAction.IsEnabled = hasSelection && !batchOperationInProgress;
+        BatchCategoryAction.IsEnabled = hasSelection && !batchOperationInProgress;
+        BatchTagAction.IsEnabled = hasSelection && !batchOperationInProgress;
+        BatchStatusAction.IsEnabled = hasSelection && !batchOperationInProgress;
+        BatchFavoriteAction.IsEnabled = hasSelection && !batchOperationInProgress;
+        AiTagAction.IsEnabled = hasSelection && !batchOperationInProgress && Volatile.Read(ref aiRequestRunning) == 0;
+        SelectVisibleAction.IsEnabled = hasScope && !batchOperationInProgress;
+        SelectFilteredAction.IsEnabled = hasScope && !batchOperationInProgress;
+        InvertSelectionAction.IsEnabled = hasScope && !batchOperationInProgress;
+        SelectAllLibraryAction.IsEnabled = hasLibraryView && videos.Count > 0 && !batchOperationInProgress;
     }
 
     void VideoSelectionChanged(object sender, RoutedEventArgs e)
@@ -1638,6 +1673,18 @@ public partial class MainWindow : Window
         Log($"已选择 {selectedVideoIds.Count} 部视频");
     }
 
+    void SelectAllLibraryVideos(object sender, RoutedEventArgs e)
+    {
+        if (videos.Count == 0) return;
+        foreach (var video in videos)
+        {
+            if (!selectedVideoIds.Add(video.Id)) continue;
+            video.IsSelected = true;
+        }
+        UpdateSelectionToolbar();
+        Log($"已选择全部 {selectedVideoIds.Count:N0} 部视频");
+    }
+
     void SelectFilteredVideos(object sender, RoutedEventArgs e)
     {
         var scope = currentFilteredVideos;
@@ -1677,70 +1724,36 @@ public partial class MainWindow : Window
         .Take(50)
         .ToList();
 
-    void BatchCategoryButtonClick(object sender, RoutedEventArgs e)
+    async void BatchCategoryButtonClick(object sender, RoutedEventArgs e)
     {
         var selected = videos.Where(v => selectedVideoIds.Contains(v.Id)).ToList();
         if (selected.Count == 0) { UpdateSelectionToolbar(); return; }
-        if (sender is not Button anchor) return;
-
-        var menu = new ContextMenu();
-        menu.Items.Add(new MenuItem { Header = $"批量分类（已选 {selected.Count} 部）", IsEnabled = false });
-
-        MenuItem BuildCategoryMenu(string header, bool replace)
+        var targets = CategoryTargets().ToArray();
+        string? chosen = null;
+        var replace = false;
+        BatchCategoryPickerUi? picker = null;
+        picker = BuildBatchCategoryPicker(targets, selected.Count, (target, shouldReplace) =>
         {
-            var parent = new MenuItem { Header = header };
-            foreach (var target in CategoryTargets())
-            {
-                var item = new MenuItem { Header = "▰  " + target, Tag = target };
-                item.Click += (_, _) => ApplyBatchCategory(selected, target, replace);
-                parent.Items.Add(item);
-            }
-            var create = new MenuItem { Header = "＋ 新建分类并应用" };
-            create.Click += (_, _) =>
-            {
-                var target = CreateCategory();
-                if (!string.IsNullOrWhiteSpace(target)) ApplyBatchCategory(selected, target, replace);
-            };
-            parent.Items.Add(new Separator());
-            parent.Items.Add(create);
-            return parent;
-        }
-
-        menu.Items.Add(BuildCategoryMenu("＋ 添加到分类", false));
-        menu.Items.Add(BuildCategoryMenu("⇄ 替换为分类", true));
-        var clear = new MenuItem { Header = "清除分类（设为未分类）" };
-        clear.Click += (_, _) => ApplyBatchCategory(selected, "未分类", true);
-        menu.Items.Add(clear);
-        menu.Items.Add(new Separator());
-        var selectAll = new MenuItem { Header = "选择当前列表" };
-        selectAll.Click += (_, _) => SelectVisibleVideos(this, new RoutedEventArgs());
-        menu.Items.Add(selectAll);
-        var clearSelection = new MenuItem { Header = "取消选择" };
-        clearSelection.Click += (_, _) => ClearVideoSelection();
-        menu.Items.Add(clearSelection);
-        anchor.ContextMenu = menu;
-        menu.PlacementTarget = anchor;
-        menu.IsOpen = true;
+            chosen = target;
+            replace = shouldReplace;
+            picker!.Dialog.DialogResult = true;
+        });
+        if (picker.Dialog.ShowDialog() == true && chosen is not null)
+            await ApplyBatchCategory(selected, chosen, replace);
     }
 
-    void ApplyBatchCategory(IReadOnlyList<VideoItem> selected, string target, bool replace)
+    Task ApplyBatchCategory(IReadOnlyList<VideoItem> selected, string target, bool replace)
     {
-        foreach (var video in selected)
+        return ExecuteBatchOperationAsync(selected, BatchChangeKind.Category,
+            replace ? "批量替换分类" : "批量添加分类",
+            video => ApplyBatchCategoryValue(video, config, target, replace), undo =>
         {
-            var categories = replace ? [] : CategoriesOf(video).Where(x => x is not "未分类" and not "全部").ToList();
-            if (target is not "未分类" and not "全部" && !categories.Contains(target, StringComparer.CurrentCultureIgnoreCase)) categories.Add(target);
-            categories = categories.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.CurrentCultureIgnoreCase).ToList();
-            video.CategoryList.Clear();
-            video.CategoryList.AddRange(categories);
-            video.Category = categories.FirstOrDefault() ?? "未分类";
-            if (video.Category == "未分类") config.Categories.Remove(video.Id); else config.Categories[video.Id] = video.Category;
-            if (categories.Count == 0) config.MultiCategories.Remove(video.Id); else config.MultiCategories[video.Id] = categories.ToList();
-        }
-        if (target is not "未分类" and not "全部" && !config.CategoryNames.Contains(target, StringComparer.CurrentCultureIgnoreCase)) config.CategoryNames.Add(target);
-        SaveConfig();
-        if (view == "categories") RenderCategories();
-        RenderCards();
-        Log($"已对 {selected.Count} 部视频批量{(replace ? "替换" : "添加")}分类");
+            if (target is not "未分类" and not "全部" && !config.CategoryNames.Contains(target, StringComparer.CurrentCultureIgnoreCase))
+            {
+                config.CategoryNames.Add(target);
+                undo.AddedCategoryName = target;
+            }
+        });
     }
 
     void BatchTagButtonClick(object sender, RoutedEventArgs e)
@@ -1751,16 +1764,16 @@ public partial class MainWindow : Window
         var menu = new ContextMenu();
         menu.Items.Add(new MenuItem { Header = $"批量标签（已选 {selected.Count} 部）", IsEnabled = false });
         var add = new MenuItem { Header = "＋ 添加标签…" };
-        add.Click += (_, _) => ApplyBatchTags(selected, false, false);
+        add.Click += async (_, _) => await ApplyBatchTags(selected, false, false);
         menu.Items.Add(add);
         var remove = new MenuItem { Header = "− 删除指定标签…" };
-        remove.Click += (_, _) => ApplyBatchTags(selected, true, false);
+        remove.Click += async (_, _) => await ApplyBatchTags(selected, true, false);
         menu.Items.Add(remove);
         var replace = new MenuItem { Header = "⇄ 替换全部标签…" };
-        replace.Click += (_, _) => ApplyBatchTags(selected, false, true);
+        replace.Click += async (_, _) => await ApplyBatchTags(selected, false, true);
         menu.Items.Add(replace);
         var clear = new MenuItem { Header = "清空所有标签" };
-        clear.Click += (_, _) => ApplyBatchTags(selected, false, true, true);
+        clear.Click += async (_, _) => await ApplyBatchTags(selected, false, true, true);
         menu.Items.Add(clear);
         menu.Items.Add(new Separator());
         var selectAll = new MenuItem { Header = "选择当前列表" };
@@ -1782,21 +1795,16 @@ public partial class MainWindow : Window
         foreach (var status in new[] { "未看", "观看中", "已看" })
         {
             var item = new MenuItem { Header = status };
-            item.Click += (_, _) => ApplyBatchStatus(selected, status);
+            item.Click += async (_, _) => await ApplyBatchStatus(selected, status);
             menu.Items.Add(item);
         }
         anchor.ContextMenu = menu; menu.PlacementTarget = anchor; menu.IsOpen = true;
     }
 
-    void ApplyBatchStatus(IReadOnlyList<VideoItem> selected, string status)
+    Task ApplyBatchStatus(IReadOnlyList<VideoItem> selected, string status)
     {
-        foreach (var video in selected)
-        {
-            video.WatchStatus = status;
-            if (status == "未看") config.WatchStates.Remove(video.Id); else config.WatchStates[video.Id] = status;
-        }
-        SaveConfig(); RenderCards();
-        Log($"已将 {selected.Count} 部视频批量设为{status}");
+        return ExecuteBatchOperationAsync(selected, BatchChangeKind.Status, $"批量设置为{status}",
+            video => ApplyBatchStatusValue(video, config, status));
     }
 
     void BatchFavoriteButtonClick(object sender, RoutedEventArgs e)
@@ -1807,30 +1815,31 @@ public partial class MainWindow : Window
         var menu = new ContextMenu();
         menu.Items.Add(new MenuItem { Header = $"批量收藏（已选 {selected.Count} 部）", IsEnabled = false });
         var add = new MenuItem { Header = "★ 全部收藏" };
-        add.Click += (_, _) => ApplyBatchFavorite(selected, true);
+        add.Click += async (_, _) => await ApplyBatchFavorite(selected, true);
         menu.Items.Add(add);
         var remove = new MenuItem { Header = "☆ 全部取消收藏" };
-        remove.Click += (_, _) => ApplyBatchFavorite(selected, false);
+        remove.Click += async (_, _) => await ApplyBatchFavorite(selected, false);
         menu.Items.Add(remove);
         var invert = new MenuItem { Header = "⇄ 反转收藏状态" };
-        invert.Click += (_, _) => ApplyBatchFavorite(selected, null);
+        invert.Click += async (_, _) => await ApplyBatchFavorite(selected, null);
         menu.Items.Add(invert);
         anchor.ContextMenu = menu; menu.PlacementTarget = anchor; menu.IsOpen = true;
     }
 
-    void ApplyBatchFavorite(IReadOnlyList<VideoItem> selected, bool? value)
+    Task ApplyBatchFavorite(IReadOnlyList<VideoItem> selected, bool? value)
     {
-        foreach (var video in selected)
+        var original = new HashSet<string>(config.Favorites, StringComparer.OrdinalIgnoreCase);
+        var favorites = new HashSet<string>(original, StringComparer.OrdinalIgnoreCase);
+        return ExecuteBatchOperationAsync(selected, BatchChangeKind.Favorite, "批量更新收藏", video =>
+            ApplyBatchFavoriteValue(video, favorites, value), _ =>
         {
-            video.Favorite = value ?? !video.Favorite;
-            if (video.Favorite && !config.Favorites.Contains(video.Id, StringComparer.OrdinalIgnoreCase)) config.Favorites.Add(video.Id);
-            if (!video.Favorite) config.Favorites.RemoveAll(id => id.Equals(video.Id, StringComparison.OrdinalIgnoreCase));
-        }
-        SaveConfig(); RenderCards();
-        Log($"已批量更新 {selected.Count} 部视频的收藏状态");
+            KeepConcurrentMembershipChanges(original, config.Favorites, favorites, selected);
+            config.Favorites = RebuildMembershipList(config.Favorites, favorites, selected.Select(video => video.Id));
+        },
+            favorites: favorites);
     }
 
-    void ApplyBatchTags(IReadOnlyList<VideoItem> selected, bool remove, bool replace, bool clear = false)
+    Task ApplyBatchTags(IReadOnlyList<VideoItem> selected, bool remove, bool replace, bool clear = false)
     {
         List<string> tags;
         if (clear) tags = [];
@@ -1838,25 +1847,20 @@ public partial class MainWindow : Window
         {
             var prompt = remove ? "要删除的标签（逗号分隔）：" : replace ? "新的标签（逗号分隔）：" : "要添加的标签（逗号分隔）：";
             var input = PromptText(remove ? "删除批量标签" : replace ? "替换批量标签" : "添加批量标签", prompt, "");
-            if (input is null) return;
+            if (input is null) return Task.CompletedTask;
             tags = ParseTags(input);
-            if (tags.Count == 0) return;
+            if (tags.Count == 0) return Task.CompletedTask;
         }
         var lookup = new HashSet<string>(tags, StringComparer.CurrentCultureIgnoreCase);
-        foreach (var video in selected)
+        var original = new HashSet<string>(config.AutoAmateurTags, StringComparer.OrdinalIgnoreCase);
+        var autoAmateur = new HashSet<string>(original, StringComparer.OrdinalIgnoreCase);
+        return ExecuteBatchOperationAsync(selected, BatchChangeKind.Tags, "批量更新标签", video =>
+            ApplyBatchTagValue(video, config, tags, lookup, autoAmateur, remove, replace, clear), _ =>
         {
-            if (clear || replace) video.Tags.Clear();
-            if (!clear)
-            {
-                if (remove) video.Tags.RemoveAll(tag => lookup.Contains(tag));
-                else foreach (var tag in tags) if (!video.Tags.Contains(tag, StringComparer.CurrentCultureIgnoreCase)) video.Tags.Add(tag);
-            }
-            if (!video.Tags.Contains("素人", StringComparer.CurrentCultureIgnoreCase))
-                config.AutoAmateurTags.RemoveAll(id => id.Equals(video.Id, StringComparison.OrdinalIgnoreCase));
-            if (video.Tags.Count == 0) config.Tags.Remove(video.Id); else config.Tags[video.Id] = video.Tags.ToList();
-        }
-        SaveConfig(); RenderCards();
-        Log($"已对 {selected.Count} 部视频批量更新标签");
+            KeepConcurrentMembershipChanges(original, config.AutoAmateurTags, autoAmateur, selected);
+            config.AutoAmateurTags = RebuildMembershipList(config.AutoAmateurTags, autoAmateur, selected.Select(video => video.Id));
+        },
+            autoAmateur: autoAmateur);
     }
 
     void VirtualCardsScrolled(object sender, ScrollChangedEventArgs e)
@@ -2864,11 +2868,11 @@ public partial class MainWindow : Window
         try { Process.Start(new ProcessStartInfo(video.Poster) { UseShellExecute = true }); } catch { }
     }
 
-    string? CreateCategory()
+    string? CreateCategory(Window? owner = null)
     {
-        var name = PromptText("新建分类", "分类名称：", "")?.Trim();
+        var name = PromptText("新建分类", "分类名称：", "", owner)?.Trim();
         if (string.IsNullOrEmpty(name)) return null;
-        if (name.Length > 20 || name is "全部" or "未分类" || name.Any(char.IsControl)) { MessageBox.Show(this, "分类名称需在 20 个字符以内，且不能使用“全部”或“未分类”。", "名称无效", MessageBoxButton.OK, MessageBoxImage.Information); return null; }
+        if (name.Length > 20 || name is "全部" or "未分类" || name.Any(char.IsControl)) { MessageBox.Show(owner ?? this, "分类名称需在 20 个字符以内，且不能使用“全部”或“未分类”。", "名称无效", MessageBoxButton.OK, MessageBoxImage.Information); return null; }
         if (!config.CategoryNames.Contains(name)) { config.CategoryNames.Add(name); SaveConfig(); Log("新建分类：" + name); }
         RenderCategories(); return name;
     }
@@ -3218,9 +3222,9 @@ public partial class MainWindow : Window
         item.DisplayTitle = record.Title;
         if (record.Poster is not null && File.Exists(record.Poster)) item.Poster = record.Poster;
     }
-    string? PromptText(string title, string label, string? guess)
+    string? PromptText(string title, string label, string? guess, Window? owner = null)
     {
-        var dialog = new Window { Title = title, Owner = this, Width = 350, Height = 175, WindowStartupLocation = WindowStartupLocation.CenterOwner, ResizeMode = ResizeMode.NoResize, Background = Brushes.White };
+        var dialog = new Window { Title = title, Owner = owner ?? this, Width = 350, Height = 175, WindowStartupLocation = WindowStartupLocation.CenterOwner, ResizeMode = ResizeMode.NoResize, Background = Brushes.White };
         var panel = new StackPanel { Margin = new Thickness(20) };
         panel.Children.Add(new TextBlock { Text = label, Margin = new Thickness(0, 0, 0, 8) });
         var field = new TextBox { Text = guess ?? "", Height = 34, Padding = new Thickness(8, 5, 8, 5) };
@@ -3372,7 +3376,7 @@ public partial class MainWindow : Window
         if (forcePending)
         {
             review.Status = "pending";
-            review.Reason += "；批量标题匹配需人工核对";
+            review.Reason += "；候选身份需人工核对";
         }
         config.AiReviews[video.Id] = review;
         if (review.Status == "approved")
@@ -3723,7 +3727,13 @@ public partial class MainWindow : Window
                     MessageBox.Show(this, "没有找到新的候选；已有的视频信息和标签保持不变。", "完整资料搜刮");
                     return;
                 }
-                StoreUnmatchedScrape(video, source switch { 1 => "Pornhub", 2 => "TVmaze", 3 => "全部来源", 4 => "Bangumi", 5 => "JavDB 标题", _ => "TMDB" }, "已查询公开来源，没有找到候选结果。");
+                if (source == 8)
+                {
+                    TaskStatusText.Text = "Javinfo 没有找到候选 · 视频状态未改变";
+                    MessageBox.Show(this, "Javinfo 没有找到候选。视频状态和标签未改变；可换用其他来源继续搜索。", "完整资料搜刮");
+                    return;
+                }
+                StoreUnmatchedScrape(video, source switch { 1 => "Pornhub", 2 => "TVmaze", 3 => "全部来源", 4 => "Bangumi", 5 => "JavDB 标题", 6 => "AniList", 7 => "JAVDatabase 标题", 8 => "Javinfo", _ => "TMDB" }, "已查询来源，没有找到候选结果。");
                 TaskStatusText.Text = "完整资料搜刮完成 · 未找到匹配，已标记素人";
                 RenderCards();
                 return;
@@ -3735,7 +3745,7 @@ public partial class MainWindow : Window
             }
             var chosen = record;
             record = (await ScrapeCandidateCache.GetOrFetchAsync(DataDir, chosen.Source + " 详情", chosen.SourceUrl,
-                async () => [await AdditionalScrapers.FetchFullDetailsAsync(chosen, config.TmdbToken)])).FirstOrDefault()
+                async () => [await AdditionalScrapers.FetchFullDetailsAsync(chosen, config.TmdbToken, config.JavinfoKey, DataDir, config.JavinfoDailyRequestLimit)])).FirstOrDefault()
                 ?? throw new InvalidOperationException("来源未返回候选详情，请稍后重试。");
             await AdditionalScrapers.DownloadPosterAsync(record, video.Id, DataDir);
             var status = await StoreScrapeReviewAsync(video, record);
@@ -3804,7 +3814,11 @@ public partial class MainWindow : Window
         try
         {
             var folder = Path.Combine(DataDir, "backups", DateTime.Now.ToString("yyyyMMdd-HHmmss")); Directory.CreateDirectory(folder);
-            foreach (var file in new[] { ConfigPath, Path.Combine(DataDir, "metadata.json"), IndexPath }) if (File.Exists(file)) File.Copy(file, Path.Combine(folder, Path.GetFileName(file)), true);
+            foreach (var name in new[] { "config.json", "metadata.json", "library-index.json", "personal-ratings.json", "review-history.jsonl" })
+            {
+                var file = Path.Combine(DataDir, name);
+                if (File.Exists(file)) File.Copy(file, Path.Combine(folder, name), true);
+            }
             BackupInfo.Text = "备份完成：" + folder; Log("已备份库数据");
         }
         catch (Exception ex) { BackupInfo.Text = "备份失败：" + ex.Message; }
@@ -3817,7 +3831,11 @@ public partial class MainWindow : Window
             var latest = Directory.Exists(Path.Combine(DataDir, "backups")) ? new DirectoryInfo(Path.Combine(DataDir, "backups")).GetDirectories().OrderByDescending(x => x.LastWriteTimeUtc).FirstOrDefault() : null;
             if (latest is null) { BackupInfo.Text = "没有找到备份。"; return; }
             if (MessageBox.Show(this, $"确认恢复备份？\n{latest.FullName}\n恢复后需要重新启动应用。", "恢复备份", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
-            foreach (var name in new[] { "config.json", "metadata.json", "library-index.json" }) { var source = Path.Combine(latest.FullName, name); if (File.Exists(source)) File.Copy(source, Path.Combine(DataDir, name), true); }
+            foreach (var name in new[] { "config.json", "metadata.json", "library-index.json", "personal-ratings.json", "review-history.jsonl" })
+            {
+                var source = Path.Combine(latest.FullName, name);
+                if (File.Exists(source)) File.Copy(source, Path.Combine(DataDir, name), true);
+            }
             BackupInfo.Text = "已恢复最近备份，请重新启动应用。";
         }
         catch (Exception ex) { BackupInfo.Text = "恢复失败：" + ex.Message; }

@@ -40,6 +40,10 @@ public partial class MainWindow
         ,EnableJavDatabase = source.EnableJavDatabase
         ,EnableJavDbTitle = source.EnableJavDbTitle
         ,EnableBangumi = source.EnableBangumi
+        ,EnableAniList = source.EnableAniList
+        ,EnableJavinfo = source.EnableJavinfo
+        ,JavinfoKey = source.JavinfoKey
+        ,JavinfoDailyRequestLimit = source.JavinfoDailyRequestLimit
         ,EnablePornhub = source.EnablePornhub
         ,EnableTmdb = source.EnableTmdb
         ,EnableTvMaze = source.EnableTvMaze
@@ -106,6 +110,10 @@ public partial class MainWindow
             EnableJavDatabase = MergeScalar(baseline.EnableJavDatabase, current.EnableJavDatabase, latest.EnableJavDatabase),
             EnableJavDbTitle = MergeScalar(baseline.EnableJavDbTitle, current.EnableJavDbTitle, latest.EnableJavDbTitle),
             EnableBangumi = MergeScalar(baseline.EnableBangumi, current.EnableBangumi, latest.EnableBangumi),
+            EnableAniList = MergeScalar(baseline.EnableAniList, current.EnableAniList, latest.EnableAniList),
+            EnableJavinfo = MergeScalar(baseline.EnableJavinfo, current.EnableJavinfo, latest.EnableJavinfo),
+            JavinfoKey = MergeScalar(baseline.JavinfoKey, current.JavinfoKey, latest.JavinfoKey) ?? "",
+            JavinfoDailyRequestLimit = MergeScalar(baseline.JavinfoDailyRequestLimit, current.JavinfoDailyRequestLimit, latest.JavinfoDailyRequestLimit),
             EnablePornhub = MergeScalar(baseline.EnablePornhub, current.EnablePornhub, latest.EnablePornhub),
             EnableTmdb = MergeScalar(baseline.EnableTmdb, current.EnableTmdb, latest.EnableTmdb),
             EnableTvMaze = MergeScalar(baseline.EnableTvMaze, current.EnableTvMaze, latest.EnableTvMaze),

@@ -44,6 +44,7 @@ public partial class MainWindow
         public required Dictionary<string, int> TagCounts { get; init; }
         public required Dictionary<string, Dictionary<string, int>> CategoriesByTag { get; init; }
         public required Dictionary<string, Dictionary<string, int>> RelatedTags { get; init; }
+        public required Dictionary<string, List<VideoItem>> VideosByTag { get; init; }
         public int VideoCount { get; init; }
     }
 
@@ -62,6 +63,8 @@ public partial class MainWindow
     // a visual tree of cards, drop shadows and Line controls on every frame.
     sealed class SphereMapSurface : FrameworkElement
     {
+        sealed record Association(string TagPath, string CategoryPath, int Count);
+
         static readonly Brush Backdrop = FrozenBrush(Color.FromRgb(247, 250, 255));
         static readonly Brush NodeBrush = FrozenBrush(Color.FromRgb(78, 124, 222));
         static readonly Brush NodeLightBrush = FrozenBrush(Color.FromRgb(151, 181, 242));
@@ -75,6 +78,7 @@ public partial class MainWindow
         static readonly Brush LabelBackdrop = FrozenBrush(Color.FromArgb(225, 250, 252, 255));
         static readonly Pen LinkPen = FrozenPen(Color.FromArgb(184, 89, 126, 205), 1.15);
         static readonly Pen FocusLinkPen = FrozenPen(Color.FromArgb(242, 232, 147, 54), 2.0);
+        static readonly Pen AssociationPen = FrozenPen(Color.FromArgb(195, 36, 151, 150), 1.45);
         static readonly Pen NodePen = FrozenPen(Color.FromRgb(234, 241, 255), 1);
         static readonly Pen GlobePen = FrozenPen(Color.FromRgb(181, 205, 245), 1.5);
         static readonly Pen RootPen = FrozenPen(Color.FromRgb(245, 248, 255), 2);
@@ -82,9 +86,24 @@ public partial class MainWindow
         static readonly Brush GlobeBrush = MakeGlobeBrush();
         static readonly Typeface LabelTypeface = new("Microsoft YaHei UI");
         readonly List<SphereMapNode> nodes;
+        readonly (SphereMapNode Node, double Cos, double Sin)[] polarNodes;
         readonly SphereMapNode[] rankedLabels;
-        readonly Dictionary<string, System.Windows.Point> projected = new(StringComparer.CurrentCultureIgnoreCase);
+        readonly ImageSource baseLayer;
+        readonly Dictionary<string, System.Windows.Point> projected = new(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<(int X, int Y), List<SphereMapNode>> hitCells = [];
+        bool hitCellsValid;
         readonly Dictionary<string, SphereMapNode> byPath;
+        readonly IReadOnlyDictionary<string, Dictionary<string, int>> tagCategories;
+        readonly IReadOnlyDictionary<string, int>? rootTagCategories;
+        readonly Dictionary<string, FormattedText> normalLabels = new(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<string, FormattedText> selectedLabels = new(StringComparer.OrdinalIgnoreCase);
+        readonly HashSet<string> focusedBranches = new(StringComparer.OrdinalIgnoreCase);
+        string cachedBranchSelection = "\u0000";
+        string cachedBranchHover = "\u0000";
+        string cachedBranchDrop = "\u0000";
+        string cachedAssociationFocus = "\u0000";
+        List<Association> cachedAssociations = [];
+        double projectedRotation = double.NaN;
         public string HoverPath { get; private set; } = "\u0000";
         public string SelectedPath { get; set; } = "";
         public string DropPath { get; set; } = "\u0000";
@@ -94,11 +113,16 @@ public partial class MainWindow
         public double ZoomLevel { get; set; } = 1;
         public int NodeCount => nodes.Count;
         public bool EveryNodeLinked => nodes.All(node => node.Parent.Length == 0 || byPath.ContainsKey(node.Parent));
+        public int FocusAssociationCount => FocusAssociations().Count;
 
-        public SphereMapSurface(List<SphereMapNode> nodes)
+        public SphereMapSurface(List<SphereMapNode> nodes, IReadOnlyDictionary<string, Dictionary<string, int>> tagCategories,
+            IReadOnlyDictionary<string, int>? rootTagCategories = null)
         {
             this.nodes = nodes;
-            byPath = nodes.ToDictionary(node => node.Path, StringComparer.CurrentCultureIgnoreCase);
+            this.tagCategories = tagCategories;
+            this.rootTagCategories = rootTagCategories;
+            polarNodes = nodes.Select(node => (node, Math.Cos(node.Angle), Math.Sin(node.Angle))).ToArray();
+            byPath = nodes.ToDictionary(node => node.Path, StringComparer.OrdinalIgnoreCase);
             rankedLabels = nodes.OrderByDescending(node => node.Count)
                 .ThenBy(node => node.Depth).ThenBy(node => node.Label, StringComparer.CurrentCultureIgnoreCase)
                 .Take(120).ToArray();
@@ -107,6 +131,39 @@ public partial class MainWindow
             AllowDrop = true;
             Cursor = Cursors.Hand;
             ToolTip = "点击节点筛选 · 拖动分类节点到目标节点 · 可把视频拖到节点";
+            baseLayer = BuildBaseLayer();
+        }
+
+        ImageSource BuildBaseLayer()
+        {
+            var center = new System.Windows.Point(Width / 2, Height / 2 + 7);
+            var basePoints = new Dictionary<string, System.Windows.Point>(StringComparer.OrdinalIgnoreCase)
+            { [""] = center };
+            foreach (var (node, cosAngle, sinAngle) in polarNodes)
+                basePoints[node.Path] = new System.Windows.Point(
+                    center.X + cosAngle * node.Radius * 246,
+                    center.Y + sinAngle * node.Radius * 232);
+            var layer = new DrawingVisual();
+            using (var dc = layer.RenderOpen())
+            {
+                foreach (var node in nodes)
+                {
+                    if (!basePoints.TryGetValue(node.Parent, out var parent)) parent = center;
+                    dc.DrawLine(LinkPen, parent, basePoints[node.Path]);
+                }
+                foreach (var node in nodes)
+                {
+                    var point = basePoints[node.Path];
+                    var radius = NodeRadius(node);
+                    dc.DrawEllipse(node.IsTag ? TagBrush : node.Count == 0 ? NodeLightBrush : NodeBrush,
+                        NodePen, point, radius, radius);
+                }
+            }
+            var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                (int)Width, (int)Height, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(layer);
+            bitmap.Freeze();
+            return bitmap;
         }
 
         static Brush FrozenBrush(Color color)
@@ -121,6 +178,17 @@ public partial class MainWindow
             var pen = new Pen(FrozenBrush(color), thickness);
             pen.Freeze();
             return pen;
+        }
+
+        public static Matrix RotationMatrix(System.Windows.Point center, double angle)
+        {
+            var cosine = Math.Cos(angle);
+            var sine = Math.Sin(angle);
+            return new Matrix(
+                cosine, (232.0 / 246.0) * sine,
+                -(246.0 / 232.0) * sine, cosine,
+                center.X - center.X * cosine + center.Y * (246.0 / 232.0) * sine,
+                center.Y - center.X * (232.0 / 246.0) * sine - center.Y * cosine);
         }
 
         static Brush MakeGlobeBrush()
@@ -142,32 +210,90 @@ public partial class MainWindow
         public void SetHover(string? path)
         {
             path ??= "\u0000";
-            if (string.Equals(HoverPath, path, StringComparison.CurrentCultureIgnoreCase)) return;
+            if (string.Equals(HoverPath, path, StringComparison.OrdinalIgnoreCase)) return;
             HoverPath = path;
+            var associations = FocusAssociations();
             ToolTip = path == "\u0000" ? "点击节点筛选 · 拖动视频或分类到节点" : path.Length == 0
-                ? $"{RootLabel} · {RootCount:N0} 部视频" :
-                $"{(byPath[path].IsTag ? "#" + byPath[path].TagName : path)} · {byPath[path].Count:N0} 部视频";
+                ? $"{RootLabel} · {RootCount:N0} 部视频 · {associations.Count:N0} 条分类关联" :
+                $"{(byPath[path].IsTag ? "#" + byPath[path].TagName : path)} · {byPath[path].Count:N0} 部视频 · {associations.Count:N0} 条真实标签关联";
             InvalidateVisual();
+        }
+
+        // In the complete graph the index already contains exact tag/category
+        // intersections. In a selected-tag graph the caller supplies only
+        // intersections occurring on videos that carry the selected tag.
+        // Resolve them once per hover/selection, not on each rotation frame.
+        List<Association> FocusAssociations()
+        {
+            var focus = HoverPath == "\u0000" ? SelectedPath : HoverPath;
+            if (string.Equals(focus, cachedAssociationFocus, StringComparison.OrdinalIgnoreCase))
+                return cachedAssociations;
+            cachedAssociationFocus = focus;
+            cachedAssociations = [];
+            if (focus.Length == 0 && rootTagCategories is not null)
+            {
+                foreach (var (category, count) in rootTagCategories)
+                    if (byPath.ContainsKey(category)) cachedAssociations.Add(new Association("", category, count));
+            }
+            else if (focus.StartsWith("\u0001", StringComparison.Ordinal))
+            {
+                if (tagCategories.TryGetValue(focus[1..], out var categories))
+                    foreach (var (category, count) in categories)
+                        if (byPath.ContainsKey(category)) cachedAssociations.Add(new Association(focus, category, count));
+            }
+            else if (focus.Length > 0 && byPath.ContainsKey(focus))
+            {
+                if (rootTagCategories is not null && rootTagCategories.TryGetValue(focus, out var rootCount))
+                    cachedAssociations.Add(new Association("", focus, rootCount));
+                foreach (var (tag, categories) in tagCategories)
+                    if (categories.TryGetValue(focus, out var count))
+                    {
+                        var tagPath = "\u0001" + tag;
+                        if (byPath.ContainsKey(tagPath)) cachedAssociations.Add(new Association(tagPath, focus, count));
+                    }
+            }
+            return cachedAssociations;
         }
 
         public string? HitPath(System.Windows.Point point)
         {
-            if (projected.Count == 0) Project();
+            if (projected.Count == 0 || projectedRotation != Rotation) Project();
             var root = projected[""];
-            if ((root - point).Length <= 32) return "";
+            if ((root - point).LengthSquared <= 44 * 44) return "";
+            if (!hitCellsValid) BuildHitCells();
             string? nearest = null;
-            var nearestDistance = double.MaxValue;
-            foreach (var node in nodes)
+            var nearestDistanceSquared = double.MaxValue;
+            var cellX = (int)Math.Floor(point.X / 32);
+            var cellY = (int)Math.Floor(point.Y / 32);
+            for (var offsetX = -1; offsetX <= 1; offsetX++)
+            for (var offsetY = -1; offsetY <= 1; offsetY++)
             {
-                var distance = (projected[node.Path] - point).Length;
-                var hitRadius = Math.Max(11, NodeRadius(node) + 6);
-                if (distance <= hitRadius && distance < nearestDistance)
+                if (!hitCells.TryGetValue((cellX + offsetX, cellY + offsetY), out var candidates)) continue;
+                foreach (var node in candidates)
                 {
-                    nearest = node.Path;
-                    nearestDistance = distance;
+                    var distanceSquared = (projected[node.Path] - point).LengthSquared;
+                    var hitRadius = Math.Max(11, NodeRadius(node) + 6);
+                    if (distanceSquared <= hitRadius * hitRadius && distanceSquared < nearestDistanceSquared)
+                    {
+                        nearest = node.Path;
+                        nearestDistanceSquared = distanceSquared;
+                    }
                 }
             }
             return nearest;
+        }
+
+        void BuildHitCells()
+        {
+            hitCells.Clear();
+            foreach (var node in nodes)
+            {
+                var point = projected[node.Path];
+                var cell = ((int)Math.Floor(point.X / 32), (int)Math.Floor(point.Y / 32));
+                if (!hitCells.TryGetValue(cell, out var candidates)) hitCells[cell] = candidates = [];
+                candidates.Add(node);
+            }
+            hitCellsValid = true;
         }
 
         double NodeRadius(SphereMapNode node) => Math.Clamp(2.4 + Math.Log10(node.Count + 1) * 1.7, 2.5, 9);
@@ -175,14 +301,17 @@ public partial class MainWindow
         void Project()
         {
             projected.Clear();
+            hitCellsValid = false;
+            projectedRotation = Rotation;
             var center = new System.Windows.Point(Width / 2, Height / 2 + 7);
             projected[""] = center;
-            foreach (var node in nodes)
+            var cosRotation = Math.Cos(Rotation);
+            var sinRotation = Math.Sin(Rotation);
+            foreach (var (node, cosAngle, sinAngle) in polarNodes)
             {
-                var angle = node.Angle + Rotation;
                 projected[node.Path] = new System.Windows.Point(
-                    center.X + Math.Cos(angle) * node.Radius * 246,
-                    center.Y + Math.Sin(angle) * node.Radius * 232);
+                    center.X + (cosAngle * cosRotation - sinAngle * sinRotation) * node.Radius * 246,
+                    center.Y + (sinAngle * cosRotation + cosAngle * sinRotation) * node.Radius * 232);
             }
         }
 
@@ -190,6 +319,29 @@ public partial class MainWindow
             (path.Equals(focus, StringComparison.CurrentCultureIgnoreCase) ||
              path.StartsWith(focus + " / ", StringComparison.CurrentCultureIgnoreCase) ||
              focus.StartsWith(path + " / ", StringComparison.CurrentCultureIgnoreCase));
+
+        void RefreshFocusedBranches()
+        {
+            if (cachedBranchSelection == SelectedPath && cachedBranchHover == HoverPath && cachedBranchDrop == DropPath) return;
+            cachedBranchSelection = SelectedPath;
+            cachedBranchHover = HoverPath;
+            cachedBranchDrop = DropPath;
+            focusedBranches.Clear();
+            foreach (var node in nodes)
+                if (InBranch(node.Path, SelectedPath) || InBranch(node.Path, HoverPath) || InBranch(node.Path, DropPath))
+                    focusedBranches.Add(node.Path);
+        }
+
+        FormattedText LabelText(SphereMapNode node, bool selected)
+        {
+            var cache = selected ? selectedLabels : normalLabels;
+            if (cache.TryGetValue(node.Path, out var text)) return text;
+            text = new FormattedText(node.Label, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
+                LabelTypeface, 11, selected ? HoverBrush : TextBrush, 1)
+            { MaxTextWidth = 122, MaxLineCount = 1, Trimming = TextTrimming.CharacterEllipsis };
+            cache[node.Path] = text;
+            return text;
+        }
 
         protected override void OnRender(DrawingContext dc)
         {
@@ -204,26 +356,48 @@ public partial class MainWindow
             dc.DrawEllipse(null, OrbitPen, center, 247, 117);
             dc.Pop();
 
-            Project();
-            // Every relationship is retained. DrawingContext batches them into
-            // the same visual instead of constructing one WPF Line per edge.
+            if (projected.Count == 0 || projectedRotation != Rotation) Project();
+            RefreshFocusedBranches();
+            // The full topology is rasterized once on graph construction. A
+            // matrix rotates the cached layer around the globe while labels,
+            // hit testing and focused relationships remain crisp and live.
+            dc.PushTransform(new MatrixTransform(RotationMatrix(center, Rotation)));
+            dc.DrawImage(baseLayer, bounds);
+            dc.Pop();
             foreach (var node in nodes)
             {
+                if (!focusedBranches.Contains(node.Path)) continue;
                 if (!projected.TryGetValue(node.Parent, out var parent)) parent = center;
-                var focus = InBranch(node.Path, SelectedPath) || InBranch(node.Path, HoverPath) ||
-                            InBranch(node.Path, DropPath);
-                dc.DrawLine(focus ? FocusLinkPen : LinkPen, parent, projected[node.Path]);
+                dc.DrawLine(FocusLinkPen, parent, projected[node.Path]);
+            }
+
+            // Cross-links are shown when a category or tag is focused. Drawing
+            // all such lines permanently would bury the hierarchy in large
+            // libraries; every relationship remains available on hover.
+            var associations = FocusAssociations();
+            if (associations.Count > 0)
+            {
+                var associationLines = new StreamGeometry();
+                using (var context = associationLines.Open())
+                    foreach (var association in associations)
+                    {
+                        context.BeginFigure(projected[association.TagPath], false, false);
+                        context.LineTo(projected[association.CategoryPath], true, false);
+                    }
+                associationLines.Freeze();
+                dc.DrawGeometry(null, AssociationPen, associationLines);
             }
             foreach (var node in nodes)
             {
+                var active = node.Path.Equals(SelectedPath, StringComparison.OrdinalIgnoreCase) ||
+                             node.Path.Equals(DropPath, StringComparison.OrdinalIgnoreCase);
+                var hovered = node.Path.Equals(HoverPath, StringComparison.OrdinalIgnoreCase);
+                if (!active && !hovered) continue;
                 var point = projected[node.Path];
                 var radius = NodeRadius(node);
-                var active = node.Path.Equals(SelectedPath, StringComparison.CurrentCultureIgnoreCase) ||
-                             node.Path.Equals(DropPath, StringComparison.CurrentCultureIgnoreCase);
-                var hovered = node.Path.Equals(HoverPath, StringComparison.CurrentCultureIgnoreCase);
-                if (active || hovered) dc.DrawEllipse(HaloBrush, null, point, radius + 7, radius + 7);
-                dc.DrawEllipse(active ? SelectedBrush : hovered ? HoverBrush : node.IsTag ? TagBrush : node.Count == 0 ? NodeLightBrush : NodeBrush,
-                    NodePen, point, active || hovered ? radius + 2 : radius, active || hovered ? radius + 2 : radius);
+                dc.DrawEllipse(HaloBrush, null, point, radius + 7, radius + 7);
+                dc.DrawEllipse(active ? SelectedBrush : HoverBrush,
+                    NodePen, point, radius + 2, radius + 2);
             }
             dc.DrawEllipse(RootBrush, RootPen, center, 43, 43);
             DrawCentered(dc, "✦", center.X, center.Y - 14, 16, Brushes.White, FontWeights.Bold);
@@ -237,10 +411,7 @@ public partial class MainWindow
             void DrawLabel(SphereMapNode node)
             {
                 var point = projected[node.Path];
-                var text = new FormattedText(node.Label, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
-                    LabelTypeface, 11,
-                    node.Path.Equals(SelectedPath, StringComparison.CurrentCultureIgnoreCase) ? HoverBrush : TextBrush, 1)
-                { MaxTextWidth = 122, MaxLineCount = 1, Trimming = TextTrimming.CharacterEllipsis };
+                var text = LabelText(node, node.Path.Equals(SelectedPath, StringComparison.CurrentCultureIgnoreCase));
                 var left = point.X + NodeRadius(node) + 6;
                 if (left + text.Width > Width - 15) left = point.X - NodeRadius(node) - text.Width - 6;
                 var box = new Rect(left - 4, point.Y - 10, text.Width + 8, 20);
@@ -290,6 +461,7 @@ public partial class MainWindow
         var tagCounts = new Dictionary<string, int>(StringComparer.CurrentCultureIgnoreCase);
         var categoriesByTag = new Dictionary<string, Dictionary<string, int>>(StringComparer.CurrentCultureIgnoreCase);
         var relatedTags = new Dictionary<string, Dictionary<string, int>>(StringComparer.CurrentCultureIgnoreCase);
+        var videosByTag = new Dictionary<string, List<VideoItem>>(StringComparer.CurrentCultureIgnoreCase);
         foreach (var configured in config.CategoryNames) AddAncestors(configured, all, false);
         foreach (var video in videos)
         {
@@ -303,6 +475,8 @@ public partial class MainWindow
                 if (!categoriesByTag.TryGetValue(tag, out var map)) categoriesByTag[tag] = map = new(StringComparer.CurrentCultureIgnoreCase);
                 foreach (var ancestor in ancestors) map[ancestor] = map.GetValueOrDefault(ancestor) + 1;
                 if (!relatedTags.ContainsKey(tag)) relatedTags[tag] = new(StringComparer.CurrentCultureIgnoreCase);
+                if (!videosByTag.TryGetValue(tag, out var taggedVideos)) videosByTag[tag] = taggedVideos = [];
+                taggedVideos.Add(video);
             }
             for (var i = 0; i < tags.Count; i++)
                 for (var j = i + 1; j < tags.Count; j++)
@@ -320,8 +494,32 @@ public partial class MainWindow
             AllCategoryCounts = all,
             TagCounts = tagCounts,
             CategoriesByTag = categoriesByTag,
-            RelatedTags = relatedTags
+            RelatedTags = relatedTags,
+            VideosByTag = videosByTag
         };
+    }
+
+    // The selected-tag view must count intersections on the SAME videos.
+    // Combining separate global tag/category totals would invent links when
+    // the selected tag and another tag occur in that category on different videos.
+    static Dictionary<string, Dictionary<string, int>> BuildSelectedTagCategoryLinks(
+        IEnumerable<VideoItem> selectedVideos, IReadOnlyDictionary<string, int> visibleRelatedTags)
+    {
+        var links = new Dictionary<string, Dictionary<string, int>>(StringComparer.CurrentCultureIgnoreCase);
+        foreach (var video in selectedVideos)
+        {
+            var ancestors = new HashSet<string>(StringComparer.CurrentCultureIgnoreCase);
+            foreach (var category in CategoriesOf(video))
+                foreach (var ancestor in CategoryAncestors(category)) ancestors.Add(ancestor);
+            foreach (var tag in video.Tags.Where(tag => visibleRelatedTags.ContainsKey(tag))
+                         .Distinct(StringComparer.CurrentCultureIgnoreCase))
+            {
+                if (!links.TryGetValue(tag, out var categories)) links[tag] = categories = new(StringComparer.CurrentCultureIgnoreCase);
+                foreach (var category in ancestors)
+                    categories[category] = categories.GetValueOrDefault(category) + 1;
+            }
+        }
+        return links;
     }
 
     static List<SphereMapNode> LayoutSphereNodes(IReadOnlyDictionary<string, int> counts, IReadOnlyDictionary<string, int> relatedTags)
@@ -416,7 +614,10 @@ public partial class MainWindow
         var connectedTags = sphereTagFilter.Length == 0 ? index.TagCounts : index.RelatedTags[sphereTagFilter];
         var relevantCount = sphereTagFilter.Length == 0 ? index.VideoCount : index.TagCounts[sphereTagFilter];
         var nodes = LayoutSphereNodes(counts, connectedTags);
-        sphereMapSurface = new SphereMapSurface(nodes)
+        var tagCategoryLinks = sphereTagFilter.Length == 0 ? index.CategoriesByTag :
+            BuildSelectedTagCategoryLinks(index.VideosByTag[sphereTagFilter], connectedTags);
+        sphereMapSurface = new SphereMapSurface(nodes, tagCategoryLinks,
+            sphereTagFilter.Length == 0 ? null : counts)
         {
             RootCount = relevantCount,
             RootLabel = sphereTagFilter.Length == 0 ? "全部分类" :
@@ -530,7 +731,7 @@ public partial class MainWindow
         DockPanel.SetDock(tools, Dock.Right); header.Children.Add(tools);
         var title = new StackPanel();
         title.Children.Add(new TextBlock { Text = "球形智能分类图", FontWeight = FontWeights.SemiBold, FontSize = 15, Foreground = new SolidColorBrush(Color.FromRgb(57, 79, 133)) });
-        title.Children.Add(new TextBlock { Text = $"{counts.Count:N0} 个分类 + {connectedTags.Count:N0} 个相关标签全部绘出 · {relevantCount:N0} 部视频 · 连线表示层级与共现", FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(130, 145, 176)), Margin = new Thickness(0, 3, 0, 0) });
+        title.Children.Add(new TextBlock { Text = $"{counts.Count:N0} 个分类 + {connectedTags.Count:N0} 个相关标签全部绘出 · {relevantCount:N0} 部视频 · 悬停节点查看真实共现连线", FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(130, 145, 176)), Margin = new Thickness(0, 3, 0, 0) });
         header.Children.Add(title);
 
         var tagOptions = new List<SphereTagOption> { new("", index.VideoCount) };
@@ -577,14 +778,69 @@ public partial class MainWindow
 
     static void AddAncestors(string? path, Dictionary<string, int> counts, bool increment, HashSet<string>? seen = null)
     {
-        if (string.IsNullOrWhiteSpace(path) || path == "全部") return;
-        var parts = path.Split(" / ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        for (var i = 1; i <= parts.Length; i++)
+        foreach (var ancestor in CategoryAncestors(path))
         {
-            var ancestor = string.Join(" / ", parts.Take(i));
             if (!counts.ContainsKey(ancestor)) counts[ancestor] = 0;
             if (increment && (seen is null || seen.Add(ancestor))) counts[ancestor]++;
         }
+    }
+
+    static IEnumerable<string> CategoryAncestors(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || path == "全部") yield break;
+        var parts = path.Split(" / ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        for (var i = 1; i <= parts.Length; i++)
+            yield return string.Join(" / ", parts.Take(i));
+    }
+
+    internal static bool VerifySphereRelationsForDiagnostics()
+    {
+        static VideoItem Sample(string id, string category, params string[] tags)
+        {
+            var item = new VideoItem
+            {
+                Id = id, Path = id + ".mp4", Title = id, Folder = "diagnostic",
+                Size = 1, Modified = DateTime.UtcNow, Category = category
+            };
+            item.Tags.AddRange(tags);
+            return item;
+        }
+        var selectedVideos = new[]
+        {
+            Sample("one", "人物 / 作品", "所选标签", "同现", "同现"),
+            Sample("two", "其他", "所选标签")
+        };
+        var unrelated = Sample("three", "其他", "同现");
+        var links = BuildSelectedTagCategoryLinks(selectedVideos, new Dictionary<string, int> { ["同现"] = 1 });
+        var counts = new Dictionary<string, int> { ["人物"] = 1, ["人物 / 作品"] = 1, ["其他"] = 1 };
+        var nodes = LayoutSphereNodes(counts, new Dictionary<string, int> { ["同现"] = 1 });
+        var surface = new SphereMapSurface(nodes, links, counts);
+        var selectedTagReachesAllCategories = surface.FocusAssociationCount == counts.Count;
+        surface.SetHover("\u0001同现");
+        var matchingTagLinks = surface.FocusAssociationCount == 2;
+        surface.SetHover("其他");
+        // The selected tag itself still connects to this category, while the
+        // unrelated secondary tag must not acquire a false cross-link.
+        var unrelatedCategoryExcluded = surface.FocusAssociationCount == 1;
+        surface.SetHover("人物 / 作品");
+        var exactCategoryLinked = surface.FocusAssociationCount == 2;
+        var mapCenter = new System.Windows.Point(surface.Width / 2, surface.Height / 2 + 7);
+        var firstNode = nodes[0];
+        surface.Rotation = .31;
+        var rotatedNodeCenter = new System.Windows.Point(
+            mapCenter.X + Math.Cos(firstNode.Angle + surface.Rotation) * firstNode.Radius * 246,
+            mapCenter.Y + Math.Sin(firstNode.Angle + surface.Rotation) * firstNode.Radius * 232);
+        var baseNodeCenter = new System.Windows.Point(
+            mapCenter.X + Math.Cos(firstNode.Angle) * firstNode.Radius * 246,
+            mapCenter.Y + Math.Sin(firstNode.Angle) * firstNode.Radius * 232);
+        var bitmapNodeCenter = SphereMapSurface.RotationMatrix(mapCenter, surface.Rotation).Transform(baseNodeCenter);
+        var hitGridTracksRotation = surface.HitPath(mapCenter) == "" &&
+            surface.HitPath(rotatedNodeCenter) == firstNode.Path &&
+            (bitmapNodeCenter - rotatedNodeCenter).LengthSquared < .0001;
+        return selectedTagReachesAllCategories && matchingTagLinks && unrelatedCategoryExcluded
+            && exactCategoryLinked && hitGridTracksRotation && surface.EveryNodeLinked
+            && links["同现"]["人物"] == 1 && links["同现"]["人物 / 作品"] == 1
+            && !links["同现"].ContainsKey("其他") && unrelated.Tags.Contains("同现");
     }
 
     FrameworkElement BuildSphereNavigator(List<SphereMapNode> nodes)

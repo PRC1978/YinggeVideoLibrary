@@ -1,0 +1,13 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.pdb
+*.tmp
+*.bak
+LocalVideoLibrary/
+.YinggeVideoLibrary/
+packages/
+发布/
+安装包/

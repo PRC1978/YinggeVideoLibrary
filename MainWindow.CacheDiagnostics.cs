@@ -142,21 +142,73 @@ public partial class MainWindow
         {
             if (verifyGraph)
             {
+                var graphStarted = System.Diagnostics.Stopwatch.StartNew();
                 ShowView("categories");
                 await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
+                var graphBuildMs = graphStarted.ElapsedMilliseconds;
                 var viewport = sphereGraphViewport ?? throw new InvalidOperationException("分类图视口未创建");
-                if (sphereGraphNodes.Count == 0 || viewport.ActualWidth < 100 || viewport.ActualHeight < 100)
+                var sphere = sphereMapSurface ?? throw new InvalidOperationException("分类图绘制层未创建");
+                var graphIndex = GetSphereGraphIndex();
+                if (sphere.NodeCount == 0 || viewport.ActualWidth < 100 || viewport.ActualHeight < 100)
                     throw new InvalidOperationException("分类图节点或可视区域未完成布局");
-                if (sphereGraphNodes.Count > 7 || sphereGraphTimer.IsEnabled)
-                    throw new InvalidOperationException("分类图仍在一次绘制过多节点，或默认旋转占用界面线程");
-                var visibleCards = sphereGraphNodes.Values.Select(node => new System.Windows.Rect(
-                    System.Windows.Controls.Canvas.GetLeft(node.Element),
-                    System.Windows.Controls.Canvas.GetTop(node.Element),
-                    node.Element.Width, node.Element.Height)).ToList();
-                for (var i = 0; i < visibleCards.Count; i++)
-                    for (var j = i + 1; j < visibleCards.Count; j++)
-                        if (visibleCards[i].IntersectsWith(visibleCards[j]))
-                            throw new InvalidOperationException($"分类图节点重叠：{i} 和 {j}");
+                if (sphere.NodeCount != graphIndex.AllCategoryCounts.Count + graphIndex.TagCounts.Count ||
+                    !sphere.EveryNodeLinked || sphereGraphTimer.IsEnabled || sphereGraphCanvas?.Children.Count != 1)
+                    throw new InvalidOperationException("分类图节点关系不完整，或未使用单层合并绘制");
+                var firstTag = graphIndex.RelatedTags.Where(pair => pair.Value.Count > 0)
+                    .OrderByDescending(pair => pair.Value.Count).ThenByDescending(pair => graphIndex.TagCounts[pair.Key])
+                    .Select(pair => pair.Key).FirstOrDefault()
+                    ?? graphIndex.TagCounts.OrderByDescending(pair => pair.Value).Select(pair => pair.Key).FirstOrDefault();
+                var tagNodes = 0;
+                var tagSwitchMs = 0L;
+                if (firstTag is not null)
+                {
+                    var started = System.Diagnostics.Stopwatch.StartNew();
+                    NavigateSphereNode("\u0001" + firstTag);
+                    await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
+                    tagSwitchMs = started.ElapsedMilliseconds;
+                    sphere = sphereMapSurface ?? throw new InvalidOperationException("标签切换后绘制层未创建");
+                    var expected = graphIndex.TagCounts[firstTag];
+                    var expectedNodes = graphIndex.CategoriesByTag[firstTag].Count + graphIndex.RelatedTags[firstTag].Count;
+                    if (sphere.RootCount != expected || sphere.NodeCount != expectedNodes ||
+                        !sphere.EveryNodeLinked || sphereGraphCanvas?.Children.Count != 1)
+                        throw new InvalidOperationException("按标签筛选后关联节点或连线不完整");
+                    tagNodes = sphere.NodeCount;
+                    if (started.Elapsed > TimeSpan.FromSeconds(8))
+                        throw new InvalidOperationException($"按标签重建图耗时过长：{started.Elapsed.TotalSeconds:F1} 秒");
+                    SaveSpherePreview(sphere, Path.ChangeExtension(destination, ".tag.png"));
+                    sphereTagFilter = "";
+                    lastCategoryRenderVersion = -1;
+                    RenderCategories();
+                    await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
+                    sphere = sphereMapSurface ?? throw new InvalidOperationException("恢复全部标签后绘制层未创建");
+                    viewport = sphereGraphViewport ?? throw new InvalidOperationException("恢复全部标签后视口未创建");
+                }
+                // Exercise every navigator page. The 24-row page limit must
+                // never truncate the nodes or relationships on the sphere.
+                var graphPanel = ((System.Windows.Controls.Border)CategoryPanel.Children[^1]).Child as System.Windows.Controls.StackPanel
+                    ?? throw new InvalidOperationException("分类图布局未创建");
+                var navPanel = graphPanel.Children[^1] as System.Windows.Controls.StackPanel
+                    ?? throw new InvalidOperationException("分类节点导航未创建");
+                var navBar = navPanel.Children[0] as System.Windows.Controls.DockPanel
+                    ?? throw new InvalidOperationException("分类节点导航栏未创建");
+                var pager = navBar.Children[0] as System.Windows.Controls.StackPanel
+                    ?? throw new InvalidOperationException("分类节点分页未创建");
+                var nextPage = pager.Children[2] as System.Windows.Controls.Button
+                    ?? throw new InvalidOperationException("分类节点下一页按钮未创建");
+                var navList = navPanel.Children[1] as System.Windows.Controls.ListBox
+                    ?? throw new InvalidOperationException("分类节点列表未创建");
+                var seenPaths = new HashSet<string>(StringComparer.CurrentCultureIgnoreCase);
+                var navigationPages = 0;
+                while (true)
+                {
+                    navigationPages++;
+                    foreach (var item in navList.ItemsSource.OfType<SphereNavItem>()) seenPaths.Add(item.Path);
+                    if (!nextPage.IsEnabled) break;
+                    if (navigationPages > sphere.NodeCount) throw new InvalidOperationException("分类节点分页未能结束");
+                    nextPage.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                }
+                if (seenPaths.Count != sphere.NodeCount)
+                    throw new InvalidOperationException($"分类图有 {sphere.NodeCount} 个节点，但分页导航仅能访问 {seenPaths.Count} 个");
                 ZoomSphereGraph(1.2);
                 if (sphereZoom <= 1) throw new InvalidOperationException("分类图放大操作失败");
                 ResetSphereGraphView();
@@ -172,7 +224,10 @@ public partial class MainWindow
                 await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
                 if (viewport.ActualHeight <= oldHeight)
                     throw new InvalidOperationException("分类图高度调整失败");
-                RecordCacheDiagnostic("graph verified", $"节点 {sphereGraphNodes.Count}，视口 {viewport.ActualWidth:F0}×{viewport.ActualHeight:F0}，缩放、平移和调高正常");
+                var previewStarted = System.Diagnostics.Stopwatch.StartNew();
+                SaveSpherePreview(sphere, Path.ChangeExtension(destination, ".png"));
+                var previewMs = previewStarted.ElapsedMilliseconds;
+                RecordCacheDiagnostic("graph verified", $"全部相关节点 {sphere.NodeCount}，选中标签关联节点 {tagNodes}，全部节点经 {navigationPages} 页可访问且连线完整；视口 {viewport.ActualWidth:F0}×{viewport.ActualHeight:F0}；首次构建 {graphBuildMs} ms，标签切换 {tagSwitchMs} ms，离屏绘制与 PNG 保存 {previewMs} ms；缩放、平移、调高正常");
             }
             if (verifyScrape)
             {
@@ -242,7 +297,32 @@ public partial class MainWindow
             File.WriteAllText(destination, JsonSerializer.Serialize(cacheStartupDiagnostic, new JsonSerializerOptions { WriteIndented = true }));
             return 0;
         }
-        catch (Exception ex) { RecordCacheDiagnostic("hidden startup probe error", ex.ToString()); return 1; }
+        catch (Exception ex)
+        {
+            RecordCacheDiagnostic("hidden startup probe error", ex.ToString());
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(destination))!);
+                File.WriteAllText(destination, JsonSerializer.Serialize(cacheStartupDiagnostic, new JsonSerializerOptions { WriteIndented = true }));
+            }
+            catch { }
+            return 1;
+        }
+    }
+
+    static void SaveSpherePreview(System.Windows.FrameworkElement surface, string destination)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(destination))!);
+        surface.Measure(new System.Windows.Size(1120, 620));
+        surface.Arrange(new System.Windows.Rect(0, 0, 1120, 620));
+        surface.UpdateLayout();
+        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(1120, 620, 96, 96,
+            System.Windows.Media.PixelFormats.Pbgra32);
+        bitmap.Render(surface);
+        var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+        using var file = File.Create(destination);
+        encoder.Save(file);
     }
 
     static int CountVisualDescendants<T>(System.Windows.DependencyObject root) where T : System.Windows.DependencyObject

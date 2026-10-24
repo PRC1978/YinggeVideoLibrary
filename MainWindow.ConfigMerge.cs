@@ -36,6 +36,14 @@ public partial class MainWindow
         AiReviews = source.AiReviews.ToDictionary(pair => pair.Key, pair => CloneReview(pair.Value), StringComparer.OrdinalIgnoreCase),
         SearchHistory = [.. source.SearchHistory]
         ,SourceTrustWeights = new Dictionary<string, int>(source.SourceTrustWeights, StringComparer.OrdinalIgnoreCase)
+        ,EnableJavDb = source.EnableJavDb
+        ,EnableJavDatabase = source.EnableJavDatabase
+        ,EnableJavDbTitle = source.EnableJavDbTitle
+        ,EnableBangumi = source.EnableBangumi
+        ,EnablePornhub = source.EnablePornhub
+        ,EnableTmdb = source.EnableTmdb
+        ,EnableTvMaze = source.EnableTvMaze
+        ,UseFolderPersonHint = source.UseFolderPersonHint
         ,SmartFilters = new Dictionary<string, string>(source.SmartFilters, StringComparer.CurrentCultureIgnoreCase)
         ,AutoAmateurTags = [.. source.AutoAmateurTags]
         ,ScrapeExcludedFolders = [.. source.ScrapeExcludedFolders]
@@ -94,6 +102,14 @@ public partial class MainWindow
             CustomPosters = MergeMap(baseline.CustomPosters, current.CustomPosters, latest.CustomPosters, StringComparer.OrdinalIgnoreCase),
             AiReviews = MergeMap(baseline.AiReviews, current.AiReviews, latest.AiReviews, StringComparer.OrdinalIgnoreCase),
             SourceTrustWeights = MergeMap(baseline.SourceTrustWeights, current.SourceTrustWeights, latest.SourceTrustWeights, StringComparer.OrdinalIgnoreCase),
+            EnableJavDb = MergeScalar(baseline.EnableJavDb, current.EnableJavDb, latest.EnableJavDb),
+            EnableJavDatabase = MergeScalar(baseline.EnableJavDatabase, current.EnableJavDatabase, latest.EnableJavDatabase),
+            EnableJavDbTitle = MergeScalar(baseline.EnableJavDbTitle, current.EnableJavDbTitle, latest.EnableJavDbTitle),
+            EnableBangumi = MergeScalar(baseline.EnableBangumi, current.EnableBangumi, latest.EnableBangumi),
+            EnablePornhub = MergeScalar(baseline.EnablePornhub, current.EnablePornhub, latest.EnablePornhub),
+            EnableTmdb = MergeScalar(baseline.EnableTmdb, current.EnableTmdb, latest.EnableTmdb),
+            EnableTvMaze = MergeScalar(baseline.EnableTvMaze, current.EnableTvMaze, latest.EnableTvMaze),
+            UseFolderPersonHint = MergeScalar(baseline.UseFolderPersonHint, current.UseFolderPersonHint, latest.UseFolderPersonHint),
             SmartFilters = MergeMap(baseline.SmartFilters, current.SmartFilters, latest.SmartFilters, StringComparer.CurrentCultureIgnoreCase),
             AutoAmateurTags = MergeList(baseline.AutoAmateurTags, current.AutoAmateurTags, latest.AutoAmateurTags, StringComparer.OrdinalIgnoreCase),
             ScrapeExcludedFolders = MergeList(baseline.ScrapeExcludedFolders, current.ScrapeExcludedFolders, latest.ScrapeExcludedFolders, StringComparer.OrdinalIgnoreCase),

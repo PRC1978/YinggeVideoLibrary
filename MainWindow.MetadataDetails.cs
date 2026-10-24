@@ -39,6 +39,8 @@ public partial class MainWindow
         if (Uri.TryCreate(record.SourceUrl, UriKind.Absolute, out var sourceUri) &&
             sourceUri.Scheme == Uri.UriSchemeHttps &&
             (sourceUri.Host == "javdb.com" || sourceUri.Host == "www.javdb.com" ||
+             sourceUri.Host == "www.javdatabase.com" || sourceUri.Host == "javdatabase.com" ||
+             sourceUri.Host == "bgm.tv" ||
              sourceUri.Host == "www.themoviedb.org" || sourceUri.Host == "www.tvmaze.com" ||
              sourceUri.Host == "www.pornhub.com"))
         {

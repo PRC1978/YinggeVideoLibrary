@@ -63,7 +63,15 @@ public sealed class LibraryConfig
     // Keep a short, privacy-friendly local history so repeated searches can
     // be reused without making the toolbar wider or sending anything online.
     [JsonPropertyName("searchHistory")] public List<string> SearchHistory { get; set; } = [];
-    [JsonPropertyName("sourceTrustWeights")] public Dictionary<string, int> SourceTrustWeights { get; set; } = new(StringComparer.OrdinalIgnoreCase) { ["TMDB"] = 12, ["TVmaze"] = 8, ["Pornhub"] = 4 };
+    [JsonPropertyName("sourceTrustWeights")] public Dictionary<string, int> SourceTrustWeights { get; set; } = new(StringComparer.OrdinalIgnoreCase) { ["TMDB"] = 12, ["JavDB"] = 10, ["Bangumi"] = 8, ["JAVDatabase"] = 7, ["TVmaze"] = 8, ["Pornhub"] = 4 };
+    [JsonPropertyName("enableJavDb")] public bool EnableJavDb { get; set; } = true;
+    [JsonPropertyName("enableJavDatabase")] public bool EnableJavDatabase { get; set; } = true;
+    [JsonPropertyName("enableJavDbTitle")] public bool EnableJavDbTitle { get; set; } = true;
+    [JsonPropertyName("enableBangumi")] public bool EnableBangumi { get; set; } = true;
+    [JsonPropertyName("enablePornhub")] public bool EnablePornhub { get; set; } = true;
+    [JsonPropertyName("enableTmdb")] public bool EnableTmdb { get; set; } = true;
+    [JsonPropertyName("enableTvMaze")] public bool EnableTvMaze { get; set; } = true;
+    [JsonPropertyName("useFolderPersonHint")] public bool UseFolderPersonHint { get; set; } = true;
     [JsonPropertyName("smartFilters")] public Dictionary<string, string> SmartFilters { get; set; } = [];
     [JsonPropertyName("autoAmateurTags")] public List<string> AutoAmateurTags { get; set; } = [];
     [JsonPropertyName("scrapeExcludedFolders")] public List<string> ScrapeExcludedFolders { get; set; } = [];
@@ -174,23 +182,6 @@ public sealed class VideoItem : INotifyPropertyChanged
     private static string FormatSize(long size) => size < 1024 * 1024 ? $"{size / 1024.0:0} KB" : size < 1024L * 1024 * 1024 ? $"{size / 1048576.0:0.0} MB" : $"{size / 1073741824.0:0.0} GB";
 }
 
-sealed class SphereGraphNode
-{
-    public required string Key { get; init; }
-    public string? Path { get; init; }
-    public required Border Element { get; init; }
-    public Vector3 Position { get; set; }
-    public Vector3 Velocity { get; set; }
-    public bool IsRoot { get; init; }
-}
-
-sealed class SphereGraphEdge
-{
-    public required string ParentKey { get; init; }
-    public required string ChildKey { get; init; }
-    public required System.Windows.Shapes.Line Line { get; init; }
-}
-
 public partial class MainWindow : Window
 {
     // AppData is virtualized when this EXE is launched by a packaged host.
@@ -264,10 +255,7 @@ public partial class MainWindow : Window
     System.Windows.Point graphDragStart;
     // The globe only needs a gentle refresh rate.  60 ms keeps the rotation
     // smooth while avoiding a layout pass on every display frame.
-    readonly DispatcherTimer sphereGraphTimer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(120) };
-    readonly Dictionary<string, SphereGraphNode> sphereGraphNodes = new(StringComparer.CurrentCultureIgnoreCase);
-    readonly List<SphereGraphEdge> sphereGraphEdges = [];
-    readonly Dictionary<string, System.Windows.Point> sphereProjectedPoints = new(StringComparer.CurrentCultureIgnoreCase);
+    readonly DispatcherTimer sphereGraphTimer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(55) };
     Canvas? sphereGraphCanvas;
     FrameworkElement? sphereGraphViewport;
     ScaleTransform? sphereGraphScale;
@@ -282,8 +270,6 @@ public partial class MainWindow : Window
     bool spherePanning;
     double sphereRotation;
     bool sphereRotationEnabled;
-    int sphereGraphPage;
-    string sphereGraphFocus = "";
     Button? sphereRotationButton;
     int LastSearchHitCount;
     string[] LastSearchFields = [];
@@ -441,6 +427,8 @@ public partial class MainWindow : Window
             loaded.AiReviews ??= [];
             loaded.SearchHistory ??= [];
             loaded.SourceTrustWeights ??= new(StringComparer.OrdinalIgnoreCase);
+            foreach (var (name, weight) in new[] { ("TMDB", 12), ("JavDB", 10), ("Bangumi", 8), ("JAVDatabase", 7), ("TVmaze", 8), ("Pornhub", 4) })
+                loaded.SourceTrustWeights.TryAdd(name, weight);
             loaded.SmartFilters ??= [];
             loaded.AutoAmateurTags ??= [];
             loaded.ScrapeExcludedFolders ??= [];
@@ -1252,6 +1240,7 @@ public partial class MainWindow : Window
             ["all"] = ("我的视频", "把喜欢的影像，放在一个顺手的地方。", "全部视频"),
             ["recent"] = ("最近更新", "从最近修改的文件开始看。", "最近更新"),
             ["favorites"] = ("我的收藏", "随时回到最想看的内容。", "收藏的视频"),
+            ["recommendations"] = ("为你推荐", "根据本地观看习惯挑选内容，并发现哔哩哔哩主题。", "为你推荐"),
             ["categories"] = ("分类", "按自己熟悉的方式整理视频。", "视频分类"),
             ["folders"] = ("视频文件夹", "管理本地视频的扫描位置。", "已添加的文件夹"),
             ["status"] = ("状态", "查看扫描和搜刮任务的运行情况。", "运行状态"),
@@ -1262,18 +1251,19 @@ public partial class MainWindow : Window
         var current = titles[target];
         PageTitle.Text = current.Item1; PageSubtitle.Text = current.Item2; SectionTitle.Text = current.Item3;
         HeaderArea.Margin = target == "online" ? new Thickness(28, 18, 28, 12) : new Thickness(48, 42, 48, 25);
-        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav }) { button.Background = Brushes.Transparent; button.Foreground = new SolidColorBrush(Color.FromRgb(116, 130, 149)); }
-        var selected = target switch { "recent" => RecentNav, "favorites" => FavoriteNav, "categories" => CategoriesNav, "folders" => FoldersNav, "status" => StatusNav, "scrape" => ScrapeNav, "online" => OnlineNav, "settings" => SettingsNav, _ => AllNav };
+        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav }) { button.Background = Brushes.Transparent; button.Foreground = new SolidColorBrush(Color.FromRgb(116, 130, 149)); }
+        var selected = target switch { "recent" => RecentNav, "favorites" => FavoriteNav, "recommendations" => RecommendationsNav, "categories" => CategoriesNav, "folders" => FoldersNav, "status" => StatusNav, "scrape" => ScrapeNav, "online" => OnlineNav, "settings" => SettingsNav, _ => AllNav };
         selected.Background = new SolidColorBrush(Color.FromRgb(234, 240, 255)); selected.Foreground = new SolidColorBrush(Color.FromRgb(62, 99, 213));
-        Toolbar.Visibility = target is "settings" or "status" or "scrape" or "online" ? Visibility.Collapsed : Visibility.Visible;
+        Toolbar.Visibility = target is "settings" or "status" or "scrape" or "online" or "recommendations" ? Visibility.Collapsed : Visibility.Visible;
         LibraryScroll.Visibility = target == "online" ? Visibility.Collapsed : Visibility.Visible;
         AllListPanel.Visibility = Visibility.Collapsed;
         OnlinePanel.Visibility = target == "online" ? Visibility.Visible : Visibility.Collapsed;
         if (target == "online") _ = InitializeOnlineAsync();
-        Cards.Visibility = target is "folders" or "status" or "scrape" or "settings" or "online" ? Visibility.Collapsed : Visibility.Visible;
+        Cards.Visibility = target is "folders" or "status" or "scrape" or "settings" or "online" or "recommendations" ? Visibility.Collapsed : Visibility.Visible;
         EmptyPanel.Visibility = Visibility.Collapsed;
         Pager.Visibility = Visibility.Collapsed;
         CategoryPanel.Visibility = target == "categories" ? Visibility.Visible : Visibility.Collapsed;
+        RecommendationPanel.Visibility = target == "recommendations" ? Visibility.Visible : Visibility.Collapsed;
         if (target is not ("all" or "recent" or "favorites" or "categories")) SelectionBar.Visibility = Visibility.Collapsed;
         FoldersPanel.Visibility = target == "folders" ? Visibility.Visible : Visibility.Collapsed;
         StatusPanel.Visibility = target == "status" ? Visibility.Visible : Visibility.Collapsed;
@@ -1282,6 +1272,7 @@ public partial class MainWindow : Window
         if (target == "folders") { CountText.Text = $"{config.Folders.Count} 个位置"; RenderFolders(); }
         else if (target == "settings") { CountText.Text = ""; PlayerPathBox.Text = FindPlayer() ?? ""; AutoStartBox.IsChecked = config.AutoStart; GpuBox.IsChecked = config.GpuThumbnails; AiEndpointBox.Text = config.AiEndpoint; AiModelBox.Text = config.AiModel; AiKeyBox.Password = config.AiKey; BackupInfo.Text = CacheDiagnosticSummary; }
         else if (target == "scrape") { CountText.Text = ""; ScrapeTmdbTokenBox.Password = config.TmdbToken; RefreshReviewQueue(); }
+        else if (target == "recommendations") { CountText.Text = ""; RenderRecommendations(); }
         else if (target is "status" or "online") CountText.Text = "";
         else RenderCards();
     }
@@ -1967,15 +1958,18 @@ public partial class MainWindow : Window
         lastRenderedSelectedCategory = selectedCategory;
         aiCategoryAction = null;
         CategoryPanel.Children.Clear();
+        sphereCategoryChips.Clear();
         CategoryPanel.Children.Add(new TextBlock { Text = "分类工作台", FontSize = 19, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(38, 51, 71)), Margin = new Thickness(0, 0, 0, 4) });
         CategoryPanel.Children.Add(new TextBlock { Text = "点击节点筛选，拖动视频归类；按住鼠标中键移动图面，滚轮缩放，底边可调整高度。", Foreground = new SolidColorBrush(Color.FromRgb(131, 144, 163)), FontSize = 12, Margin = new Thickness(0, 0, 0, 14) });
         var chips = new WrapPanel();
-        var categoryCounts = videos.SelectMany(CategoriesOf).GroupBy(x => x, StringComparer.CurrentCultureIgnoreCase).ToDictionary(g => g.Key, g => g.Count(), StringComparer.CurrentCultureIgnoreCase);
+        var graphIndex = GetSphereGraphIndex();
+        var categoryCounts = graphIndex.AllCategoryCounts;
         foreach (var name in new[] { "全部", "未分类" }.Concat(config.CategoryNames).Distinct())
         {
             var count = name == "全部" ? videos.Count : categoryCounts.GetValueOrDefault(name, 0);
             var chip = new Button { Content = $"{name}  {count}", Padding = new Thickness(13, 8, 13, 8), Margin = new Thickness(0, 0, 9, 9), BorderBrush = new SolidColorBrush(Color.FromRgb(223, 230, 239)), Background = name == selectedCategory ? new SolidColorBrush(Color.FromRgb(234, 240, 255)) : Brushes.White, Foreground = name == selectedCategory ? new SolidColorBrush(Color.FromRgb(62, 99, 213)) : new SolidColorBrush(Color.FromRgb(70, 83, 102)), Cursor = System.Windows.Input.Cursors.Hand };
-            chip.Click += (_, _) => { selectedCategory = name; pageIndex = 0; RenderCards(); LibraryScroll.ScrollToTop(); };
+            chip.Click += (_, _) => SelectSphereCategory(name == "全部" ? "" : name);
+            sphereCategoryChips[name] = chip;
             chips.Children.Add(chip);
         }
         var add = new Button { Content = "＋ 新建分类", Padding = new Thickness(13, 8, 13, 8), Margin = new Thickness(0, 0, 9, 9), BorderBrush = new SolidColorBrush(Color.FromRgb(223, 230, 239)), Background = Brushes.White, Foreground = new SolidColorBrush(Color.FromRgb(75, 111, 225)), Cursor = System.Windows.Input.Cursors.Hand };
@@ -1985,243 +1979,16 @@ public partial class MainWindow : Window
         var ai = new Button { Content = "AI 建议", Padding = new Thickness(13, 8, 13, 8), Margin = new Thickness(0, 0, 9, 9), BorderBrush = new SolidColorBrush(Color.FromRgb(218, 198, 239)), Background = new SolidColorBrush(Color.FromRgb(250, 244, 255)), Foreground = new SolidColorBrush(Color.FromRgb(122, 70, 165)), Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "使用设置中的 OpenAI 兼容接口" };
         aiCategoryAction = ai;
         ai.Click += AiCategorize; chips.Children.Add(ai);
-        categoryPaths = videos.SelectMany(CategoriesOf).Concat(config.CategoryNames).Where(x => x is not "未分类" and not "全部").Distinct(StringComparer.CurrentCultureIgnoreCase).OrderBy(x => x).ToList();
-        CategoryPanel.Children.Add(BuildSphereCategoryGraph());
-    }
-
-    Border BuildSphereCategoryGraph()
-    {
-        sphereGraphTimer.Stop();
-        sphereGraphNodes.Clear();
-        sphereGraphEdges.Clear();
-        sphereProjectedPoints.Clear();
-        sphereGraphCanvas = null;
-        sphereGraphViewport = null;
-        sphereGraphScale = null;
-        sphereGraphTranslation = null;
-        sphereZoomLabel = null;
-        sphereZoom = 1;
-        spherePanOffset = default;
-        spherePanning = false;
-        sphereRotation = 0;
-
-        var paths = new HashSet<string>(categoryPaths, StringComparer.CurrentCultureIgnoreCase);
-        foreach (var path in categoryPaths.ToArray())
-        {
-            var parts = path.Split(" / ", StringSplitOptions.RemoveEmptyEntries);
-            for (var i = 1; i < parts.Length; i++) paths.Add(string.Join(" / ", parts.Take(i)));
-        }
-        var exactCounts = videos.SelectMany(CategoriesOf)
-            .Where(x => !string.IsNullOrWhiteSpace(x) && x is not "未分类" and not "全部")
-            .GroupBy(x => x, StringComparer.CurrentCultureIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.CurrentCultureIgnoreCase);
-        var countFor = new Dictionary<string, int>(StringComparer.CurrentCultureIgnoreCase);
-        // Accumulate counts through each ancestor once.  This keeps opening
-        // the globe responsive even when a library contains many folders.
-        foreach (var path in paths) countFor[path] = 0;
-        foreach (var pair in exactCounts)
-        {
-            var parts = pair.Key.Split(" / ", StringSplitOptions.RemoveEmptyEntries);
-            for (var i = 1; i <= parts.Length; i++)
-            {
-                var ancestor = string.Join(" / ", parts.Take(i));
-                if (countFor.ContainsKey(ancestor)) countFor[ancestor] += pair.Value;
-            }
-        }
-        if (paths.Count == 0)
-        {
-            return new Border { Background = Brushes.White, BorderBrush = new SolidColorBrush(Color.FromRgb(221, 230, 245)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(20), Margin = new Thickness(0, 4, 0, 16), Child = new TextBlock { Text = "还没有分类节点。点击“新建分类”，或运行“智能分类”开始整理。", Foreground = new SolidColorBrush(Color.FromRgb(130, 145, 176)) } };
-        }
-
-        // Show one level at a time. Ninety 170-pixel cards cannot fit into a
-        // 1120-pixel viewport, regardless of the force simulation parameters.
-        var focus = paths.Contains(selectedCategory) ? selectedCategory : "";
-        if (!string.Equals(focus, sphereGraphFocus, StringComparison.CurrentCultureIgnoreCase))
-        {
-            sphereGraphFocus = focus;
-            sphereGraphPage = 0;
-        }
-        var children = paths.Where(path =>
-        {
-            var separator = path.LastIndexOf(" / ", StringComparison.Ordinal);
-            var parent = separator < 0 ? "" : path[..separator];
-            return string.Equals(parent, focus, StringComparison.CurrentCultureIgnoreCase);
-        }).OrderByDescending(path => countFor.GetValueOrDefault(path))
-          .ThenBy(path => path, StringComparer.CurrentCultureIgnoreCase).ToList();
-        const int pageSize = 6;
-        var pageCount = Math.Max(1, (children.Count + pageSize - 1) / pageSize);
-        sphereGraphPage = Math.Clamp(sphereGraphPage, 0, pageCount - 1);
-        var ordered = children.Skip(sphereGraphPage * pageSize).Take(pageSize).ToList();
-
-        const string rootKey = "\u0000__sphere_root__";
-        const double canvasWidth = 1120;
-        const double canvasHeight = 620;
-        const double screenRadius = 238;
-        var center = new System.Windows.Point(canvasWidth / 2, canvasHeight / 2 + 8);
-        var positions = new Dictionary<string, Vector3>(StringComparer.CurrentCultureIgnoreCase);
-        var velocities = new Dictionary<string, Vector3>(StringComparer.CurrentCultureIgnoreCase);
-        var edges = new List<(string Parent, string Child)>();
-
-        // A stable six-position shell leaves enough room for full-size cards.
-        // The viewport still supports zoom, pan and optional rotation.
-        for (var i = 0; i < ordered.Count; i++)
-        {
-            var path = ordered[i];
-            var theta = -Math.PI / 2 + 2 * Math.PI * i / ordered.Count;
-            positions[path] = new Vector3((float)(Math.Cos(theta) * 1.38), (float)(Math.Sin(theta) * 1.13), 0);
-            velocities[path] = Vector3.Zero;
-            edges.Add((rootKey, path));
-        }
-        var rootAnchor = new Vector3(0, 0, 1);
-
-        var canvas = new Canvas { Width = canvasWidth, Height = canvasHeight, Background = new SolidColorBrush(Color.FromRgb(248, 251, 255)) };
-        sphereGraphCanvas = canvas;
-        var globe = new System.Windows.Shapes.Ellipse { Width = screenRadius * 2, Height = screenRadius * 2, Fill = CreateGlobeBrush(), Stroke = new SolidColorBrush(Color.FromRgb(189, 210, 247)), StrokeThickness = 1.5, Opacity = .98, IsHitTestVisible = false };
-        Canvas.SetLeft(globe, center.X - screenRadius); Canvas.SetTop(globe, center.Y - screenRadius); System.Windows.Controls.Panel.SetZIndex(globe, -20); canvas.Children.Add(globe);
-        AddGlobeOrbit(canvas, center, screenRadius, .72, .30, -10);
-        AddGlobeOrbit(canvas, center, screenRadius, .72, .30, 45);
-        AddGlobeOrbit(canvas, center, screenRadius, .30, .72, 0);
-        AddGlobeOrbit(canvas, center, screenRadius, .30, .72, 90);
-
-        var root = CreateSphereNode(rootKey, null, string.IsNullOrEmpty(focus) ? videos.Count : countFor.GetValueOrDefault(focus), true);
-        var rootState = new SphereGraphNode { Key = rootKey, Element = root, Position = rootAnchor, IsRoot = true };
-        sphereGraphNodes[rootKey] = rootState;
-        Canvas.SetLeft(root, center.X - 92); Canvas.SetTop(root, center.Y - 34); System.Windows.Controls.Panel.SetZIndex(root, 100); canvas.Children.Add(root);
-        sphereProjectedPoints[rootKey] = center;
-
-        foreach (var path in ordered)
-        {
-            var node = CreateSphereNode(path, path, countFor.GetValueOrDefault(path), false);
-            var state = new SphereGraphNode { Key = path, Path = path, Element = node, Position = positions[path], Velocity = velocities[path] };
-            sphereGraphNodes[path] = state;
-            canvas.Children.Add(node);
-        }
-        foreach (var edge in edges)
-        {
-            var line = new System.Windows.Shapes.Line { Stroke = new SolidColorBrush(Color.FromRgb(156, 185, 230)), StrokeThickness = 1.4, StrokeDashArray = [4, 4], Opacity = .62, IsHitTestVisible = false };
-            sphereGraphEdges.Add(new SphereGraphEdge { ParentKey = edge.Parent, ChildKey = edge.Child, Line = line });
-            canvas.Children.Insert(0, line);
-        }
-        ProjectSphereGraph(center, screenRadius);
-
-        // Keep the graph inside its viewport. Render transforms change the
-        // visible camera without making the surrounding page grow or scroll.
-        var scroll = new ScrollViewer { Height = sphereManualViewportHeight ?? Math.Clamp(ActualHeight * .62, 320, 690), HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, CanContentScroll = false, PanningMode = PanningMode.None, Background = new SolidColorBrush(Color.FromRgb(248, 251, 255)), Content = canvas, ClipToBounds = true };
-        var camera = new TransformGroup();
-        sphereGraphScale = new ScaleTransform(1, 1);
-        sphereGraphTranslation = new TranslateTransform();
-        camera.Children.Add(sphereGraphScale);
-        camera.Children.Add(sphereGraphTranslation);
-        canvas.RenderTransform = camera;
-        sphereGraphViewport = scroll;
-        scroll.SizeChanged += (_, _) => UpdateSphereViewport();
-        scroll.PreviewMouseWheel += SphereGraphMouseWheel;
-        scroll.PreviewMouseDown += SphereGraphMouseDown;
-        scroll.PreviewMouseMove += SphereGraphMouseMove;
-        scroll.PreviewMouseUp += SphereGraphMouseUp;
-        scroll.LostMouseCapture += (_, _) => EndSpherePan();
-        void ResizeViewport() => scroll.Height = sphereManualViewportHeight ?? Math.Clamp(ActualHeight * .62, 320, 690);
-        SizeChangedEventHandler resizeWindow = (_, _) => ResizeViewport();
-        scroll.Loaded += (_, _) => { SizeChanged += resizeWindow; ResizeViewport(); UpdateSphereViewport(); };
-        scroll.Unloaded += (_, _) => SizeChanged -= resizeWindow;
-        var header = new DockPanel { Margin = new Thickness(10, 0, 10, 10), LastChildFill = true };
-        sphereRotationButton = new Button { Content = "▶  开始旋转", Style = (Style)FindResource("Action"), Padding = new Thickness(11, 0, 11, 0), Margin = new Thickness(8, 0, 0, 0), ToolTip = "开始或暂停球形视图旋转" };
-        sphereRotationButton.Click += ToggleSphereRotation;
-        DockPanel.SetDock(sphereRotationButton, Dock.Right); header.Children.Add(sphereRotationButton);
-        var zoomControls = new StackPanel { Orientation = Orientation.Horizontal };
-        Button ZoomButton(string text, string tip, Action click)
-        {
-            var button = new Button { Content = text, Style = (Style)FindResource("Action"), Padding = new Thickness(9, 0, 9, 0), Margin = new Thickness(4, 0, 0, 0), ToolTip = tip };
-            button.Click += (_, _) => click();
-            zoomControls.Children.Add(button);
-            return button;
-        }
-        ZoomButton("−", "缩小分类图", () => ZoomSphereGraph(1 / 1.2));
-        sphereZoomLabel = new TextBlock { Text = "100%", Width = 44, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = new SolidColorBrush(Color.FromRgb(74, 96, 145)) };
-        zoomControls.Children.Add(sphereZoomLabel);
-        ZoomButton("+", "放大分类图", () => ZoomSphereGraph(1.2));
-        ZoomButton("适应", "重置缩放和位置", ResetSphereGraphView);
-        if (!string.IsNullOrEmpty(focus)) ZoomButton("返回上级", "查看上一级分类", () =>
-        {
-            var separator = focus.LastIndexOf(" / ", StringComparison.Ordinal);
-            selectedCategory = separator < 0 ? "全部" : focus[..separator];
-            pageIndex = 0; RenderCards();
-        });
-        if (pageCount > 1)
-        {
-            ZoomButton($"{sphereGraphPage + 1}/{pageCount}  下一组", "查看同级的其他分类", () =>
-            {
-                sphereGraphPage = (sphereGraphPage + 1) % pageCount;
-                lastCategoryRenderVersion = -1;
-                RenderCategories();
-            });
-        }
-        DockPanel.SetDock(zoomControls, Dock.Right); header.Children.Add(zoomControls);
-        var title = new StackPanel(); title.Children.Add(new TextBlock { Text = "球形分类图 · " + (string.IsNullOrEmpty(focus) ? "全部分类" : focus), FontWeight = FontWeights.SemiBold, FontSize = 15, Foreground = new SolidColorBrush(Color.FromRgb(57, 79, 133)), TextTrimming = TextTrimming.CharacterEllipsis }); title.Children.Add(new TextBlock { Text = $"本层 {children.Count} 个分类，显示 {ordered.Count} 个 · 点击节点进入下一级 · 中键拖动 · 滚轮缩放", FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(130, 145, 176)), Margin = new Thickness(0, 3, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis }); header.Children.Add(title);
-        var panel = new StackPanel(); panel.Children.Add(header); panel.Children.Add(scroll);
-        var resizeHandle = new Grid { Height = 20, Background = Brushes.Transparent, ToolTip = "上下拖动以调整分类图高度" };
-        resizeHandle.Children.Add(new Border { Width = 44, Height = 4, CornerRadius = new CornerRadius(2), Background = new SolidColorBrush(Color.FromRgb(177, 193, 222)), HorizontalAlignment = System.Windows.HorizontalAlignment.Center, VerticalAlignment = System.Windows.VerticalAlignment.Center, IsHitTestVisible = false });
-        var resizeThumb = new System.Windows.Controls.Primitives.Thumb { Background = Brushes.Transparent, Cursor = System.Windows.Input.Cursors.SizeNS };
-        resizeThumb.DragDelta += (_, e) =>
-        {
-            sphereManualViewportHeight = Math.Clamp((sphereManualViewportHeight ?? scroll.ActualHeight) + e.VerticalChange, 260, 1000);
-            scroll.Height = sphereManualViewportHeight.Value;
-        };
-        resizeHandle.Children.Add(resizeThumb);
-        panel.Children.Add(resizeHandle);
-        // Category actions can rebuild this hidden panel while the user is on
-        // the library page (for example after moving a card with the context
-        // menu). Do not leave a 60 ms animation timer running off-screen; it
-        // needlessly consumes UI time and makes large libraries feel sticky.
-        if (view == "categories" && sphereRotationEnabled) sphereGraphTimer.Start();
-        return new Border { Background = Brushes.White, BorderBrush = new SolidColorBrush(Color.FromRgb(216, 228, 248)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(20), Padding = new Thickness(10), Margin = new Thickness(0, 5, 0, 16), Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 18, ShadowDepth = 3, Opacity = .1 }, Child = panel };
-    }
-
-    static System.Windows.Media.Brush CreateGlobeBrush()
-    {
-        var brush = new RadialGradientBrush { Center = new System.Windows.Point(.34, .28), GradientOrigin = new System.Windows.Point(.28, .22), RadiusX = .82, RadiusY = .82 };
-        brush.GradientStops.Add(new GradientStop(Color.FromArgb(235, 244, 249, 255), 0));
-        brush.GradientStops.Add(new GradientStop(Color.FromArgb(210, 213, 229, 255), .48));
-        brush.GradientStops.Add(new GradientStop(Color.FromArgb(185, 181, 198, 245), 1));
-        return brush;
-    }
-
-    static void AddGlobeOrbit(Canvas canvas, System.Windows.Point center, double radius, double widthFactor, double heightFactor, double angle)
-    {
-        var orbit = new System.Windows.Shapes.Ellipse { Width = radius * 2 * widthFactor, Height = radius * 2 * heightFactor, Stroke = new SolidColorBrush(Color.FromArgb(95, 117, 151, 206)), StrokeThickness = 1, StrokeDashArray = [3, 4], IsHitTestVisible = false, RenderTransform = new RotateTransform(angle) };
-        orbit.RenderTransformOrigin = new System.Windows.Point(.5, .5);
-        Canvas.SetLeft(orbit, center.X - orbit.Width / 2); Canvas.SetTop(orbit, center.Y - orbit.Height / 2); System.Windows.Controls.Panel.SetZIndex(orbit, -10); canvas.Children.Add(orbit);
-    }
-
-    Border CreateSphereNode(string key, string? path, int count, bool root)
-    {
-        var card = new Border { Width = root ? 184 : 170, Height = root ? 68 : 64, CornerRadius = new CornerRadius(root ? 20 : 15), Padding = new Thickness(12, 9, 12, 8), Background = root ? new LinearGradientBrush(Color.FromRgb(88, 105, 201), Color.FromRgb(128, 93, 191), 35) : new LinearGradientBrush(Color.FromRgb(247, 250, 255), Color.FromRgb(218, 232, 255), 90), BorderBrush = new SolidColorBrush(root ? Color.FromRgb(76, 91, 173) : Color.FromRgb(181, 207, 247)), BorderThickness = new Thickness(root ? 1.5 : 1), AllowDrop = !root, Tag = key, Cursor = System.Windows.Input.Cursors.Hand, RenderTransform = new ScaleTransform(1, 1), RenderTransformOrigin = new System.Windows.Point(.5, .5), Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = root ? 20 : 12, ShadowDepth = 2, Opacity = root ? .25 : .15 } };
-        var body = new StackPanel(); body.Children.Add(new TextBlock { Text = root ? "✦  全部分类" : "▰  " + path!.Split(" / ").Last(), FontSize = root ? 14 : 12.5, FontWeight = FontWeights.SemiBold, Foreground = root ? Brushes.White : new SolidColorBrush(Color.FromRgb(43, 73, 148)), TextTrimming = TextTrimming.CharacterEllipsis }); body.Children.Add(new TextBlock { Text = root ? $"{count:N0} 部视频  ·  总览" : $"{count:N0} 部视频", FontSize = 10, Foreground = root ? new SolidColorBrush(Color.FromRgb(236, 239, 255)) : new SolidColorBrush(Color.FromRgb(102, 127, 181)), Margin = new Thickness(0, 7, 0, 0) }); if (!root) body.Children.Add(new TextBlock { Text = path, FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(130, 150, 190)), TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 2, 0, 0) }); card.Child = body;
-        if (!root) { card.PreviewMouseLeftButtonDown += GraphNodeMouseDown; card.PreviewMouseLeftButtonUp += GraphNodeMouseUp; card.PreviewMouseMove += GraphNodeMouseMove; card.DragEnter += CategoryDragEnter; card.DragLeave += CategoryDragLeave; card.Drop += CategoryTileDrop; }
-        else { card.PreviewMouseLeftButtonDown += GraphNodeMouseDown; card.PreviewMouseLeftButtonUp += GraphNodeMouseUp; }
-        return card;
-    }
-
-    void ProjectSphereGraph(System.Windows.Point center, double radius)
-    {
-        sphereProjectedPoints.Clear();
-        foreach (var node in sphereGraphNodes.Values)
-        {
-            if (node.IsRoot) { sphereProjectedPoints[node.Key] = center; continue; }
-            var p = node.Position; var cos = Math.Cos(sphereRotation); var sin = Math.Sin(sphereRotation); var x = p.X * cos - p.Y * sin; var y = p.X * sin + p.Y * cos; var point = new System.Windows.Point(center.X + x * radius, center.Y - y * radius * .82); sphereProjectedPoints[node.Key] = point; Canvas.SetLeft(node.Element, point.X - node.Element.Width / 2); Canvas.SetTop(node.Element, point.Y - node.Element.Height / 2); node.Element.Opacity = 1; System.Windows.Controls.Panel.SetZIndex(node.Element, 20);
-        }
-        foreach (var edge in sphereGraphEdges)
-        {
-            if (!sphereProjectedPoints.TryGetValue(edge.ParentKey, out var parent) || !sphereProjectedPoints.TryGetValue(edge.ChildKey, out var child)) continue;
-            edge.Line.X1 = parent.X; edge.Line.Y1 = parent.Y; edge.Line.X2 = child.X; edge.Line.Y2 = child.Y; System.Windows.Controls.Panel.SetZIndex(edge.Line, -1);
-        }
+        categoryPaths = graphIndex.AllCategoryCounts.Keys.Where(x => x is not "未分类" and not "全部").OrderBy(x => x).ToList();
+        CategoryPanel.Children.Add(BuildSphereCategoryGraphV2());
     }
 
     void RotateSphereGraph()
     {
-        if (!sphereRotationEnabled || sphereGraphCanvas is null || sphereGraphNodes.Count == 0) return;
-        sphereRotation += .008;
-        ProjectSphereGraph(new System.Windows.Point(sphereGraphCanvas.Width / 2, sphereGraphCanvas.Height / 2 + 8), 238);
+        if (!sphereRotationEnabled || sphereMapSurface is null || sphereGraphCanvas is null) return;
+        sphereRotation += .012;
+        sphereMapSurface.Rotation = sphereRotation;
+        sphereMapSurface.InvalidateVisual();
     }
 
     void ToggleSphereRotation(object sender, RoutedEventArgs e)
@@ -2241,6 +2008,11 @@ public partial class MainWindow : Window
         var scale = sphereFitScale * sphereZoom;
         sphereGraphScale.ScaleX = scale;
         sphereGraphScale.ScaleY = scale;
+        if (sphereMapSurface is not null && Math.Abs(sphereMapSurface.ZoomLevel - sphereZoom) > .001)
+        {
+            sphereMapSurface.ZoomLevel = sphereZoom;
+            sphereMapSurface.InvalidateVisual();
+        }
         sphereGraphTranslation.X = (width - sphereGraphCanvas.Width * scale) / 2 + spherePanOffset.X;
         sphereGraphTranslation.Y = (height - sphereGraphCanvas.Height * scale) / 2 + spherePanOffset.Y;
         if (sphereZoomLabel is not null) sphereZoomLabel.Text = $"{sphereZoom:P0}";
@@ -3151,7 +2923,7 @@ public partial class MainWindow : Window
         HeaderToggle.Visibility = Visibility.Visible;
         HeaderToggle.Content = "⌃";
         HeaderToggle.ToolTip = "收缩顶部区域";
-        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav })
+        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav })
         {
             button.Visibility = Visibility.Visible;
             button.Width = 60;
@@ -3175,7 +2947,7 @@ public partial class MainWindow : Window
         LogoMark.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
         HeaderToggle.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
         SidebarToggle.Width = collapsed ? 28 : 50;
-        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav })
+        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav })
         {
             button.Width = 60;
             button.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
@@ -3463,7 +3235,7 @@ public partial class MainWindow : Window
         return dialog.ShowDialog() == true ? field.Text.Trim() : null;
     }
 
-    static int LocalScrapeConfidence(VideoItem video, MovieMetadata candidate, out string reason)
+    int LocalScrapeConfidence(VideoItem video, MovieMetadata candidate, out string reason)
     {
         var sourceTitle = AdditionalScrapers.CleanTitle(video.Title).ToLowerInvariant();
         var candidateTitle = AdditionalScrapers.CleanTitle(candidate.Title).ToLowerInvariant();
@@ -3487,6 +3259,12 @@ public partial class MainWindow : Window
             evidence.Add("标题包含关系");
         }
         if ((candidate.Source ?? "").StartsWith("TMDB", StringComparison.OrdinalIgnoreCase)) evidence.Add("公开电影/剧集来源");
+        var folderBonus = GetFolderPersonEvidence(video, candidate, out var folderEvidence);
+        if (folderBonus > 0)
+        {
+            confidence += folderBonus;
+            evidence.Add(folderEvidence);
+        }
         confidence = Math.Clamp(confidence, 8, 98);
         reason = evidence.Count == 0 ? "标题和来源信息不足，建议人工核对" : string.Join("；", evidence);
         return confidence;
@@ -3529,6 +3307,9 @@ public partial class MainWindow : Window
     async Task<AiReviewRecord> BuildScrapeReviewAsync(VideoItem video, MovieMetadata candidate, bool forcePending = false)
     {
         var confidence = Math.Clamp(LocalScrapeConfidence(video, candidate, out var reason) + SourceTrust(candidate.Source), 0, 100);
+        var folderBonus = GetFolderPersonEvidence(video, candidate, out _);
+        var folderHintWouldCrossApproval = folderBonus > 0 && confidence >= ReviewManualThreshold
+            && confidence - folderBonus < ReviewManualThreshold;
         reason += $"；来源权重 +{SourceTrust(candidate.Source)}";
         var verdict = confidence >= ReviewManualThreshold ? "approve" : confidence < ReviewRejectThreshold ? "reject" : "review";
         var model = "local-rules";
@@ -3545,6 +3326,12 @@ public partial class MainWindow : Window
                 Log("AI 可信度评估失败，已使用本地规则：" + ex.Message);
                 model = "local-rules (AI unavailable)";
             }
+        }
+        if (decisionSource == "rules" && folderHintWouldCrossApproval)
+        {
+            confidence = ReviewManualThreshold - 1;
+            verdict = "review";
+            reason += "；目录人物线索仅用于辅助匹配，需人工核对作品";
         }
         if (!candidate.DetailFetched)
         {
@@ -3884,14 +3671,14 @@ public partial class MainWindow : Window
     async void ScrapeVideo(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is not VideoItem video) return;
-        var code = PromptText("JavDB 完整资料搜刮", "确认视频番号：", JavDbScraper.GuessCode(video.Title));
+        var code = PromptText("番号完整资料搜刮", "确认视频番号：", JavDbScraper.GuessCode(video.Title));
         if (string.IsNullOrEmpty(code)) return;
-        PageSubtitle.Text = $"正在从 JavDB 查找 {code}…";
+        PageSubtitle.Text = $"正在从已启用来源查找 {code}…";
         TaskStatusText.Text = $"正在搜刮 {code}";
         Log("开始搜刮：" + code);
         try
         {
-            var record = await JavDbScraper.ScrapeAsync(code, video.Id, DataDir);
+            var record = await ScrapeCodeFromEnabledSourcesAsync(code, video.Id, CancellationToken.None);
             var status = await StoreScrapeReviewAsync(video, record);
             RenderCards();
             TaskStatusText.Text = status == "approved" ? "搜刮完成 · 已自动通过" : status == "rejected" ? "搜刮完成 · AI 否决" : "搜刮完成 · 待人工审核";
@@ -3914,13 +3701,14 @@ public partial class MainWindow : Window
             video = ChooseVideoForTitleScrape();
             if (video is null) return;
         }
-        var title = PromptText("完整资料搜刮", "电影、剧集或 Pornhub 关键词：", AdditionalScrapers.CleanTitle(video.Title));
+        var title = PromptText("完整资料搜刮", "输入作品标题或关键词：", AdditionalScrapers.CleanTitle(video.Title));
         if (string.IsNullOrWhiteSpace(title)) return;
         try
         {
             TaskStatusText.Text = "正在搜索并读取完整资料…";
             var source = ScrapeSourceBox?.SelectedIndex ?? 0;
-            var results = await SearchCandidatesAsync(title, source);
+            var firstCandidates = await SearchCandidatesAsync(title, source);
+            var results = await SearchWithFolderPersonHintAsync(video, title, source, firstCandidates);
             var ranked = results.Select(candidate => (candidate, score: Math.Clamp(LocalScrapeConfidence(video, candidate, out _) + SourceTrust(candidate.Source), 0, 100)))
                 .OrderByDescending(item => item.score).ThenBy(item => item.candidate.Title).Take(12).ToList();
             MovieMetadata? record = ranked.FirstOrDefault().candidate;
@@ -3932,14 +3720,14 @@ public partial class MainWindow : Window
                     MessageBox.Show(this, "没有找到新的候选；已有的视频信息和标签保持不变。", "完整资料搜刮");
                     return;
                 }
-                StoreUnmatchedScrape(video, source switch { 1 => "Pornhub", 2 => "TVmaze", 3 => "全部来源", _ => "TMDB" }, "已查询公开来源，没有找到候选结果。");
+                StoreUnmatchedScrape(video, source switch { 1 => "Pornhub", 2 => "TVmaze", 3 => "全部来源", 4 => "Bangumi", 5 => "JavDB 标题", _ => "TMDB" }, "已查询公开来源，没有找到候选结果。");
                 TaskStatusText.Text = "完整资料搜刮完成 · 未找到匹配，已标记素人";
                 RenderCards();
                 return;
             }
             if (ranked.Count > 1)
             {
-                record = ChooseScrapeCandidate(ranked);
+                record = ChooseScrapeCandidate(video, ranked);
                 if (record is null) { TaskStatusText.Text = "已取消搜刮"; return; }
             }
             var chosen = record;
@@ -3991,7 +3779,13 @@ public partial class MainWindow : Window
     }
     void GpuChanged(object sender, RoutedEventArgs e) { if (!IsLoaded) return; config.GpuThumbnails = GpuBox.IsChecked == true; SaveConfig(); }
     void DisplayModeChanged(object sender, RoutedEventArgs e) { if (!IsLoaded) return; config.ShowAll = ShowAllBox.IsChecked == true; SaveConfig(); if (view is "all" or "recent" or "favorites" or "categories") ShowView(view); }
-    void ExtensionSettingChanged(object sender, RoutedEventArgs e) { if (!IsLoaded) return; config.EnableExtension = ExtensionBox.IsChecked == true; SaveConfig(); onlineReady = false; }
+    void ExtensionSettingChanged(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        config.EnableExtension = ExtensionBox.IsChecked == true;
+        SaveConfig();
+        ExtensionInfo.Text = "扩展开关已保存。重新启动映格后，内嵌浏览器会按新设置加载。";
+    }
     void SaveTmdbToken(object sender, RoutedEventArgs e)
     {
         try { var secret = (ScrapePanel.Visibility == Visibility.Visible ? ScrapeTmdbTokenBox.Password : TmdbTokenBox.Password).Trim(); WindowsCredentialStore.Write("TmdbToken", secret); config.TmdbToken = secret; TmdbTokenBox.Password = secret; ScrapeTmdbTokenBox.Password = secret; SaveConfig(); MessageBox.Show(this, "TMDB 凭据已保存到 Windows 凭据管理器。", "映格视频库"); }
@@ -4036,41 +3830,41 @@ public partial class MainWindow : Window
             await OnlineWeb.EnsureCoreWebView2Async(environment);
             OnlineWeb.ZoomFactor = 0.88;
             OnlineWeb.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
-            OnlineWeb.CoreWebView2.NavigationStarting += (_, args) => OnlineInfo.Text = "正在加载：" + args.Uri;
-            OnlineWeb.CoreWebView2.NavigationCompleted += (_, args) => OnlineInfo.Text = args.IsSuccess ? "页面已加载。" : "页面加载失败，可点击“在 Edge 中打开”。";
+            OnlineWeb.CoreWebView2.NavigationStarting += (_, args) =>
+            {
+                if (Uri.TryCreate(args.Uri, UriKind.Absolute, out var navigated) &&
+                    navigated.Scheme is "https" or "http") onlineUrl = args.Uri;
+                OnlineInfo.Text = "正在加载：" + args.Uri;
+            };
+            OnlineWeb.CoreWebView2.NavigationCompleted += (_, args) => OnlineInfo.Text = args.IsSuccess
+                ? "页面已加载 · " + (airborneWebViewId is not null ? "小电视空降助手已启用" : "空降助手未加载，点击“空降助手设置”查看")
+                : "页面加载失败，可点击“在 Edge 中打开”。";
             OnlineWeb.CoreWebView2.ProcessFailed += (_, _) => OnlineInfo.Text = "网页内核进程异常，可切换到 Edge 打开。";
             OnlineWeb.CoreWebView2.NewWindowRequested += (_, args) =>
             {
                 args.Handled = true;
                 if (Uri.TryCreate(args.Uri, UriKind.Absolute, out var target) && (target.Scheme == Uri.UriSchemeHttps || target.Scheme == Uri.UriSchemeHttp)) OnlineWeb.CoreWebView2.Navigate(args.Uri);
             };
-            if (config.EnableExtension) { var extension = FindAirborneExtension(); if (extension is not null) try { await OnlineWeb.CoreWebView2.Profile.AddBrowserExtensionAsync(extension); ExtensionInfo.Text = "小电视空降助手已加载。"; } catch (Exception ex) { ExtensionInfo.Text = "扩展加载失败：" + ex.Message; } }
+            if (config.EnableExtension) await EnsureAirborneExtensionAsync();
             OnlineWeb.CoreWebView2.Navigate(onlineUrl); onlineReady = true;
         }
         catch (Exception ex) { OnlineInfo.Text = "内嵌浏览器初始化失败，请使用“在 Edge 中打开”：" + ex.Message; }
         finally { onlineInitializing = false; }
     }
-    static string? FindAirborneExtension()
-    {
-        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft\\Edge\\User Data");
-        const string id = "khkeolgobhdoloioehjgfpobjnmagfha";
-        try
-        {
-            return Directory.EnumerateFiles(root, "manifest.json", SearchOption.AllDirectories)
-                .Where(file => file.Contains(id, StringComparison.OrdinalIgnoreCase))
-                .Select(Path.GetDirectoryName).Where(path => path is not null)
-                .OrderByDescending(path => Directory.GetLastWriteTimeUtc(path!)).FirstOrDefault();
-        }
-        catch { return null; }
-    }
     void NavigateOnline(string url) { onlineUrl = url; if (OnlineWeb.CoreWebView2 is not null) OnlineWeb.CoreWebView2.Navigate(url); else _ = InitializeOnlineAsync(); }
     void OpenBilibili(object sender, RoutedEventArgs e) => NavigateOnline("https://www.bilibili.com/");
     void OpenDouyin(object sender, RoutedEventArgs e) => NavigateOnline("https://www.douyin.com/");
     void OpenYoutube(object sender, RoutedEventArgs e) => NavigateOnline("https://www.youtube.com/");
-    void OpenExtensionOptions(object sender, RoutedEventArgs e)
+    async void OpenExtensionOptions(object sender, RoutedEventArgs e)
     {
-        try { Process.Start(new ProcessStartInfo("msedge.exe", "extension://khkeolgobhdoloioehjgfpobjnmagfha/options/options.html#behavior") { UseShellExecute = true }); }
-        catch { Process.Start(new ProcessStartInfo("https://www.bilibili.com/") { UseShellExecute = true }); }
+        if (OnlineWeb.CoreWebView2 is null) { await InitializeOnlineAsync(); return; }
+        if (airborneWebViewId is not null) NavigateAirborneOptions();
+        else if (await ChooseAirborneExtensionFolderAsync())
+        {
+            OnlineInfo.Text = ExtensionInfo.Text;
+            OnlineWeb.CoreWebView2.Navigate(onlineUrl);
+        }
+        else OnlineInfo.Text = ExtensionInfo.Text;
     }
     void OpenOnlineExternally(object sender, RoutedEventArgs e) { try { Process.Start(new ProcessStartInfo(onlineUrl) { UseShellExecute = true }); } catch { } }
     void OnlineZoomOut(object sender, RoutedEventArgs e) { if (OnlineWeb.ZoomFactor > 0.55) OnlineWeb.ZoomFactor -= 0.08; }

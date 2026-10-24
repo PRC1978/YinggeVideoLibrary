@@ -28,7 +28,7 @@ public partial class MainWindow
     void InitializeScrapePollingUi()
     {
         ScrapeBatchButton.Content = "全部符合条件入队";
-        ScrapeBatchButton.ToolTip = "有番号的视频优先使用 JavDB；其他视频按标题搜索公开来源。勾选“仅已选”时只处理选中视频";
+        ScrapeBatchButton.ToolTip = "有番号的视频优先使用启用的番号来源；其他视频按标题搜索公开来源。勾选“仅已选”时只处理选中视频";
         if (ScrapePanel.Child is StackPanel panel)
         {
             var row = new DockPanel { Margin = new Thickness(0, 0, 0, 16), LastChildFill = true };
@@ -84,21 +84,21 @@ public partial class MainWindow
     async void UpdateScrapeQueueStatus()
     {
         var revision = Interlocked.Increment(ref scrapeQueueStatusRevision);
-        List<ScrapeQueueItem> queued;
-        try { queued = await Task.Run(() => ScrapeQueueStore.Load(DataDir)); }
+        (int PendingCount, int FailedCount, DateTimeOffset? NextAttemptAt, List<(string Query, string Error)> FailedExamples) status;
+        try { status = await Task.Run(() => ScrapeQueueStore.GetStatus(DataDir)); }
         catch (Exception ex)
         {
             if (!isClosing) Log("读取搜刮队列状态失败：" + ex.Message);
             return;
         }
         if (isClosing || revision != Interlocked.Read(ref scrapeQueueStatusRevision)) return;
-        var pendingCount = queued.Count(x => !x.Failed);
-        var failedCount = queued.Count - pendingCount;
+        var pendingCount = status.PendingCount;
+        var failedCount = status.FailedCount;
         var active = scrapeQueueTask is { IsCompleted: false } && !scrapeQueuePaused;
-        var next = pendingCount == 0 ? "" : $" · 下次 {queued.Where(x => !x.Failed).Min(x => x.NextAttemptAt).ToLocalTime():HH:mm:ss}";
+        var next = status.NextAttemptAt is null ? "" : $" · 下次 {status.NextAttemptAt.Value.ToLocalTime():HH:mm:ss}";
         if (scrapeQueueInfo is not null)
             scrapeQueueInfo.Text = pendingCount == 0 && failedCount == 0
-                ? "搜刮队列为空。点击“全部符合条件入队”后，有番号的走 JavDB，其余按标题查找，后台逐项处理。"
+                ? "搜刮队列为空。点击“全部符合条件入队”后，有番号的走番号来源，其余按标题查找，后台逐项处理。"
                 : $"待处理 {pendingCount} 项 · 失败 {failedCount} 项 · {(active ? "正在后台轮询" : "已暂停，点击继续才会联网")}{next}"
                   + (pendingCount > 0 ? $" · 最少约 {FormatScrapeMinimumDuration(pendingCount)}（不含网络耗时）" : "");
         var buttonText = active ? "暂停轮询" : "继续轮询";
@@ -112,7 +112,7 @@ public partial class MainWindow
         if (scrapeQueueRetryButton is not null)
         {
             scrapeQueueRetryButton.IsEnabled = failedCount > 0 && !scrapeQueueChanging;
-            scrapeQueueRetryButton.ToolTip = failedCount == 0 ? null : string.Join("\n", queued.Where(x => x.Failed).Take(5).Select(x => $"{x.DisplayQuery}：{x.LastError}"));
+            scrapeQueueRetryButton.ToolTip = failedCount == 0 ? null : string.Join("\n", status.FailedExamples.Select(x => $"{x.Query}：{x.Error}"));
         }
         if (scrapeQueueClearButton is not null)
             scrapeQueueClearButton.IsEnabled = pendingCount > 0 && !scrapeQueueChanging;
@@ -131,7 +131,7 @@ public partial class MainWindow
     {
         if (scrapeQueueChanging) return;
         int pending;
-        try { pending = (await Task.Run(() => ScrapeQueueStore.Load(DataDir))).Count(item => !item.Failed); }
+        try { pending = (await Task.Run(() => ScrapeQueueStore.GetStatus(DataDir))).PendingCount; }
         catch (Exception ex)
         {
             MessageBox.Show(this, "读取搜刮队列失败：" + ex.Message, "取消待处理队列", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -174,7 +174,7 @@ public partial class MainWindow
 
     ScrapeQueueItem? CreateScrapeQueueItem(VideoItem video)
     {
-        var code = JavDbEnabledBox.IsChecked == true ? JavDbScraper.GuessCode(video.Title) : null;
+        var code = HasEnabledCodeSource ? JavDbScraper.GuessCode(video.Title) : null;
         if (!string.IsNullOrWhiteSpace(code))
             return new ScrapeQueueItem { VideoId = video.Id, Kind = "code", Code = code };
         var title = AdditionalScrapers.CleanTitle(video.Title).Trim();
@@ -263,29 +263,38 @@ public partial class MainWindow
                 return;
             }
             Log("后台搜刮轮询已启动");
+            List<VideoItem>? indexedVideos = null;
+            Dictionary<string, VideoItem> videoById = new(StringComparer.OrdinalIgnoreCase);
             while (!isClosing && !scrapeQueuePaused)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var queued = await Task.Run(() => ScrapeQueueStore.Load(DataDir), cancellationToken);
-                var item = queued.Where(x => !x.Failed && (x.Kind == "title" || JavDbEnabledBox.IsChecked == true))
-                    .OrderBy(x => x.NextAttemptAt).FirstOrDefault();
+                var hasEnabledCodeSource = HasEnabledCodeSource;
+                var (item, pendingCount, hasBlocked) = await Task.Run(
+                    () => ScrapeQueueStore.PeekNext(DataDir, hasEnabledCodeSource), cancellationToken);
                 if (item is null)
                 {
-                    if (queued.Any(x => !x.Failed))
+                    if (hasBlocked)
                     {
                         scrapeQueuePaused = true;
-                        TaskStatusText.Text = "剩余任务需启用 JavDB；队列已暂停，任务已保留";
+                        TaskStatusText.Text = "剩余番号任务需启用 JavDB 或 JAVDatabase；队列已暂停，任务已保留";
                     }
                     break;
                 }
                 var delay = item.NextAttemptAt - DateTimeOffset.UtcNow;
                 if (delay > TimeSpan.Zero)
                 {
-                    TaskStatusText.Text = $"搜刮队列 {queued.Count(x => !x.Failed)} 项 · {item.NextAttemptAt.ToLocalTime():HH:mm:ss} 继续";
+                    TaskStatusText.Text = $"搜刮队列 {pendingCount} 项 · {item.NextAttemptAt.ToLocalTime():HH:mm:ss} 继续";
                     await Task.Delay(delay < TimeSpan.FromSeconds(3) ? delay : TimeSpan.FromSeconds(3), cancellationToken);
                     continue;
                 }
-                var video = videos.FirstOrDefault(x => string.Equals(x.Id, item.VideoId, StringComparison.OrdinalIgnoreCase));
+                if (!ReferenceEquals(indexedVideos, videos))
+                {
+                    indexedVideos = videos;
+                    videoById = new Dictionary<string, VideoItem>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var indexedVideo in indexedVideos)
+                        if (!string.IsNullOrWhiteSpace(indexedVideo.Id)) videoById.TryAdd(indexedVideo.Id, indexedVideo);
+                }
+                videoById.TryGetValue(item.VideoId, out var video);
                 if (video is not null && !CanQueueForFullMetadata(video))
                 {
                     await Task.Run(() => ScrapeQueueStore.Remove(DataDir, item.VideoId));
@@ -310,7 +319,7 @@ public partial class MainWindow
                     continue;
                 }
 
-                TaskStatusText.Text = $"轮询搜刮 {item.DisplayQuery} · 队列余 {queued.Count(x => !x.Failed)} 项";
+                TaskStatusText.Text = $"轮询搜刮 {item.DisplayQuery} · 队列余 {pendingCount} 项";
                 try
                 {
                     string status;
@@ -320,7 +329,7 @@ public partial class MainWindow
                     }
                     else
                     {
-                        var candidate = await JavDbScraper.ScrapeAsync(item.Code, item.VideoId, DataDir, cancellationToken);
+                        var candidate = await ScrapeCodeFromEnabledSourcesAsync(item.Code, item.VideoId, cancellationToken);
                         cancellationToken.ThrowIfCancellationRequested();
                         if (!await Task.Run(() => ScrapeQueueStore.HasPending(DataDir, item.VideoId)))
                         {
@@ -366,7 +375,7 @@ public partial class MainWindow
                     }
                     else
                     {
-                        StoreUnmatchedScrape(video, item.Kind == "title" ? "标题搜刮" : "JavDB", ex.Message);
+                        StoreUnmatchedScrape(video, item.Kind == "title" ? "标题搜刮" : "番号来源", ex.Message);
                         await Task.Run(() => ScrapeQueueStore.Remove(DataDir, item.VideoId));
                         rejected++;
                     }

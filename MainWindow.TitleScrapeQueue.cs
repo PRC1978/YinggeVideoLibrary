@@ -16,7 +16,8 @@ public partial class MainWindow
         if (!Regex.IsMatch(title, @"[\u3400-\u9FFF]|\p{L}{2,}"))
             throw new InvalidDataException("文件名缺少可搜索的文字标题；请先手动补充标题后再搜刮。");
 
-        var candidates = await SearchCandidatesAsync(title, 3).WaitAsync(cancellationToken);
+        var firstCandidates = await SearchCandidatesAsync(title, 3).WaitAsync(cancellationToken);
+        var candidates = await SearchWithFolderPersonHintAsync(video, title, 3, firstCandidates, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         if (candidates.Count == 0)
             throw new ScrapeNotFoundException("已查询启用的公开来源，没有找到标题候选。");

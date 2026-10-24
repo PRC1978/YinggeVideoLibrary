@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using TextBox = System.Windows.Controls.TextBox;
+using CheckBox = System.Windows.Controls.CheckBox;
 using Button = System.Windows.Controls.Button;
 using StackPanel = System.Windows.Controls.StackPanel;
 using MessageBox = System.Windows.MessageBox;
@@ -12,14 +13,57 @@ namespace YinggeVideoLibrary;
 public partial class MainWindow
 {
     TextBox? sourceWeightBox;
+    CheckBox? bangumiEnabledBox;
+    CheckBox? javDbTitleEnabledBox;
+    CheckBox? javDatabaseEnabledBox;
+    CheckBox? tvMazeEnabledBox;
 
     void InitializeCandidateSettings()
     {
         if (ScrapePanel.Child is not StackPanel panel) return;
         ScrapeSourceBox.Items.Add(new ComboBoxItem { Content = "全部已启用来源" });
+        ScrapeSourceBox.Items.Add(new ComboBoxItem { Content = "Bangumi 动画 / 真人" });
+        ScrapeSourceBox.Items.Add(new ComboBoxItem { Content = "JavDB 标题" });
+        ScrapeSourceBox.SelectedIndex = 3;
+        JavDbEnabledBox.IsChecked = config.EnableJavDb;
+        PornhubEnabledBox.IsChecked = config.EnablePornhub;
+        TmdbEnabledBox.IsChecked = config.EnableTmdb;
+        var toggleGroup = new StackPanel { Margin = new Thickness(0, 5, 0, 0) };
+        javDatabaseEnabledBox = new CheckBox { Content = "启用 JAVDatabase 番号补充来源", IsChecked = config.EnableJavDatabase, Margin = new Thickness(0, 0, 0, 10) };
+        javDbTitleEnabledBox = new CheckBox { Content = "启用 JavDB 标题候选", IsChecked = config.EnableJavDbTitle, Margin = new Thickness(0, 0, 0, 10) };
+        bangumiEnabledBox = new CheckBox { Content = "启用 Bangumi 动画 / 真人作品", IsChecked = config.EnableBangumi, Margin = new Thickness(0, 0, 0, 10) };
+        tvMazeEnabledBox = new CheckBox { Content = "启用 TVmaze 剧集", IsChecked = config.EnableTvMaze, Margin = new Thickness(0, 0, 0, 10) };
+        foreach (var box in new[] { javDatabaseEnabledBox, javDbTitleEnabledBox, bangumiEnabledBox, tvMazeEnabledBox }) toggleGroup.Children.Add(box);
+        var folderHintBox = new CheckBox
+        {
+            Content = "标题不明确时，参考目录中的人物名字",
+            IsChecked = config.UseFolderPersonHint,
+            Margin = new Thickness(0, 3, 0, 5),
+            ToolTip = "从视频目录向上检查到已添加的库文件夹；只使用判定为人物名的目录名称，不发送完整路径。"
+        };
+        toggleGroup.Children.Add(folderHintBox);
+        panel.Children.Insert(panel.Children.IndexOf(TmdbEnabledBox) + 1, toggleGroup);
+        void SaveSourceToggles(object? _, RoutedEventArgs __)
+        {
+            if (!IsLoaded) return;
+            config.EnableJavDb = JavDbEnabledBox.IsChecked == true;
+            config.EnableJavDatabase = javDatabaseEnabledBox.IsChecked == true;
+            config.EnableJavDbTitle = javDbTitleEnabledBox.IsChecked == true;
+            config.EnableBangumi = bangumiEnabledBox.IsChecked == true;
+            config.EnablePornhub = PornhubEnabledBox.IsChecked == true;
+            config.EnableTmdb = TmdbEnabledBox.IsChecked == true;
+            config.EnableTvMaze = tvMazeEnabledBox.IsChecked == true;
+            config.UseFolderPersonHint = folderHintBox.IsChecked == true;
+            SaveConfig();
+        }
+        foreach (var box in new[] { JavDbEnabledBox, PornhubEnabledBox, TmdbEnabledBox, javDatabaseEnabledBox, javDbTitleEnabledBox, bangumiEnabledBox, tvMazeEnabledBox, folderHintBox })
+        {
+            box.Checked += SaveSourceToggles;
+            box.Unchecked += SaveSourceToggles;
+        }
         var section = new StackPanel { Margin = new Thickness(0, 5, 0, 14) };
         section.Children.Add(new TextBlock { Text = "来源可信度加权（0–30）", FontWeight = FontWeights.SemiBold });
-        sourceWeightBox = new TextBox { Text = string.Join(", ", config.SourceTrustWeights.OrderBy(x => x.Key).Select(x => $"{x.Key}={x.Value}")), Margin = new Thickness(0, 6, 0, 6), ToolTip = "例如 TMDB=12, TVmaze=8, Pornhub=4" };
+        sourceWeightBox = new TextBox { Text = string.Join(", ", config.SourceTrustWeights.OrderBy(x => x.Key).Select(x => $"{x.Key}={x.Value}")), Margin = new Thickness(0, 6, 0, 6), ToolTip = "例如 TMDB=12, JavDB=10, Bangumi=8" };
         section.Children.Add(sourceWeightBox);
         var button = new Button { Content = "保存来源权重", Style = (Style)FindResource("Action"), HorizontalAlignment = System.Windows.HorizontalAlignment.Left };
         button.Click += (_, _) =>
@@ -47,12 +91,16 @@ public partial class MainWindow
         .Where(pair => source.StartsWith(pair.Key, StringComparison.OrdinalIgnoreCase))
         .Select(pair => pair.Value).DefaultIfEmpty(0).Max();
 
-    MovieMetadata? ChooseScrapeCandidate(IReadOnlyList<(MovieMetadata candidate, int score)> candidates)
+    MovieMetadata? ChooseScrapeCandidate(VideoItem video, IReadOnlyList<(MovieMetadata candidate, int score)> candidates)
     {
         var dialog = new Window { Title = "选择搜刮候选", Owner = this, Width = 700, Height = 480, MinWidth = 530,
             MinHeight = 320, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var layout = new DockPanel { Margin = new Thickness(18) };
-        var caption = new TextBlock { Text = "按标题匹配和来源可信度排序。选定候选后会读取来源详情，并在审核资料中展示。", Margin = new Thickness(0, 0, 0, 12), TextWrapping = TextWrapping.Wrap };
+        var person = config.UseFolderPersonHint ? ScrapeSearchHints.FindPersonHint(video.Path, config.Folders) : null;
+        var caption = new TextBlock { Text = person is null
+            ? "按标题匹配和来源可信度排序。选定候选后会读取来源详情，并在审核资料中展示。"
+            : $"按标题和来源排序；已参考目录人物线索「{person}」。选定后会读取详情并核对演员，完整路径不会提交给来源。",
+            Margin = new Thickness(0, 0, 0, 12), TextWrapping = TextWrapping.Wrap };
         DockPanel.SetDock(caption, Dock.Top); layout.Children.Add(caption);
         var footer = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
         var cancel = new Button { Content = "取消", Width = 82, Height = 32, Style = (Style)FindResource("Action") };
@@ -111,19 +159,21 @@ public partial class MainWindow
 
     async Task<List<MovieMetadata>> SearchCandidatesAsync(string title, int selectedSource)
     {
-        var sources = selectedSource == 3 ? new[] { 0, 1, 2 } : new[] { selectedSource };
+        var sources = selectedSource == 3 ? new[] { 0, 1, 2, 4, 5 } : new[] { selectedSource };
         var results = new List<MovieMetadata>();
         var completedSources = 0;
         var failedSources = 0;
         async Task<(string name, IReadOnlyList<MovieMetadata>? found, Exception? error)> QueryAsync(int source)
         {
-            var name = source switch { 1 => "Pornhub", 2 => "TVmaze", _ => "TMDB" };
+            var name = source switch { 1 => "Pornhub", 2 => "TVmaze", 4 => "Bangumi", 5 => "JavDB 标题", _ => "TMDB" };
             try
             {
                 var found = await ScrapeCandidateCache.GetOrFetchAsync(DataDir, name, title, () => source switch
                 {
                     1 => AdditionalScrapers.SearchPornhubAsync(title),
                     2 => AdditionalScrapers.SearchTvMazeAsync(title),
+                    4 => BangumiScraper.SearchAsync(title),
+                    5 => JavDbScraper.SearchTitleAsync(title),
                     _ => AdditionalScrapers.SearchTmdbAsync(title, config.TmdbToken)
                 });
                 return (name, found, null);
@@ -133,7 +183,11 @@ public partial class MainWindow
         var pending = new List<Task<(string name, IReadOnlyList<MovieMetadata>? found, Exception? error)>>();
         foreach (var source in sources)
         {
-            if (selectedSource == 3 && (source == 0 && TmdbEnabledBox.IsChecked != true || source == 1 && PornhubEnabledBox.IsChecked != true)) continue;
+            if (selectedSource == 3 && (source == 0 && TmdbEnabledBox.IsChecked != true ||
+                                        source == 1 && PornhubEnabledBox.IsChecked != true ||
+                                        source == 2 && tvMazeEnabledBox?.IsChecked != true ||
+                                        source == 4 && bangumiEnabledBox?.IsChecked != true ||
+                                        source == 5 && javDbTitleEnabledBox?.IsChecked != true)) continue;
             if (source == 0 && string.IsNullOrWhiteSpace(config.TmdbToken)) continue;
             pending.Add(QueryAsync(source));
         }

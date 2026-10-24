@@ -9,7 +9,10 @@ namespace YinggeVideoLibrary;
 
 public static class AdditionalScrapers
 {
+    const int MaxPosterBytes = 8_000_000;
     static readonly HttpClient Client = new(new HttpClientHandler { AutomaticDecompression = DecompressionMethods.All }) { Timeout = TimeSpan.FromSeconds(18) };
+    // Poster hosts are allowlisted before the request; a redirect must not escape that allowlist.
+    static readonly HttpClient PosterClient = new(new HttpClientHandler { AutomaticDecompression = DecompressionMethods.All, AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(18) };
 
     static string? Text(JsonElement node, string name) => node.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
         ? value.GetString()?.Trim() : null;
@@ -93,10 +96,17 @@ public static class AdditionalScrapers
         using var response = await Client.SendAsync(request);
         response.EnsureSuccessStatusCode();
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        if (!document.RootElement.TryGetProperty("videos", out var videos) || videos.ValueKind != JsonValueKind.Array) return [];
+        return ParsePornhubSearch(document.RootElement);
+    }
+
+    internal static List<MovieMetadata> ParsePornhubSearch(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("videos", out var videos) || videos.ValueKind != JsonValueKind.Array)
+            throw new JsonException("Pornhub 搜索接口未返回 videos 数组；无法确认没有匹配结果。");
         var results = new List<MovieMetadata>();
         foreach (var item in videos.EnumerateArray().Take(15))
         {
+            if (item.ValueKind != JsonValueKind.Object) continue;
             var title = item.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
             var sourceUrl = item.TryGetProperty("url", out var u) ? u.GetString() ?? "" : "";
             var posterUrl = item.TryGetProperty("default_thumb", out var p) ? p.GetString() : null;
@@ -119,6 +129,8 @@ public static class AdditionalScrapers
             result.StampAvailableFields("公开搜索接口");
             results.Add(result);
         }
+        if (videos.GetArrayLength() > 0 && results.Count == 0)
+            throw new JsonException("Pornhub 搜索结果缺少可验证的标题或链接；无法确认没有匹配结果。");
         return results;
     }
 
@@ -174,6 +186,10 @@ public static class AdditionalScrapers
             return await FetchTmdbDetailsAsync(candidate, tmdbToken);
         if (candidate.Source.Equals("TVmaze", StringComparison.OrdinalIgnoreCase))
             return await FetchTvMazeDetailsAsync(candidate);
+        if (candidate.Source.Equals("Bangumi", StringComparison.OrdinalIgnoreCase))
+            return await BangumiScraper.FetchFullDetailsAsync(candidate);
+        if (candidate.Source.Equals("JavDB", StringComparison.OrdinalIgnoreCase))
+            return await JavDbScraper.FetchCandidateDetailsAsync(candidate);
         return candidate.Clone();
     }
 
@@ -287,24 +303,47 @@ public static class AdditionalScrapers
 
     public static async Task DownloadPosterAsync(MovieMetadata record, string videoId, string dataDir)
     {
-        if (!Uri.TryCreate(record.PosterUrl, UriKind.Absolute, out var uri) || uri.Scheme != "https") return;
+        if (!Uri.TryCreate(record.PosterUrl, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps || uri.Port != 443 || uri.UserInfo.Length != 0) return;
         var allowed = record.Source.StartsWith("TMDB", StringComparison.OrdinalIgnoreCase)
             ? uri.Host.Equals("image.tmdb.org", StringComparison.OrdinalIgnoreCase)
             : record.Source.Equals("TVmaze", StringComparison.OrdinalIgnoreCase)
                 ? uri.Host.Equals("static.tvmaze.com", StringComparison.OrdinalIgnoreCase)
-                : uri.Host.EndsWith(".phncdn.com", StringComparison.OrdinalIgnoreCase) || uri.Host.Equals("phncdn.com", StringComparison.OrdinalIgnoreCase);
+                : record.Source.Equals("Bangumi", StringComparison.OrdinalIgnoreCase)
+                    ? uri.Host.Equals("lain.bgm.tv", StringComparison.OrdinalIgnoreCase)
+                    : record.Source.Equals("JavDB", StringComparison.OrdinalIgnoreCase)
+                        ? uri.Host.Equals("jdbstatic.com", StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith(".jdbstatic.com", StringComparison.OrdinalIgnoreCase)
+                        : record.Source.Equals("JAVDatabase", StringComparison.OrdinalIgnoreCase)
+                            ? uri.Host.Equals("www.javdatabase.com", StringComparison.OrdinalIgnoreCase) || uri.Host.Equals("javdatabase.com", StringComparison.OrdinalIgnoreCase) || uri.Host.Equals("pics.dmm.co.jp", StringComparison.OrdinalIgnoreCase)
+                            : record.Source.Equals("Pornhub", StringComparison.OrdinalIgnoreCase) &&
+                              (uri.Host.EndsWith(".phncdn.com", StringComparison.OrdinalIgnoreCase) || uri.Host.Equals("phncdn.com", StringComparison.OrdinalIgnoreCase));
         if (!allowed) return;
         try
         {
-            using var response = await Client.GetAsync(uri);
+            using var response = await PosterClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
             response.EnsureSuccessStatusCode();
-            var bytes = await response.Content.ReadAsByteArrayAsync();
-            if (bytes.Length is < 1 or > 8_000_000 || response.Content.Headers.ContentType?.MediaType?.StartsWith("image/") != true) return;
+            var bytes = await ReadBoundedPosterAsync(response);
+            if (bytes is null) return;
             var folder = Path.Combine(dataDir, "posters"); Directory.CreateDirectory(folder);
             var destination = Path.Combine(folder, videoId + ".jpg");
             await File.WriteAllBytesAsync(destination, bytes);
             record.Poster = destination;
         }
         catch { /* The title remains useful if cover retrieval fails. */ }
+    }
+
+    internal static async Task<byte[]?> ReadBoundedPosterAsync(HttpResponseMessage response, CancellationToken cancellationToken = default)
+    {
+        if (!response.IsSuccessStatusCode || response.Content.Headers.ContentType?.MediaType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) != true
+            || response.Content.Headers.ContentLength > MaxPosterBytes) return null;
+        await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var output = new MemoryStream();
+        var buffer = new byte[64 * 1024];
+        int count;
+        while ((count = await input.ReadAsync(buffer, cancellationToken)) != 0)
+        {
+            if (output.Length + count > MaxPosterBytes) return null;
+            output.Write(buffer, 0, count);
+        }
+        return output.Length > 0 ? output.ToArray() : null;
     }
 }

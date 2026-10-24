@@ -221,11 +221,14 @@ public static class JavDbScraper
     static readonly Regex DetailLabel = new("<strong\\b[^>]*>(?<value>.*?)</strong>", RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
     static readonly Regex DetailValue = new("<(?:span|div)\\b[^>]*class=[\"'][^\"']*\\bvalue\\b[^\"']*[\"'][^>]*>(?<value>.*?)</(?:span|div)>", RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
     static readonly Regex DetailLinks = new("<a\\b[^>]*>(?<value>.*?)</a>", RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    static readonly Regex EmptySearchMessage = new(@"(?:沒有|没有|未能|找不到|未找到|暂无|暫無).{0,24}(?:搜尋結果|搜索结果|影片|视频)|(?:no|zero)\s+(?:matching\s+)?(?:results|videos)(?:\s+found)?", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+    static readonly Regex DetailPath = new(@"^/v/[A-Za-z0-9_-]{2,64}/?$", RegexOptions.Compiled);
     static readonly HttpClient Client = CreateClient();
+    static readonly HttpClient PosterClient = CreateClient(allowRedirect: false);
 
-    static HttpClient CreateClient()
+    static HttpClient CreateClient(bool allowRedirect = true)
     {
-        var handler = new HttpClientHandler { AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli };
+        var handler = new HttpClientHandler { AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli, AllowAutoRedirect = allowRedirect };
         var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36");
         client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("zh-CN,zh;q=0.9");
@@ -238,6 +241,129 @@ public static class JavDbScraper
         if (fc2.Success) return "FC2-PPV-" + fc2.Groups[1].Value;
         var normal = FileCode.Match(filename);
         return normal.Success ? normal.Groups[1].Value.ToUpperInvariant() + "-" + normal.Groups[2].Value : null;
+    }
+
+    // Title searches return review candidates only. They never download a cover
+    // or accept a match automatically: a title alone cannot prove identity.
+    public static async Task<List<MovieMetadata>> SearchTitleAsync(string query, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(query)) throw new ArgumentException("请填写标题关键词。", nameof(query));
+        query = query.Trim();
+        if (query.Length > 200) query = query[..200];
+        var url = "https://javdb.com/search?q=" + Uri.EscapeDataString(query) + "&f=all";
+        using var response = await Client.GetAsync(url, HttpCompletionOption.ResponseContentRead, cancellationToken);
+        EnsureSuccessfulResponse(response);
+        var html = await response.Content.ReadAsStringAsync(cancellationToken);
+        return ParseTitleSearch(html);
+    }
+
+    internal static List<MovieMetadata> ParseTitleSearch(string html)
+    {
+        EnsureReadablePage(html);
+        var cards = Cards.Matches(html);
+        var results = new List<MovieMetadata>(Math.Min(cards.Count, 12));
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Match card in cards)
+        {
+            var href = WebUtility.HtmlDecode(card.Groups["href"].Value);
+            if (!TryCandidateUrl(href, out var sourceUrl) || !seen.Add(sourceUrl)) continue;
+            var title = WebUtility.HtmlDecode(Title.Match(card.Value).Groups["value"].Value.Trim());
+            var number = WebUtility.HtmlDecode(Codes.Match(card.Groups["body"].Value).Groups["code"].Value.Trim());
+            // A missing number or title makes this unsuitable for approval.
+            if (title.Length == 0 || number.Length is < 2 or > 40) continue;
+            var poster = WebUtility.HtmlDecode(Image.Match(card.Groups["body"].Value).Groups["value"].Value.Trim());
+            var candidate = new MovieMetadata
+            {
+                Code = number, Title = title, Source = "JavDB", SourceUrl = sourceUrl,
+                PosterUrl = SafePosterUrl(poster),
+                DetailNote = "搜索摘要；选择候选后读取公开详情，标题匹配须人工审核"
+            };
+            candidate.StampAvailableFields("搜索结果");
+            results.Add(candidate);
+            if (results.Count == 12) break;
+        }
+        if (results.Count > 0) return results;
+        if (cards.Count > 0) throw new InvalidOperationException("JavDB 搜索结果缺少可核对的标题或番号，页面结构可能已变化。");
+
+        // A blank/blocked/changed page is not evidence that the title was not
+        // found. Return an empty list only for a recognizable JavDB empty page.
+        var plain = CleanHtml(html);
+        var looksLikeSearch = html.Contains("javdb", StringComparison.OrdinalIgnoreCase)
+            && html.Contains("/search", StringComparison.OrdinalIgnoreCase);
+        if (looksLikeSearch && EmptySearchMessage.IsMatch(plain)) return results;
+        throw new InvalidOperationException("JavDB 未返回可识别的搜索结果页，无法判断是否没有匹配。");
+    }
+
+    public static async Task<MovieMetadata> FetchCandidateDetailsAsync(MovieMetadata candidate, CancellationToken cancellationToken = default)
+    {
+        if (!string.Equals(candidate.Source, "JavDB", StringComparison.OrdinalIgnoreCase)
+            || !TryCandidateUrl(candidate.SourceUrl, out var detailUrl)
+            || string.IsNullOrWhiteSpace(candidate.Code))
+            throw new InvalidOperationException("JavDB 候选缺少有效的详情链接或番号。");
+        using var response = await Client.GetAsync(detailUrl, HttpCompletionOption.ResponseContentRead, cancellationToken);
+        EnsureSuccessfulResponse(response);
+        var html = await response.Content.ReadAsStringAsync(cancellationToken);
+        EnsureReadablePage(html);
+        var result = ParseJavDbDetails(candidate, html);
+        if (!result.DetailFetched)
+            throw new InvalidOperationException(result.DetailNote?.Contains("不一致", StringComparison.Ordinal) == true
+                ? "JavDB 详情页番号与搜索候选不一致，请人工核对。"
+                : "JavDB 详情页没有可识别的字段，无法确认完整资料。");
+        return result;
+    }
+
+    static void EnsureSuccessfulResponse(HttpResponseMessage response)
+    {
+        if (!response.IsSuccessStatusCode)
+        {
+            var retryHeader = response.Headers.RetryAfter;
+            var retryAfter = retryHeader?.Delta ?? (retryHeader?.Date is DateTimeOffset date ? date - DateTimeOffset.UtcNow : null);
+            throw new ScrapeHttpException($"JavDB 返回 {(int)response.StatusCode}，请稍后重试。", response.StatusCode, retryAfter);
+        }
+        var finalUrl = response.RequestMessage?.RequestUri;
+        if (finalUrl is null || finalUrl.Scheme != Uri.UriSchemeHttps
+            || !finalUrl.Host.Equals("javdb.com", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("JavDB 将请求转向了其他站点，未读取该页面。");
+    }
+
+    static void EnsureReadablePage(string html)
+    {
+        if (string.IsNullOrWhiteSpace(html)) throw new InvalidOperationException("JavDB 返回了空白页面，无法判断匹配情况。");
+        if (html.Contains("Due to copyright restrictions", StringComparison.OrdinalIgnoreCase)
+            || html.Contains("版權限制", StringComparison.OrdinalIgnoreCase)
+            || html.Contains("版权限制", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("JavDB 限制了当前地区的访问，暂时无法搜刮此来源。");
+        var hasSourceContent = Cards.IsMatch(html) || DetailBlocks.IsMatch(html);
+        if (!hasSourceContent && (html.Contains("cf-chl-", StringComparison.OrdinalIgnoreCase)
+            || html.Contains("Just a moment", StringComparison.OrdinalIgnoreCase)
+            || html.Contains("captcha", StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("JavDB 返回了访问验证页面，暂时无法读取公开资料。");
+        if (!hasSourceContent && (html.Contains("age verification", StringComparison.OrdinalIgnoreCase)
+            || html.Contains("age gate", StringComparison.OrdinalIgnoreCase)
+            || html.Contains("年齡驗證", StringComparison.OrdinalIgnoreCase)
+            || html.Contains("年龄验证", StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("JavDB 返回了年龄验证页面，暂时无法读取公开资料。");
+    }
+
+    static bool TryCandidateUrl(string value, out string url)
+    {
+        url = "";
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        if (!Uri.TryCreate(new Uri("https://javdb.com"), value, out var uri)
+            || uri.Scheme != Uri.UriSchemeHttps
+            || !uri.Host.Equals("javdb.com", StringComparison.OrdinalIgnoreCase)
+            || uri.Port != 443 || uri.UserInfo.Length != 0
+            || uri.Query.Length != 0 || uri.Fragment.Length != 0
+            || !DetailPath.IsMatch(uri.AbsolutePath)) return false;
+        url = uri.GetLeftPart(UriPartial.Path);
+        return true;
+    }
+
+    static string? SafePosterUrl(string value)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps) return null;
+        return uri.Host.Equals("jdbstatic.com", StringComparison.OrdinalIgnoreCase)
+            || uri.Host.EndsWith(".jdbstatic.com", StringComparison.OrdinalIgnoreCase) ? uri.ToString() : null;
     }
 
     public static async Task<MovieMetadata> ScrapeAsync(string code, string videoId, string dataDir, CancellationToken cancellationToken = default)
@@ -280,14 +406,14 @@ public static class JavDbScraper
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex) { record.DetailNote = $"详情暂不可读（{ex.GetType().Name}）；当前仅有搜索摘要"; }
         string? poster = null;
-        if (Uri.TryCreate(posterUrl, UriKind.Absolute, out var imageUri) && imageUri.Scheme == Uri.UriSchemeHttps && (imageUri.Host.Equals("jdbstatic.com", StringComparison.OrdinalIgnoreCase) || imageUri.Host.EndsWith(".jdbstatic.com", StringComparison.OrdinalIgnoreCase)))
+        if (Uri.TryCreate(SafePosterUrl(posterUrl), UriKind.Absolute, out var imageUri) && imageUri.Port == 443 && imageUri.UserInfo.Length == 0)
         {
             try
             {
-                using var imageResponse = await Client.GetAsync(imageUri, HttpCompletionOption.ResponseContentRead, cancellationToken);
+                using var imageResponse = await PosterClient.GetAsync(imageUri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
                 imageResponse.EnsureSuccessStatusCode();
-                var bytes = await imageResponse.Content.ReadAsByteArrayAsync(cancellationToken);
-                if (bytes.Length is > 0 and < 8_000_000 && imageResponse.Content.Headers.ContentType?.MediaType?.StartsWith("image/") == true)
+                var bytes = await AdditionalScrapers.ReadBoundedPosterAsync(imageResponse, cancellationToken);
+                if (bytes is not null)
                 {
                     var folder = Path.Combine(dataDir, "posters"); Directory.CreateDirectory(folder);
                     poster = Path.Combine(folder, videoId + ".jpg");

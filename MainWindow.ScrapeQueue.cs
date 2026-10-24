@@ -178,6 +178,8 @@ public partial class MainWindow
         if (!string.IsNullOrWhiteSpace(code))
             return new ScrapeQueueItem { VideoId = video.Id, Kind = "code", Code = code };
         var title = AdditionalScrapers.CleanTitle(video.Title).Trim();
+        if (config.UseFolderPersonHint && ScrapeSearchHints.IsWeakTitle(title))
+            title = ScrapeSearchHints.FindWorkTitleHint(video.Path, config.Folders) ?? title;
         if (title.Length == 0) title = video.Title.Trim();
         return title.Length == 0 ? null : new ScrapeQueueItem { VideoId = video.Id, Kind = "title", SearchTitle = title };
     }

@@ -13,8 +13,10 @@ public partial class MainWindow
     {
         cancellationToken.ThrowIfCancellationRequested();
         var title = AdditionalScrapers.CleanTitle(item.SearchTitle);
+        if (config.UseFolderPersonHint && ScrapeSearchHints.IsWeakTitle(title))
+            title = ScrapeSearchHints.FindWorkTitleHint(video.Path, config.Folders) ?? title;
         if (!Regex.IsMatch(title, @"[\u3400-\u9FFF]|\p{L}{2,}"))
-            throw new InvalidDataException("文件名缺少可搜索的文字标题；请先手动补充标题后再搜刮。");
+            throw new InvalidDataException("文件名和人物目录下的作品目录均缺少可搜索标题；请先手动补充标题后再搜刮。");
 
         var firstCandidates = await SearchCandidatesAsync(title, 3).WaitAsync(cancellationToken);
         var candidates = await SearchWithFolderPersonHintAsync(video, title, 3, firstCandidates, cancellationToken);

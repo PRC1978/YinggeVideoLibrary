@@ -3701,7 +3701,10 @@ public partial class MainWindow : Window
             video = ChooseVideoForTitleScrape();
             if (video is null) return;
         }
-        var title = PromptText("完整资料搜刮", "输入作品标题或关键词：", AdditionalScrapers.CleanTitle(video.Title));
+        var suggestedTitle = AdditionalScrapers.CleanTitle(video.Title);
+        if (config.UseFolderPersonHint && ScrapeSearchHints.IsWeakTitle(suggestedTitle))
+            suggestedTitle = ScrapeSearchHints.FindWorkTitleHint(video.Path, config.Folders) ?? suggestedTitle;
+        var title = PromptText("完整资料搜刮", "输入作品标题或关键词：", suggestedTitle);
         if (string.IsNullOrWhiteSpace(title)) return;
         try
         {

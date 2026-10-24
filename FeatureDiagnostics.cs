@@ -39,6 +39,30 @@ internal static class FeatureDiagnostics
                 && ScrapeSearchHints.FindPersonHint(Path.Combine(hintRoot, "电影", "日本", "1080p", "Title.mp4"), [hintRoot]) is null
                 && ScrapeSearchHints.FindPersonHint(Path.Combine(hintRoot, "rootvideo.mp4"), [hintRoot]) is null
                 && ScrapeSearchHints.FindPersonHint(Path.Combine(hintRoot + "-other", "Ruth_Lee", "Title.mp4"), [hintRoot]) is null;
+            findings["folderSingleTokenCreatorNames"] =
+                ScrapeSearchHints.FindPersonHint(Path.Combine(hintRoot, "ICICIS", "2024", "Example Title.mp4"), [hintRoot]) == "ICICIS"
+                && ScrapeSearchHints.FindPersonHint(Path.Combine(hintRoot, "AsiaXXXTour", "作品", "Example Title.mp4"), [hintRoot]) == "AsiaXXXTour";
+            findings["folderSingleTokenGenericWordsRejected"] =
+                ScrapeSearchHints.FindPersonHint(Path.Combine(hintRoot, "COSPLAY", "Example Title.mp4"), [hintRoot]) is null
+                && ScrapeSearchHints.FindPersonHint(Path.Combine(hintRoot, "TRAVEL", "Example Title.mp4"), [hintRoot]) is null
+                && ScrapeSearchHints.FindPersonHint(Path.Combine(hintRoot, "Video", "Example Title.mp4"), [hintRoot]) is null;
+            var numberedInWork = Path.Combine(hintRoot, "ICICIS", "作品标题", "子目录", "1.mp4");
+            var numberedInNamedWork = Path.Combine(hintRoot, "人物名", "作品标题", "子目录", "1.mp4");
+            var numberedUnderCategory = Path.Combine(hintRoot, "电影", "日本", "作品标题", "1.mp4");
+            findings["folderHierarchySeparatesPersonAndWork"] =
+                ScrapeSearchHints.FindPersonHint(numberedInWork, [hintRoot]) == "ICICIS"
+                && ScrapeSearchHints.FindWorkTitleHint(numberedInWork, [hintRoot]) == "作品标题"
+                && ScrapeSearchHints.FindPersonHint(numberedInNamedWork, [hintRoot]) == "人物名"
+                && ScrapeSearchHints.FindWorkTitleHint(numberedInNamedWork, [hintRoot]) == "作品标题"
+                && ScrapeSearchHints.FindWorkTitleHint(Path.Combine(hintRoot, "ICICIS", "作品标题", "Video_0001.mp4"), [hintRoot]) == "作品标题"
+                && ScrapeSearchHints.FindPersonHint(Path.Combine(hintRoot, "@月暖如若音", "清晨之梦", "子目录", "1.mp4"), [hintRoot]) == "月暖如若音"
+                && ScrapeSearchHints.FindWorkTitleHint(Path.Combine(hintRoot, "@月暖如若音", "清晨之梦", "子目录", "1.mp4"), [hintRoot]) == "清晨之梦";
+            findings["folderWorkTitleNeedsReliablePerson"] =
+                ScrapeSearchHints.FindWorkTitleHint(numberedUnderCategory, [hintRoot]) is null
+                && ScrapeSearchHints.FindWorkTitleHint(Path.Combine(hintRoot, "ICICIS", "作品标题", "1.mp4"), [hintRoot + "-other"]) is null
+                && ScrapeSearchHints.FindWorkTitleHint(Path.Combine(hintRoot, "ICICIS", "作品标题", "Proper Name.mp4"), [hintRoot]) is null
+                && ScrapeSearchHints.IsWeakTitle("Video_0001")
+                && !ScrapeSearchHints.IsWeakTitle("Example Title");
             var queueDirectory = Path.Combine(directory, "scrape-queue");
             var mixedJobs = Enumerable.Range(0, 1001).Select(index => new ScrapeQueueItem
             {

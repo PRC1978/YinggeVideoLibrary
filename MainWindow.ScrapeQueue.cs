@@ -94,6 +94,7 @@ public partial class MainWindow
     {
         try
         {
+            if (!ReadScrapeFilterSettings()) return;
             if (JavDbEnabledBox.IsChecked != true)
             {
                 MessageBox.Show(this, "请先在“搜刮”页启用 JavDB 番号搜刮。", "映格视频库", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -102,6 +103,8 @@ public partial class MainWindow
             var queued = ScrapeQueueStore.Load(DataDir);
             var known = queued.Select(x => x.VideoId).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var pending = videos.Where(v => !metadata.ContainsKey(v.Id) && !config.AiReviews.ContainsKey(v.Id) && !known.Contains(v.Id))
+                .Where(v => scrapeOnlySelectedBox?.IsChecked != true || selectedVideoIds.Contains(v.Id))
+                .Where(v => ScrapeSkipReason(v) is null)
                 .Select(v => new ScrapeQueueItem { VideoId = v.Id, Code = JavDbScraper.GuessCode(v.Title) ?? "" })
                 .Where(x => x.Code.Length > 0).Take(MaxScrapeRequestsPerClick).ToList();
             if (pending.Count == 0 && queued.All(x => x.Failed))
@@ -203,6 +206,13 @@ public partial class MainWindow
                     UpdateScrapeQueueStatus();
                     continue;
                 }
+                if (ScrapeSkipReason(video) is { } skipReason)
+                {
+                    ScrapeQueueStore.Remove(DataDir, item.VideoId);
+                    Log($"已跳过搜刮：{video.Title} · {skipReason}");
+                    UpdateScrapeQueueStatus();
+                    continue;
+                }
 
                 TaskStatusText.Text = $"轮询搜刮 {item.Code} · 队列余 {queued.Count(x => !x.Failed)} 项";
                 try
@@ -218,6 +228,12 @@ public partial class MainWindow
                     if (view == "scrape") RefreshReviewQueue();
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                catch (ScrapeNotFoundException ex)
+                {
+                    StoreUnmatchedScrape(video, "JavDB", ex.Message);
+                    ScrapeQueueStore.Remove(DataDir, item.VideoId);
+                    rejected++;
+                }
                 catch (Exception ex)
                 {
                     var retry = IsTemporaryScrapeFailure(ex) && item.Attempts + 1 < MaxScrapeAttempts;

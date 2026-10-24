@@ -121,6 +121,8 @@ public sealed class ScrapeHttpException(string message, HttpStatusCode statusCod
     public TimeSpan? RetryAfter { get; } = retryAfter;
 }
 
+public sealed class ScrapeNotFoundException(string message) : Exception(message);
+
 public static class JavDbScraper
 {
     static readonly Regex Cards = new("<a\\s+href=\"(?<href>/v/[^\"]+)\"\\s+class=\"box\"[^>]*>(?<body>.*?)</a>", RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -166,7 +168,11 @@ public static class JavDbScraper
             var number = Codes.Match(card.Groups["body"].Value);
             if (number.Success && string.Equals(WebUtility.HtmlDecode(number.Groups["code"].Value.Trim()), code, StringComparison.OrdinalIgnoreCase)) { matched = card; break; }
         }
-        if (matched is null) throw new InvalidOperationException("JavDB 没有找到完全匹配的番号，或页面结构已变化。");
+        if (matched is null)
+        {
+            if (Cards.Matches(html).Count > 0) throw new ScrapeNotFoundException("JavDB 返回了结果，但没有完全匹配的番号。");
+            throw new InvalidOperationException("JavDB 没有返回可识别的结果，可能无结果或页面结构已变化。");
+        }
         var title = WebUtility.HtmlDecode(Title.Match(matched.Value).Groups["value"].Value.Trim());
         if (title.Length == 0) title = code;
         var detail = new Uri(new Uri("https://javdb.com"), matched.Groups["href"].Value).ToString();

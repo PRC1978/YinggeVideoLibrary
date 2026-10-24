@@ -28,8 +28,21 @@ public partial class MainWindow
         AiEndpoint = source.AiEndpoint,
         AiModel = source.AiModel,
         AiKey = source.AiKey,
+        AiDailyBudgetUsd = source.AiDailyBudgetUsd,
+        AiInputUsdPerMillion = source.AiInputUsdPerMillion,
+        AiOutputUsdPerMillion = source.AiOutputUsdPerMillion,
+        AiMaxOutputTokens = source.AiMaxOutputTokens,
+        AiRequestIntervalMs = source.AiRequestIntervalMs,
         AiReviews = source.AiReviews.ToDictionary(pair => pair.Key, pair => CloneReview(pair.Value), StringComparer.OrdinalIgnoreCase),
         SearchHistory = [.. source.SearchHistory]
+        ,SourceTrustWeights = new Dictionary<string, int>(source.SourceTrustWeights, StringComparer.OrdinalIgnoreCase)
+        ,SmartFilters = new Dictionary<string, string>(source.SmartFilters, StringComparer.CurrentCultureIgnoreCase)
+        ,AutoAmateurTags = [.. source.AutoAmateurTags]
+        ,ScrapeExcludedFolders = [.. source.ScrapeExcludedFolders]
+        ,ScrapeFilenameContains = source.ScrapeFilenameContains
+        ,ScrapeSkipTags = source.ScrapeSkipTags
+        ,ScrapeSkipWatched = source.ScrapeSkipWatched
+        ,ScrapeMinSizeMb = source.ScrapeMinSizeMb
     };
 
     static AiReviewRecord CloneReview(AiReviewRecord review) => new()
@@ -74,6 +87,14 @@ public partial class MainWindow
             CategoryRenames = MergeMap(baseline.CategoryRenames, current.CategoryRenames, latest.CategoryRenames, StringComparer.CurrentCultureIgnoreCase),
             CustomPosters = MergeMap(baseline.CustomPosters, current.CustomPosters, latest.CustomPosters, StringComparer.OrdinalIgnoreCase),
             AiReviews = MergeMap(baseline.AiReviews, current.AiReviews, latest.AiReviews, StringComparer.OrdinalIgnoreCase),
+            SourceTrustWeights = MergeMap(baseline.SourceTrustWeights, current.SourceTrustWeights, latest.SourceTrustWeights, StringComparer.OrdinalIgnoreCase),
+            SmartFilters = MergeMap(baseline.SmartFilters, current.SmartFilters, latest.SmartFilters, StringComparer.CurrentCultureIgnoreCase),
+            AutoAmateurTags = MergeList(baseline.AutoAmateurTags, current.AutoAmateurTags, latest.AutoAmateurTags, StringComparer.OrdinalIgnoreCase),
+            ScrapeExcludedFolders = MergeList(baseline.ScrapeExcludedFolders, current.ScrapeExcludedFolders, latest.ScrapeExcludedFolders, StringComparer.OrdinalIgnoreCase),
+            ScrapeFilenameContains = MergeScalar(baseline.ScrapeFilenameContains, current.ScrapeFilenameContains, latest.ScrapeFilenameContains) ?? "",
+            ScrapeSkipTags = MergeScalar(baseline.ScrapeSkipTags, current.ScrapeSkipTags, latest.ScrapeSkipTags) ?? "",
+            ScrapeSkipWatched = MergeScalar(baseline.ScrapeSkipWatched, current.ScrapeSkipWatched, latest.ScrapeSkipWatched),
+            ScrapeMinSizeMb = MergeScalar(baseline.ScrapeMinSizeMb, current.ScrapeMinSizeMb, latest.ScrapeMinSizeMb),
             Player = MergeScalar(baseline.Player, current.Player, latest.Player) ?? "",
             AutoCategorize = MergeScalar(baseline.AutoCategorize, current.AutoCategorize, latest.AutoCategorize),
             ShowAll = MergeScalar(baseline.ShowAll, current.ShowAll, latest.ShowAll),
@@ -83,7 +104,12 @@ public partial class MainWindow
             GpuThumbnails = MergeScalar(baseline.GpuThumbnails, current.GpuThumbnails, latest.GpuThumbnails),
             AiEndpoint = MergeScalar(baseline.AiEndpoint, current.AiEndpoint, latest.AiEndpoint) ?? "",
             AiModel = MergeScalar(baseline.AiModel, current.AiModel, latest.AiModel) ?? "",
-            AiKey = MergeScalar(baseline.AiKey, current.AiKey, latest.AiKey) ?? ""
+            AiKey = MergeScalar(baseline.AiKey, current.AiKey, latest.AiKey) ?? "",
+            AiDailyBudgetUsd = MergeScalar(baseline.AiDailyBudgetUsd, current.AiDailyBudgetUsd, latest.AiDailyBudgetUsd),
+            AiInputUsdPerMillion = MergeScalar(baseline.AiInputUsdPerMillion, current.AiInputUsdPerMillion, latest.AiInputUsdPerMillion),
+            AiOutputUsdPerMillion = MergeScalar(baseline.AiOutputUsdPerMillion, current.AiOutputUsdPerMillion, latest.AiOutputUsdPerMillion),
+            AiMaxOutputTokens = MergeScalar(baseline.AiMaxOutputTokens, current.AiMaxOutputTokens, latest.AiMaxOutputTokens),
+            AiRequestIntervalMs = MergeScalar(baseline.AiRequestIntervalMs, current.AiRequestIntervalMs, latest.AiRequestIntervalMs)
         };
         if (merged.Folders.Count > 0) merged.FoldersClearedByUser = false;
         return merged;

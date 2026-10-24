@@ -134,7 +134,7 @@ public partial class MainWindow
         }
     }
 
-    public async Task<int> WriteHiddenStartupDiagnosticAsync(string destination, bool verifyGraph = false)
+    public async Task<int> WriteHiddenStartupDiagnosticAsync(string destination, bool verifyGraph = false, bool verifyScrape = false)
     {
         for (var attempt = 0; attempt < 120 && cacheStartupDiagnostic.Stage is not ("refresh finished" or "index error" or "ui startup exception"); attempt++)
             await Task.Delay(250);
@@ -147,6 +147,16 @@ public partial class MainWindow
                 var viewport = sphereGraphViewport ?? throw new InvalidOperationException("分类图视口未创建");
                 if (sphereGraphNodes.Count == 0 || viewport.ActualWidth < 100 || viewport.ActualHeight < 100)
                     throw new InvalidOperationException("分类图节点或可视区域未完成布局");
+                if (sphereGraphNodes.Count > 7 || sphereGraphTimer.IsEnabled)
+                    throw new InvalidOperationException("分类图仍在一次绘制过多节点，或默认旋转占用界面线程");
+                var visibleCards = sphereGraphNodes.Values.Select(node => new System.Windows.Rect(
+                    System.Windows.Controls.Canvas.GetLeft(node.Element),
+                    System.Windows.Controls.Canvas.GetTop(node.Element),
+                    node.Element.Width, node.Element.Height)).ToList();
+                for (var i = 0; i < visibleCards.Count; i++)
+                    for (var j = i + 1; j < visibleCards.Count; j++)
+                        if (visibleCards[i].IntersectsWith(visibleCards[j]))
+                            throw new InvalidOperationException($"分类图节点重叠：{i} 和 {j}");
                 ZoomSphereGraph(1.2);
                 if (sphereZoom <= 1) throw new InvalidOperationException("分类图放大操作失败");
                 ResetSphereGraphView();
@@ -163,6 +173,20 @@ public partial class MainWindow
                 if (viewport.ActualHeight <= oldHeight)
                     throw new InvalidOperationException("分类图高度调整失败");
                 RecordCacheDiagnostic("graph verified", $"节点 {sphereGraphNodes.Count}，视口 {viewport.ActualWidth:F0}×{viewport.ActualHeight:F0}，缩放、平移和调高正常");
+            }
+            if (verifyScrape)
+            {
+                ShowView("scrape");
+                await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
+                if (ScrapeBatchButton.Parent is not System.Windows.Controls.WrapPanel)
+                    throw new InvalidOperationException("批量搜刮按钮未移动到搜刮页");
+                if (scrapeExcludedList is null || scrapeKeywordBox is null || scrapeSkipWatchedBox is null)
+                    throw new InvalidOperationException("搜刮筛选控件未创建");
+                var navTop = OnlineNav.TranslatePoint(new System.Windows.Point(0, 0), Sidebar).Y;
+                var settingsTop = SettingsNav.TranslatePoint(new System.Windows.Point(0, 0), Sidebar).Y;
+                if (navTop + OnlineNav.ActualHeight > settingsTop)
+                    throw new InvalidOperationException("在线按钮被底部设置按钮遮挡");
+                RecordCacheDiagnostic("scrape ui verified", $"批量入口与跳过条件已显示；在线按钮底部 {navTop + OnlineNav.ActualHeight:F0}，设置按钮顶部 {settingsTop:F0}");
             }
             RecordCacheDiagnostic("hidden startup probe", $"完成后的阶段：{cacheStartupDiagnostic.Stage}");
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(destination))!);

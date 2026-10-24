@@ -53,7 +53,7 @@ public partial class App : System.Windows.Application
             };
             MainWindow = probeWindow;
             probeWindow.Show();
-            var result = await probeWindow.WriteHiddenStartupDiagnosticAsync(e.Args[1], e.Args.Length > 2 && e.Args[2] == "--categories", e.Args.Length > 2 && e.Args[2] == "--scrape");
+            var result = await probeWindow.WriteHiddenStartupDiagnosticAsync(e.Args[1], e.Args.Length > 2 && e.Args[2] == "--categories", e.Args.Length > 2 && e.Args[2] == "--scrape", e.Args.Length > 2 && e.Args[2] == "--settings");
             probeWindow.Close();
             Shutdown(result);
             return;

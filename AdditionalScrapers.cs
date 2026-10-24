@@ -67,7 +67,7 @@ public static class AdditionalScrapers
                 var year = entry.TryGetProperty(dateName, out var date) ? (date.GetString() ?? "") : "";
                 if (year.Length >= 4) year = year[..4];
                 var posterPath = entry.TryGetProperty("poster_path", out var poster) && poster.ValueKind == JsonValueKind.String ? poster.GetString() : null;
-                results.Add(new MovieMetadata {
+                var result = new MovieMetadata {
                     Title = year.Length == 4 ? $"{title} ({year})" : title, Code = "",
                     Source = type == "movie" ? "TMDB 电影" : "TMDB 剧集",
                     SourceUrl = $"https://www.themoviedb.org/{type}/{id}",
@@ -77,7 +77,9 @@ public static class AdditionalScrapers
                     Rating = Rating(entry, "vote_average", "vote_count"),
                     Language = Text(entry, "original_language"),
                     DetailNote = "搜索摘要；选择后将读取完整详情"
-                });
+                };
+                result.StampAvailableFields("搜索结果");
+                results.Add(result);
             }
         }
         return results;
@@ -114,6 +116,7 @@ public static class AdditionalScrapers
                 var value = rating.ValueKind == JsonValueKind.String ? rating.GetString() : rating.ValueKind == JsonValueKind.Number ? rating.ToString() : null;
                 if (!string.IsNullOrWhiteSpace(value)) result.Rating = value.Trim();
             }
+            result.StampAvailableFields("公开搜索接口");
             results.Add(result);
         }
         return results;
@@ -132,12 +135,14 @@ public static class AdditionalScrapers
             var id = show.TryGetProperty("id", out var idValue) ? idValue.GetInt32() : 0;
             var image = show.TryGetProperty("image", out var imageNode) && imageNode.ValueKind == JsonValueKind.Object && imageNode.TryGetProperty("original", out var imageUrl) ? imageUrl.GetString() : null;
             if (title.Length == 0 || id == 0) continue;
-            results.Add(new MovieMetadata {
+            var result = new MovieMetadata {
                 Title = title, Source = "TVmaze", SourceUrl = $"https://www.tvmaze.com/shows/{id}", PosterUrl = image,
                 ReleaseDate = Text(show, "premiered"), Genres = NamedArray(show, "genres"),
                 Summary = PlainText(Text(show, "summary")), RuntimeMinutes = PositiveInt(show, "averageRuntime") ?? PositiveInt(show, "runtime"),
                 Language = Text(show, "language"), DetailNote = "搜索摘要；选择后将读取完整详情"
-            });
+            };
+            result.StampAvailableFields("搜索结果");
+            results.Add(result);
         }
         return results;
     }
@@ -226,6 +231,7 @@ public static class AdditionalScrapers
             var key = type == "movie" ? "keywords" : "results";
             record.Keywords = NamedArray(keywords, key);
         }
+        record.RefreshChangedFieldProvenance(candidate, "详情接口");
         record.DetailFetched = true;
         record.DetailNote = "已读取 TMDB 详情和演职员表；来源未提供的字段保持空白";
         return record;
@@ -273,6 +279,7 @@ public static class AdditionalScrapers
                 record.Director = Joined(crew.EnumerateArray().Where(item => string.Equals(Text(item, "type"), "Director", StringComparison.OrdinalIgnoreCase))
                     .Where(item => item.TryGetProperty("person", out _)).Select(item => Text(item.GetProperty("person"), "name") ?? ""));
         }
+        record.RefreshChangedFieldProvenance(candidate, "详情接口");
         record.DetailFetched = true;
         record.DetailNote = "已读取 TVmaze 剧集详情及公开演职员信息；未提供的字段保持空白";
         return record;

@@ -71,6 +71,11 @@ public sealed class LibraryConfig
     [JsonPropertyName("scrapeSkipTags")] public string ScrapeSkipTags { get; set; } = "";
     [JsonPropertyName("scrapeSkipWatched")] public bool ScrapeSkipWatched { get; set; }
     [JsonPropertyName("scrapeMinSizeMb")] public int ScrapeMinSizeMb { get; set; }
+    [JsonPropertyName("updateAutoCheck")] public bool UpdateAutoCheck { get; set; } = true;
+    [JsonPropertyName("updateCheckIntervalHours")] public int UpdateCheckIntervalHours { get; set; } = 12;
+    [JsonPropertyName("scrapeRequestIntervalSeconds")] public double ScrapeRequestIntervalSeconds { get; set; } = 2.5;
+    [JsonPropertyName("scrapeRefreshIncompleteMetadata")] public bool ScrapeRefreshIncompleteMetadata { get; set; }
+    [JsonPropertyName("cardPageSize")] public int CardPageSize { get; set; } = 60;
 }
 
 public sealed class IndexEntry
@@ -203,7 +208,6 @@ public partial class MainWindow : Window
     static readonly SemaphoreSlim IndexWriteGate = new(1, 1);
     static readonly HashSet<string> Extensions = new(StringComparer.OrdinalIgnoreCase) { ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".m4v", ".flv", ".ts", ".mts", ".m2ts", ".webm", ".mpg", ".mpeg", ".vob" };
     readonly string[] playerCandidates = [@"C:\Program Files\DAUM\PotPlayer\PotPlayerMini64.exe", @"C:\Program Files\PotPlayer\PotPlayerMini64.exe", @"C:\Program Files (x86)\DAUM\PotPlayer\PotPlayerMini.exe"];
-    const int PageSize = 60;
     const int ReviewManualThreshold = 80;
     const int ReviewRejectThreshold = 40;
     LibraryConfig config = new();
@@ -320,6 +324,8 @@ public partial class MainWindow : Window
         ExtensionBox.IsChecked = config.EnableExtension;
         AddResetInterfaceAction();
         InitializeUpdateUi();
+        InitializeSettingsOptions();
+        RegroupSettingsPanel();
         SearchBox.ToolTip = "搜索视频 · Ctrl+F 聚焦 · Esc 清空 · F5 刷新 · 支持 标签: 分类: 状态: 文件夹: 收藏";
         SearchBox.ContextMenuOpening += SearchContextMenuOpening;
         UpdateSearchControls();
@@ -440,6 +446,10 @@ public partial class MainWindow : Window
             loaded.ScrapeExcludedFolders ??= [];
             loaded.ScrapeFilenameContains ??= "";
             loaded.ScrapeSkipTags ??= "";
+            loaded.UpdateCheckIntervalHours = Math.Clamp(loaded.UpdateCheckIntervalHours, 1, 168);
+            loaded.ScrapeRequestIntervalSeconds = double.IsFinite(loaded.ScrapeRequestIntervalSeconds)
+                ? Math.Clamp(loaded.ScrapeRequestIntervalSeconds, 2.5, 30) : 2.5;
+            loaded.CardPageSize = loaded.CardPageSize is 30 or 60 or 90 ? loaded.CardPageSize : 60;
             loaded.Folders = loaded.Folders.Where(folder => !string.IsNullOrWhiteSpace(folder)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             if (loaded.Folders.Count > 0) loaded.FoldersClearedByUser = false;
             if (loaded.Folders.Count > 0 && source == "config.json") PreserveGoodConfigSnapshot();
@@ -1321,9 +1331,10 @@ public partial class MainWindow : Window
             if (view == "categories") { CategoryPanel.Visibility = Visibility.Visible; RenderCategories(); LibraryScroll.Visibility = Visibility.Visible; AllListPanel.Visibility = Visibility.Collapsed; }
             else { Dispatcher.BeginInvoke(() => ScheduleVirtualPosters(0, 5)); UpdateSelectionToolbar(); return; }
         }
-        var pages = Math.Max(1, (list.Count + PageSize - 1) / PageSize);
+        var pageSize = config.CardPageSize is 30 or 60 or 90 ? config.CardPageSize : 60;
+        var pages = Math.Max(1, (list.Count + pageSize - 1) / pageSize);
         pageIndex = Math.Clamp(pageIndex, 0, pages - 1);
-        var visible = list.Skip(pageIndex * PageSize).Take(PageSize).ToList();
+        var visible = list.Skip(pageIndex * pageSize).Take(pageSize).ToList();
         pageItems = visible;
         Cards.ItemsSource = visible; CountText.Text = resultSummary;
         Pager.Visibility = pages > 1 ? Visibility.Visible : Visibility.Collapsed;
@@ -3515,14 +3526,14 @@ public partial class MainWindow : Window
         return (Math.Clamp(confidence, 0, 100), verdict, reason.Trim(), string.IsNullOrWhiteSpace(config.AiModel) ? "gpt-4o-mini" : config.AiModel.Trim());
     }
 
-    async Task<AiReviewRecord> BuildScrapeReviewAsync(VideoItem video, MovieMetadata candidate)
+    async Task<AiReviewRecord> BuildScrapeReviewAsync(VideoItem video, MovieMetadata candidate, bool forcePending = false)
     {
         var confidence = Math.Clamp(LocalScrapeConfidence(video, candidate, out var reason) + SourceTrust(candidate.Source), 0, 100);
         reason += $"；来源权重 +{SourceTrust(candidate.Source)}";
         var verdict = confidence >= ReviewManualThreshold ? "approve" : confidence < ReviewRejectThreshold ? "reject" : "review";
         var model = "local-rules";
         var decisionSource = "rules";
-        if (AiRequestQueue.CanUse(config))
+        if (!forcePending && AiRequestQueue.CanUse(config))
         {
             try
             {
@@ -3562,13 +3573,20 @@ public partial class MainWindow : Window
         };
     }
 
-    async Task<string> StoreScrapeReviewAsync(VideoItem video, MovieMetadata candidate)
+    async Task<string> StoreScrapeReviewAsync(VideoItem video, MovieMetadata candidate,
+        bool forcePending = false, CancellationToken cancellationToken = default)
     {
         var reviewBefore = config.AiReviews.TryGetValue(video.Id, out var oldReview)
             ? new Dictionary<string, AiReviewRecord> { [video.Id] = CloneReview(oldReview) }
             : new Dictionary<string, AiReviewRecord>();
         var metadataBefore = new Dictionary<string, MovieMetadata?> { [video.Id] = metadata.TryGetValue(video.Id, out var oldMetadata) ? oldMetadata : null };
-        var review = await BuildScrapeReviewAsync(video, candidate);
+        var review = await BuildScrapeReviewAsync(video, candidate, forcePending);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (forcePending)
+        {
+            review.Status = "pending";
+            review.Reason += "；批量标题匹配需人工核对";
+        }
         config.AiReviews[video.Id] = review;
         if (review.Status == "approved")
         {
@@ -3946,6 +3964,7 @@ public partial class MainWindow : Window
 
     async void CancelBatch(object sender, RoutedEventArgs e)
     {
+        if (scrapeQueueChanging) return;
         if (scrapeQueuePaused)
         {
             await ResumeScrapePollingAsync();

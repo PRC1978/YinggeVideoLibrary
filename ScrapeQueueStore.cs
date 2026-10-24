@@ -3,12 +3,17 @@ using System.Text.Json;
 
 namespace YinggeVideoLibrary;
 
-// Pending requests contain only the local video ID and guessed public code.
+// Pending requests contain the local video ID and a public code or cleaned title.
 // The queue is shared by published copies running under the same Windows user.
 public sealed class ScrapeQueueItem
 {
     public string VideoId { get; set; } = "";
+    // Older queue files do not contain Kind and therefore remain code tasks.
+    public string Kind { get; set; } = "code";
     public string Code { get; set; } = "";
+    public string SearchTitle { get; set; } = "";
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string DisplayQuery => Kind == "title" ? SearchTitle : Code;
     public int Attempts { get; set; }
     public bool Failed { get; set; }
     public DateTimeOffset NextAttemptAt { get; set; } = DateTimeOffset.UtcNow;
@@ -18,7 +23,7 @@ public sealed class ScrapeQueueItem
 public static class ScrapeQueueStore
 {
     static readonly Mutex WriteMutex = new(false, "Local\\YinggeVideoLibrary.ScrapeQueueWrite");
-    static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+    static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = false };
     static string QueuePath(string dataDir) => Path.Combine(dataDir, "scrape-queue.json");
 
     public static List<ScrapeQueueItem> Load(string dataDir)
@@ -38,7 +43,9 @@ public static class ScrapeQueueStore
                 if (!File.Exists(path)) return false;
                 items = JsonSerializer.Deserialize<List<ScrapeQueueItem>>(File.ReadAllText(path));
                 if (items is null) return false;
-                items = items.Where(x => x is not null && !string.IsNullOrWhiteSpace(x.VideoId) && !string.IsNullOrWhiteSpace(x.Code))
+                items = items.Where(x => x is not null && !string.IsNullOrWhiteSpace(x.VideoId)
+                        && (x.Kind == "title" ? !string.IsNullOrWhiteSpace(x.SearchTitle)
+                            : x.Kind == "code" && !string.IsNullOrWhiteSpace(x.Code)))
                     .GroupBy(x => x.VideoId, StringComparer.OrdinalIgnoreCase).Select(g => g.First()).ToList();
                 return true;
             }
@@ -98,6 +105,13 @@ public static class ScrapeQueueStore
         items.RemoveAll(x => string.Equals(x.VideoId, videoId, StringComparison.OrdinalIgnoreCase));
         return 0;
     });
+
+    // Leave failed entries available for inspection and explicit retry. A
+    // completed request has already been removed from this file.
+    public static int ClearPending(string dataDir) => Change(dataDir, items => items.RemoveAll(x => !x.Failed));
+
+    public static bool HasPending(string dataDir, string videoId) => Load(dataDir).Any(item =>
+        !item.Failed && string.Equals(item.VideoId, videoId, StringComparison.OrdinalIgnoreCase));
 
     public static void Reschedule(string dataDir, ScrapeQueueItem retry) => Change(dataDir, items =>
     {

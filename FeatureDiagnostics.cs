@@ -30,14 +30,46 @@ internal static class FeatureDiagnostics
             var first = await ScrapeCandidateCache.GetOrFetchAsync(directory, "test", "query", Fetch);
             var second = await ScrapeCandidateCache.GetOrFetchAsync(directory, "test", "query", Fetch);
             findings["candidateCacheRoundTrip"] = first.Count == 1 && second.Count == 1 && fetches == 1;
+            var queueDirectory = Path.Combine(directory, "scrape-queue");
+            var mixedJobs = Enumerable.Range(0, 1001).Select(index => new ScrapeQueueItem
+            {
+                VideoId = $"video-{index}",
+                Kind = index % 2 == 0 ? "code" : "title",
+                Code = index % 2 == 0 ? $"ABC-{index}" : "",
+                SearchTitle = index % 2 == 0 ? "" : $"测试标题 {index}"
+            }).ToArray();
+            var addedJobs = ScrapeQueueStore.Add(queueDirectory, mixedJobs);
+            var loadedJobs = ScrapeQueueStore.Load(queueDirectory);
+            findings["fullScrapeQueueWithoutBatchCap"] = addedJobs == mixedJobs.Length && loadedJobs.Count == mixedJobs.Length
+                && loadedJobs.Count(item => item.Kind == "title") == 500;
+            ScrapeQueueStore.MarkFailed(queueDirectory, "video-0", "test failure");
+            var canceledJobs = ScrapeQueueStore.ClearPending(queueDirectory);
+            var retainedJobs = ScrapeQueueStore.Load(queueDirectory);
+            findings["clearPendingPreservesFailures"] = canceledJobs == 1000 && retainedJobs.Count == 1
+                && retainedJobs[0].Failed && retainedJobs[0].VideoId == "video-0";
+            File.WriteAllText(Path.Combine(queueDirectory, "scrape-queue.json"),
+                "[{\"VideoId\":\"legacy\",\"Code\":\"ABC-123\"}]");
+            var legacyJobs = ScrapeQueueStore.Load(queueDirectory);
+            findings["legacyCodeQueueCompatibility"] = legacyJobs.Count == 1 && legacyJobs[0].Kind == "code"
+                && legacyJobs[0].DisplayQuery == "ABC-123";
             using (var tmdb = JsonDocument.Parse("""{"title":"示例影片","original_title":"Example","release_date":"2025-06-01","runtime":112,"overview":"剧情介绍","genres":[{"name":"剧情"}],"production_companies":[{"name":"示例片厂"}],"vote_average":7.5,"vote_count":10,"credits":{"cast":[{"name":"演员甲"}],"crew":[{"job":"Director","name":"导演乙"}]},"keywords":{"keywords":[{"name":"关键词"}]}}"""))
             {
-                var candidate = new MovieMetadata { Title = "示例影片", Source = "TMDB 电影" };
+                var candidate = new MovieMetadata { Title = "示例影片", Source = "TMDB 电影", SourceUrl = "https://www.themoviedb.org/movie/1" };
+                candidate.StampAvailableFields("搜索结果");
                 var full = AdditionalScrapers.ParseTmdbDetails(candidate, tmdb.RootElement, "movie");
                 var review = new AiReviewRecord { CandidateTitle = full.Title, CandidateSource = full.Source, CandidateDetails = full };
                 var restored = JsonSerializer.Deserialize<AiReviewRecord>(JsonSerializer.Serialize(review))!.ToMetadata();
                 findings["tmdbFullMetadataReviewRoundTrip"] = restored.DetailFetched && restored.RuntimeMinutes == 112 && restored.Studio == "示例片厂"
                     && restored.Actors.SequenceEqual(["演员甲"]) && restored.Director == "导演乙" && restored.Keywords.SequenceEqual(["关键词"]);
+                var independent = restored.Clone();
+                independent.FieldProvenance[nameof(MovieMetadata.Actors)].Stage = "changed-in-clone";
+                findings["metadataFieldProvenance"] = candidate.FieldProvenance[nameof(MovieMetadata.Title)].Stage == "搜索结果"
+                    && restored.FieldProvenance[nameof(MovieMetadata.Actors)].Stage == "详情接口"
+                    && restored.FieldProvenance[nameof(MovieMetadata.Actors)].SourceUrl == candidate.SourceUrl
+                    && restored.FieldProvenance[nameof(MovieMetadata.Title)].Stage == "详情接口"
+                    && restored.FieldProvenance[nameof(MovieMetadata.Studio)].Source == "TMDB 电影"
+                    && !restored.FieldProvenance.ContainsKey(nameof(MovieMetadata.Series))
+                    && restored.FieldProvenance[nameof(MovieMetadata.Actors)].Stage != independent.FieldProvenance[nameof(MovieMetadata.Actors)].Stage;
                 var detailFetches = 0;
                 async Task<List<MovieMetadata>> FetchDetails() { detailFetches++; await Task.Yield(); return [full]; }
                 var firstDetails = await ScrapeCandidateCache.GetOrFetchAsync(directory, "TMDB 详情", "https://www.themoviedb.org/movie/1", FetchDetails);
@@ -51,11 +83,24 @@ internal static class FeatureDiagnostics
                 findings["tvMazeFullMetadata"] = full.DetailFetched && full.RuntimeMinutes == 42 && full.Summary == "第一季"
                     && full.Studio == "示例台" && full.Country == "英国" && full.Actors.SequenceEqual(["演员丙"]);
             }
-            var javdb = JavDbScraper.ParseJavDbDetails(new MovieMetadata { Code = "ABC-123" },
+            var javdb = JavDbScraper.ParseJavDbDetails(new MovieMetadata { Code = "ABC-123", Source = "JavDB", SourceUrl = "https://javdb.com/v/sample" },
                 "<div class='panel-block'><strong>發行日期:</strong><span class='value'>2025-02-03</span></div>" +
                 "<div class='panel-block'><strong>時長:</strong><span class='value'>120 分鐘</span></div>" +
                 "<div class='panel-block'><strong>演員:</strong><span class='value'><a>演員戊</a></span></div>");
-            findings["javDbDetailMetadata"] = javdb.DetailFetched && javdb.ReleaseDate == "2025-02-03" && javdb.RuntimeMinutes == 120 && javdb.Actors.SequenceEqual(["演員戊"]);
+            findings["javDbDetailMetadata"] = javdb.DetailFetched && javdb.ReleaseDate == "2025-02-03" && javdb.RuntimeMinutes == 120 && javdb.Actors.SequenceEqual(["演員戊"])
+                && javdb.FieldProvenance[nameof(MovieMetadata.Actors)].Source == "JavDB"
+                && javdb.FieldProvenance[nameof(MovieMetadata.Actors)].Stage == "详情页";
+            var searchFields = new MovieMetadata { Title = "剧集", Source = "TVmaze", Genres = ["喜剧"], Summary = "搜索摘要" };
+            searchFields.StampAvailableFields("搜索结果");
+            var refreshedFields = searchFields.Clone();
+            refreshedFields.Genres = [];
+            refreshedFields.Summary = "详情简介";
+            refreshedFields.RefreshChangedFieldProvenance(searchFields, "详情接口");
+            findings["metadataFieldProvenanceStaleField"] = !refreshedFields.FieldProvenance.ContainsKey(nameof(MovieMetadata.Genres))
+                && refreshedFields.FieldProvenance[nameof(MovieMetadata.Title)].Stage == "搜索结果"
+                && refreshedFields.FieldProvenance[nameof(MovieMetadata.Summary)].Stage == "详情接口";
+            var legacyMetadata = JsonSerializer.Deserialize<MovieMetadata>("{\"Title\":\"旧资料\",\"Source\":\"JavDB\"}");
+            findings["legacyMetadataWithoutFieldProvenance"] = legacyMetadata?.FieldProvenance is { Count: 0 };
             using (var listener = new TcpListener(IPAddress.Loopback, 0))
             {
                 listener.Start();

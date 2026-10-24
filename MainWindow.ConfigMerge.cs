@@ -43,6 +43,11 @@ public partial class MainWindow
         ,ScrapeSkipTags = source.ScrapeSkipTags
         ,ScrapeSkipWatched = source.ScrapeSkipWatched
         ,ScrapeMinSizeMb = source.ScrapeMinSizeMb
+        ,UpdateAutoCheck = source.UpdateAutoCheck
+        ,UpdateCheckIntervalHours = source.UpdateCheckIntervalHours
+        ,ScrapeRequestIntervalSeconds = source.ScrapeRequestIntervalSeconds
+        ,ScrapeRefreshIncompleteMetadata = source.ScrapeRefreshIncompleteMetadata
+        ,CardPageSize = source.CardPageSize
     };
 
     static AiReviewRecord CloneReview(AiReviewRecord review) => new()
@@ -54,6 +59,7 @@ public partial class MainWindow
         CandidateSourceUrl = review.CandidateSourceUrl,
         CandidatePoster = review.CandidatePoster,
         CandidatePosterUrl = review.CandidatePosterUrl,
+        CandidateDetails = review.CandidateDetails?.Clone(),
         Confidence = review.Confidence,
         Status = review.Status,
         DecisionSource = review.DecisionSource,
@@ -95,6 +101,11 @@ public partial class MainWindow
             ScrapeSkipTags = MergeScalar(baseline.ScrapeSkipTags, current.ScrapeSkipTags, latest.ScrapeSkipTags) ?? "",
             ScrapeSkipWatched = MergeScalar(baseline.ScrapeSkipWatched, current.ScrapeSkipWatched, latest.ScrapeSkipWatched),
             ScrapeMinSizeMb = MergeScalar(baseline.ScrapeMinSizeMb, current.ScrapeMinSizeMb, latest.ScrapeMinSizeMb),
+            UpdateAutoCheck = MergeScalar(baseline.UpdateAutoCheck, current.UpdateAutoCheck, latest.UpdateAutoCheck),
+            UpdateCheckIntervalHours = MergeScalar(baseline.UpdateCheckIntervalHours, current.UpdateCheckIntervalHours, latest.UpdateCheckIntervalHours),
+            ScrapeRequestIntervalSeconds = MergeScalar(baseline.ScrapeRequestIntervalSeconds, current.ScrapeRequestIntervalSeconds, latest.ScrapeRequestIntervalSeconds),
+            ScrapeRefreshIncompleteMetadata = MergeScalar(baseline.ScrapeRefreshIncompleteMetadata, current.ScrapeRefreshIncompleteMetadata, latest.ScrapeRefreshIncompleteMetadata),
+            CardPageSize = MergeScalar(baseline.CardPageSize, current.CardPageSize, latest.CardPageSize),
             Player = MergeScalar(baseline.Player, current.Player, latest.Player) ?? "",
             AutoCategorize = MergeScalar(baseline.AutoCategorize, current.AutoCategorize, latest.AutoCategorize),
             ShowAll = MergeScalar(baseline.ShowAll, current.ShowAll, latest.ShowAll),

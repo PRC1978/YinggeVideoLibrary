@@ -70,22 +70,30 @@ public partial class MainWindow
         panel.Children.Add(new TextBlock { Text = note, Margin = new Thickness(0, 0, 0, 12),
             Foreground = record.DetailFetched ? new SolidColorBrush(Color.FromRgb(90, 114, 143)) : new SolidColorBrush(Color.FromRgb(174, 99, 47)),
             TextWrapping = TextWrapping.Wrap });
+        void AddSourcedField(string label, string? value, string field)
+        {
+            MetadataFieldProvenance? origin = null;
+            record.FieldProvenance?.TryGetValue(field, out origin);
+            AddMetadataRow(panel, label, value, origin, showProvenance: true);
+        }
         if (video is not null)
             AddMetadataRow(panel, "本地文件", Path.GetFileName(video.Path));
-        AddMetadataRow(panel, "番号 / 编号", record.Code);
-        AddMetadataRow(panel, "原始标题", record.OriginalTitle);
-        AddMetadataRow(panel, "发行日期", record.ReleaseDate);
-        AddMetadataRow(panel, "时长", record.RuntimeMinutes is > 0 ? $"{record.RuntimeMinutes} 分钟" : null);
-        AddMetadataRow(panel, "导演", record.Director);
-        AddMetadataRow(panel, "制作 / 发行", record.Studio);
-        AddMetadataRow(panel, "系列", record.Series);
-        AddMetadataRow(panel, "演员", JoinMetadata(record.Actors));
-        AddMetadataRow(panel, "类型 / 类别", JoinMetadata(record.Genres));
-        AddMetadataRow(panel, "关键词", JoinMetadata(record.Keywords));
-        AddMetadataRow(panel, "地区", record.Country);
-        AddMetadataRow(panel, "语言", record.Language);
-        AddMetadataRow(panel, "来源评分", record.Rating);
-        AddMetadataRow(panel, "简介", record.Summary);
+        AddSourcedField("标题", record.Title, nameof(MovieMetadata.Title));
+        AddSourcedField("番号 / 编号", record.Code, nameof(MovieMetadata.Code));
+        AddSourcedField("原始标题", record.OriginalTitle, nameof(MovieMetadata.OriginalTitle));
+        AddSourcedField("发行日期", record.ReleaseDate, nameof(MovieMetadata.ReleaseDate));
+        AddSourcedField("时长", record.RuntimeMinutes is > 0 ? $"{record.RuntimeMinutes} 分钟" : null, nameof(MovieMetadata.RuntimeMinutes));
+        AddSourcedField("导演", record.Director, nameof(MovieMetadata.Director));
+        AddSourcedField("制作 / 发行", record.Studio, nameof(MovieMetadata.Studio));
+        AddSourcedField("系列", record.Series, nameof(MovieMetadata.Series));
+        AddSourcedField("演员", JoinMetadata(record.Actors), nameof(MovieMetadata.Actors));
+        AddSourcedField("类型 / 类别", JoinMetadata(record.Genres), nameof(MovieMetadata.Genres));
+        AddSourcedField("关键词", JoinMetadata(record.Keywords), nameof(MovieMetadata.Keywords));
+        AddSourcedField("地区", record.Country, nameof(MovieMetadata.Country));
+        AddSourcedField("语言", record.Language, nameof(MovieMetadata.Language));
+        AddSourcedField("来源评分", record.Rating, nameof(MovieMetadata.Rating));
+        AddSourcedField("简介", record.Summary, nameof(MovieMetadata.Summary));
+        AddSourcedField("封面地址", record.PosterUrl, nameof(MovieMetadata.PosterUrl));
         AddMetadataRow(panel, "来源链接", record.SourceUrl);
         AddMetadataRow(panel, "搜刮时间", record.ScrapedAt.ToString("yyyy-MM-dd HH:mm"));
         scroll.Content = panel;
@@ -100,19 +108,29 @@ public partial class MainWindow
         return items is { Count: > 0 } ? string.Join("、", items) : null;
     }
 
-    static void AddMetadataRow(StackPanel parent, string label, string? value)
+    static void AddMetadataRow(StackPanel parent, string label, string? value,
+        MetadataFieldProvenance? provenance = null, bool showProvenance = false)
     {
         var row = new Grid { Margin = new Thickness(0, 0, 0, 1), Background = System.Windows.Media.Brushes.White };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(116) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var heading = new TextBlock { Text = label, Padding = new Thickness(12, 10, 8, 10),
             Foreground = new SolidColorBrush(Color.FromRgb(111, 125, 149)), FontWeight = FontWeights.SemiBold };
+        var contentHost = new StackPanel { Margin = new Thickness(8, 9, 12, 9) };
         var content = new TextBlock { Text = string.IsNullOrWhiteSpace(value) ? "来源未提供" : value,
-            Padding = new Thickness(8, 10, 12, 10), TextWrapping = TextWrapping.Wrap,
+            TextWrapping = TextWrapping.Wrap,
             Foreground = string.IsNullOrWhiteSpace(value) ? new SolidColorBrush(Color.FromRgb(158, 169, 185)) : new SolidColorBrush(Color.FromRgb(42, 56, 81)) };
-        Grid.SetColumn(content, 1);
+        contentHost.Children.Add(content);
+        if (showProvenance && !string.IsNullOrWhiteSpace(value))
+        {
+            var attribution = provenance is null ? "旧记录 · 未逐项记录来源"
+                : string.IsNullOrWhiteSpace(provenance.Stage) ? provenance.Source : $"{provenance.Source} · {provenance.Stage}";
+            contentHost.Children.Add(new TextBlock { Text = attribution, Margin = new Thickness(0, 4, 0, 0),
+                FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(117, 136, 173)) });
+        }
+        Grid.SetColumn(contentHost, 1);
         row.Children.Add(heading);
-        row.Children.Add(content);
+        row.Children.Add(contentHost);
         parent.Children.Add(row);
     }
 }

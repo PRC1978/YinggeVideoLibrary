@@ -6,6 +6,15 @@ using System.Text.RegularExpressions;
 
 namespace YinggeVideoLibrary;
 
+public sealed class MetadataFieldProvenance
+{
+    public string Source { get; set; } = "";
+    public string SourceUrl { get; set; } = "";
+    public string Stage { get; set; } = "";
+
+    public MetadataFieldProvenance Clone() => new() { Source = Source, SourceUrl = SourceUrl, Stage = Stage };
+}
+
 public sealed class MovieMetadata
 {
     public string Code { get; set; } = "";
@@ -27,6 +36,9 @@ public sealed class MovieMetadata
     public List<string> Actors { get; set; } = [];
     public List<string> Genres { get; set; } = [];
     public List<string> Keywords { get; set; } = [];
+    // Existing metadata.json records have no field provenance. Leave those
+    // fields unmarked rather than presenting a guessed source as evidence.
+    public Dictionary<string, MetadataFieldProvenance> FieldProvenance { get; set; } = [];
     // The source record is complete only when its detail page/API was read.
     // Missing fields remain empty: a source may not publish them at all.
     public bool DetailFetched { get; set; }
@@ -42,8 +54,50 @@ public sealed class MovieMetadata
         Language = Language, Summary = Summary, Rating = Rating,
         Actors = Actors?.ToList() ?? [], Genres = Genres?.ToList() ?? [],
         Keywords = Keywords?.ToList() ?? [],
+        FieldProvenance = FieldProvenance?.Where(pair => pair.Value is not null)
+            .ToDictionary(pair => pair.Key, pair => pair.Value.Clone(), StringComparer.Ordinal) ?? [],
         DetailFetched = DetailFetched, DetailNote = DetailNote, ScrapedAt = ScrapedAt
     };
+
+    Dictionary<string, string> PresentFieldValues()
+    {
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        void Add(string name, string? value)
+        {
+            if (!string.IsNullOrWhiteSpace(value)) values[name] = value;
+        }
+        Add(nameof(Code), Code); Add(nameof(Title), Title); Add(nameof(PosterUrl), PosterUrl);
+        Add(nameof(OriginalTitle), OriginalTitle); Add(nameof(ReleaseDate), ReleaseDate);
+        if (RuntimeMinutes is > 0) values[nameof(RuntimeMinutes)] = RuntimeMinutes.Value.ToString();
+        Add(nameof(Director), Director); Add(nameof(Studio), Studio); Add(nameof(Series), Series);
+        Add(nameof(Country), Country); Add(nameof(Language), Language); Add(nameof(Summary), Summary);
+        Add(nameof(Rating), Rating);
+        Add(nameof(Actors), string.Join("\u001f", Actors ?? []));
+        Add(nameof(Genres), string.Join("\u001f", Genres ?? []));
+        Add(nameof(Keywords), string.Join("\u001f", Keywords ?? []));
+        return values;
+    }
+
+    public void StampAvailableFields(string stage)
+    {
+        FieldProvenance ??= [];
+        foreach (var name in PresentFieldValues().Keys)
+            FieldProvenance[name] = new MetadataFieldProvenance { Source = Source, SourceUrl = SourceUrl, Stage = stage };
+    }
+
+    // Only mark a detail field when the detail response actually changed or
+    // supplied it. An unchanged search value keeps its honest search origin.
+    public void RefreshChangedFieldProvenance(MovieMetadata before, string stage)
+    {
+        FieldProvenance ??= [];
+        var previous = before.PresentFieldValues();
+        var current = PresentFieldValues();
+        foreach (var (name, value) in current)
+            if (!previous.TryGetValue(name, out var oldValue) || !string.Equals(value, oldValue, StringComparison.Ordinal))
+                FieldProvenance[name] = new MetadataFieldProvenance { Source = Source, SourceUrl = SourceUrl, Stage = stage };
+        foreach (var name in FieldProvenance.Keys.Where(name => !current.ContainsKey(name)).ToList())
+            FieldProvenance.Remove(name);
+    }
 }
 
 // A scrape candidate is kept separately from accepted metadata until a
@@ -214,7 +268,8 @@ public static class JavDbScraper
         if (title.Length == 0) title = code;
         var detail = new Uri(new Uri("https://javdb.com"), matched.Groups["href"].Value).ToString();
         var posterUrl = WebUtility.HtmlDecode(Image.Match(matched.Groups["body"].Value).Groups["value"].Value);
-        var record = new MovieMetadata { Code = code, Title = title, SourceUrl = detail, PosterUrl = posterUrl };
+        var record = new MovieMetadata { Code = code, Title = title, Source = "JavDB", SourceUrl = detail, PosterUrl = posterUrl };
+        record.StampAvailableFields("搜索结果");
         try
         {
             using var detailResponse = await Client.GetAsync(detail, HttpCompletionOption.ResponseContentRead, cancellationToken);
@@ -313,6 +368,7 @@ public static class JavDbScraper
             safe.DetailFetched = false;
             return safe;
         }
+        record.RefreshChangedFieldProvenance(candidate, "详情页");
         record.DetailFetched = recognized > 0;
         record.DetailNote = recognized > 0 ? $"已读取 JavDB 详情页（{recognized} 项）；来源未提供的字段保持空白"
             : "详情页未返回可识别字段；当前仅有搜索摘要，请核对来源页面";

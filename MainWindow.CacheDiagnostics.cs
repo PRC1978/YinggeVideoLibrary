@@ -134,7 +134,7 @@ public partial class MainWindow
         }
     }
 
-    public async Task<int> WriteHiddenStartupDiagnosticAsync(string destination, bool verifyGraph = false, bool verifyScrape = false)
+    public async Task<int> WriteHiddenStartupDiagnosticAsync(string destination, bool verifyGraph = false, bool verifyScrape = false, bool verifySettings = false)
     {
         for (var attempt = 0; attempt < 120 && cacheStartupDiagnostic.Stage is not ("refresh finished" or "index error" or "ui startup exception"); attempt++)
             await Task.Delay(250);
@@ -189,6 +189,14 @@ public partial class MainWindow
                     throw new InvalidOperationException("搜刮筛选控件未创建");
                 if (ReviewQueuePanel.Children.Count > ReviewPageSize)
                     throw new InvalidOperationException("审核队列一次创建了过多记录控件");
+                var cloneProbe = new LibraryConfig();
+                cloneProbe.AiReviews["metadata-probe"] = new AiReviewRecord
+                {
+                    VideoId = "metadata-probe",
+                    CandidateDetails = new MovieMetadata { Title = "测试", ReleaseDate = "2026-01-01", Actors = ["甲"] }
+                };
+                if (CloneLibraryConfig(cloneProbe).AiReviews["metadata-probe"].CandidateDetails?.Actors.SingleOrDefault() != "甲")
+                    throw new InvalidOperationException("配置快照丢失搜刮详情");
                 var approvedRecord = config.AiReviews.Values.FirstOrDefault(item => item.Status == "approved");
                 if (approvedRecord is not null && !ReviewMatchesFilter(approvedRecord))
                     throw new InvalidOperationException("状态：全部未包含已通过记录");
@@ -198,11 +206,54 @@ public partial class MainWindow
                     throw new InvalidOperationException("在线按钮被底部设置按钮遮挡");
                 RecordCacheDiagnostic("scrape ui verified", $"批量入口与跳过条件已显示；审核队列当前页 {ReviewQueuePanel.Children.Count} 条；在线按钮底部 {navTop + OnlineNav.ActualHeight:F0}，设置按钮顶部 {settingsTop:F0}");
             }
+            if (verifySettings)
+            {
+                ShowView("settings");
+                await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
+                var sections = CountVisualDescendants<System.Windows.Controls.Expander>(SettingsPanel);
+                if (SettingsPanel.Visibility != System.Windows.Visibility.Visible || sections < 5)
+                    throw new InvalidOperationException($"设置页分组未正确显示：{sections} 组");
+                var grouping = VerifySettingsLayout();
+                if (!grouping.Valid) throw new InvalidOperationException("设置项分组异常：" + grouping.Detail);
+                var librarySection = settingsSections["library"];
+                librarySection.IsExpanded = true;
+                await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
+                if (!GpuBox.IsVisible) throw new InvalidOperationException("点击卡片后未显示视频库设置");
+                librarySection.IsExpanded = false;
+                await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
+                if (GpuBox.IsVisible) throw new InvalidOperationException("收起卡片后仍显示视频库设置");
+                if (SettingsPanel.ActualWidth < 500 || PlayerPathBox.Parent is null || TmdbTokenBox.Parent is null)
+                    throw new InvalidOperationException("设置页尺寸或已有设置控件异常");
+                var optionProbe = new LibraryConfig
+                {
+                    UpdateAutoCheck = false, UpdateCheckIntervalHours = 24,
+                    ScrapeRequestIntervalSeconds = 5, ScrapeRefreshIncompleteMetadata = true,
+                    CardPageSize = 30
+                };
+                var optionClone = CloneLibraryConfig(optionProbe);
+                if (optionClone.UpdateAutoCheck || optionClone.UpdateCheckIntervalHours != 24
+                    || optionClone.ScrapeRequestIntervalSeconds != 5 || !optionClone.ScrapeRefreshIncompleteMetadata
+                    || optionClone.CardPageSize != 30)
+                    throw new InvalidOperationException("设置选项在配置快照中丢失");
+                RecordCacheDiagnostic("settings ui verified", $"分组 {sections} 个，宽度 {SettingsPanel.ActualWidth:F0}");
+            }
             RecordCacheDiagnostic("hidden startup probe", $"完成后的阶段：{cacheStartupDiagnostic.Stage}");
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(destination))!);
             File.WriteAllText(destination, JsonSerializer.Serialize(cacheStartupDiagnostic, new JsonSerializerOptions { WriteIndented = true }));
             return 0;
         }
         catch (Exception ex) { RecordCacheDiagnostic("hidden startup probe error", ex.ToString()); return 1; }
+    }
+
+    static int CountVisualDescendants<T>(System.Windows.DependencyObject root) where T : System.Windows.DependencyObject
+    {
+        var count = 0;
+        for (var i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is T) count++;
+            count += CountVisualDescendants<T>(child);
+        }
+        return count;
     }
 }

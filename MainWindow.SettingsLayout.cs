@@ -193,7 +193,7 @@ public partial class MainWindow
         {
             Style = (Style)FindResource("SettingsCard"), Header = header, Content = body,
             Tag = title + " " + detail + " " + string.Join(" ", controls.Select(SettingSearchText))
-                + (key == "data" ? " 开源许可 MIT 关于 来源 致谢 TMDB" : ""),
+                + (key == "data" ? " 非商业许可 项目许可 关于 来源 致谢 TMDB" : ""),
             IsExpanded = expanded
         };
         section.Expanded += (_, _) =>
@@ -227,7 +227,8 @@ public partial class MainWindow
         var unfound = options.Where(name => !settingsSections.Values.SelectMany(section => ((StackPanel)section.Content).Children.Cast<UIElement>())
             .OfType<FrameworkElement>().Any(element => element.Name == name)).ToArray();
         var relocation = VerifyLibraryRelocationUiForDiagnostics();
-        var licenseReadable = ReadEmbeddedLicense().Contains("Copyright (c) 2026 PRC1978", StringComparison.Ordinal)
+        var licenseReadable = ReadEmbeddedLicense().Contains("Required Notice: Copyright (c) 2026 PRC1978", StringComparison.Ordinal)
+            && ReadEmbeddedLicense().Contains("PolyForm Noncommercial License 1.0.0", StringComparison.Ordinal)
             && ReadEmbeddedWebView2License().Length > 100
             && ReadEmbeddedWebView2Notice().Length > 100
             && ReadEmbeddedDotNetCoreRuntimeLicense().Length > 100

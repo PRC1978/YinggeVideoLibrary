@@ -1,4 +1,4 @@
-#define MyAppVersion "1.5.1"
+#define MyAppVersion "1.5.2"
 
 [Setup]
 AppId=PRC1978.YinggeVideoLibrary
@@ -8,6 +8,7 @@ AppPublisher=PRC1978
 AppPublisherURL=https://github.com/PRC1978/YinggeVideoLibrary
 AppSupportURL=https://github.com/PRC1978/YinggeVideoLibrary/issues
 AppUpdatesURL=https://github.com/PRC1978/YinggeVideoLibrary/releases
+LicenseFile=LICENSE
 DefaultDirName={localappdata}\Programs\YinggeVideoLibrary
 DefaultGroupName=映格视频库
 DisableProgramGroupPage=yes
@@ -23,7 +24,7 @@ SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
-VersionInfoVersion=1.5.1.0
+VersionInfoVersion=1.5.2.0
 
 [Languages]
 Name: "zhcn"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"

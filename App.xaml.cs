@@ -119,6 +119,7 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        ProjectLicenseMigration.RefreshInstalledSidecar();
         var dataDir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".YinggeVideoLibrary");
         if (!LibraryRelocationService.ApplyPendingAtStartup(dataDir, out var restoreError))
         {

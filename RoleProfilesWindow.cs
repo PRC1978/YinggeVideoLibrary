@@ -33,6 +33,13 @@ internal sealed class RoleProfilesWindow : Window
     readonly ListBox profiles = new();
     readonly TextBox search = new();
     readonly StackPanel content = new();
+    readonly Button manualAdd = UiButton("＋ 新建手工档案", true);
+    readonly Button autoStart = UiButton("自动发现并搜刮人物");
+    Button? autoEmptyButton;
+    readonly TextBlock autoStatus = new() { TextWrapping = TextWrapping.Wrap, FontSize = 12 };
+    readonly Button autoCancel = UiButton("取消搜刮");
+    CancellationTokenSource? autoCancellation;
+    bool autoRunning;
     readonly System.Windows.Threading.DispatcherTimer profileSearchTimer = new()
     { Interval = TimeSpan.FromMilliseconds(170) };
     string? selectedProfileId;
@@ -76,8 +83,16 @@ internal sealed class RoleProfilesWindow : Window
         else state = new RoleProfileStore.State();
         Title = "人物与角色档案";
         Width = 1110; Height = 750; MinWidth = 760; MinHeight = 520;
-        Closing += (_, args) => { if (saving) args.Cancel = true; };
-        Closed += (_, _) => profileSearchTimer.Stop();
+        Closing += (_, args) =>
+        {
+            if (saving || autoRunning) args.Cancel = true;
+            if (autoRunning)
+            {
+                autoCancellation?.Cancel();
+                autoStatus.Text = "正在停止搜刮…";
+            }
+        };
+        Closed += (_, _) => { profileSearchTimer.Stop(); autoCancellation?.Dispose(); };
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = new SolidColorBrush(Color.FromRgb(247, 249, 253));
         BuildVerifiedOptions();
@@ -111,10 +126,22 @@ internal sealed class RoleProfilesWindow : Window
             profileSearchTimer.Stop(); profileSearchTimer.Start();
         };
         actions.Children.Add(search);
-        var add = UiButton("＋ 新建手工档案", true);
-        add.Margin = new Thickness(0, 8, 0, 5);
-        add.Click += (_, _) => EditProfile(null);
-        actions.Children.Add(add);
+        manualAdd.Margin = new Thickness(0, 8, 0, 5);
+        manualAdd.Click += (_, _) => EditProfile(null);
+        actions.Children.Add(manualAdd);
+        autoStart.Margin = new Thickness(0, 0, 0, 4);
+        autoStart.Click += async (_, _) => await StartAutoDiscoveryAsync();
+        actions.Children.Add(autoStart);
+        autoStatus.Foreground = Muted();
+        autoStatus.Text = "从已核实的作品来源识别人物，不会按同名自动合并。";
+        actions.Children.Add(autoStatus);
+        autoCancel.Visibility = Visibility.Collapsed;
+        autoCancel.Click += (_, _) =>
+        {
+            autoCancellation?.Cancel();
+            autoStatus.Text = "正在停止搜刮…";
+        };
+        actions.Children.Add(autoCancel);
         if (verifiedOptions.Count > 0)
         {
             actions.Children.Add(new TextBlock { Text = "从当前作品已核实的演员 / 角色建立",
@@ -144,6 +171,9 @@ internal sealed class RoleProfilesWindow : Window
             });
         profiles.DisplayMemberPath = nameof(RoleProfileStore.Profile.Name);
         profiles.BorderThickness = new Thickness(0);
+        VirtualizingPanel.SetIsVirtualizing(profiles, true);
+        VirtualizingPanel.SetVirtualizationMode(profiles, VirtualizationMode.Recycling);
+        ScrollViewer.SetCanContentScroll(profiles, true);
         profiles.SelectionChanged += (_, _) =>
         {
             if (profiles.SelectedItem is RoleProfileStore.Profile selected)
@@ -305,14 +335,178 @@ internal sealed class RoleProfilesWindow : Window
     RoleProfileStore.Profile? SelectedProfile() =>
         state.Profiles.FirstOrDefault(p => p.Id == selectedProfileId);
 
+    async Task StartAutoDiscoveryAsync()
+    {
+        if (autoRunning || saving) return;
+        autoRunning = true;
+        autoCancellation = new CancellationTokenSource();
+        var token = autoCancellation.Token;
+        autoStart.IsEnabled = false;
+        if (autoEmptyButton is not null) autoEmptyButton.IsEnabled = false;
+        manualAdd.IsEnabled = false;
+        search.IsEnabled = false;
+        profiles.IsEnabled = false;
+        content.IsEnabled = false;
+        autoCancel.Visibility = Visibility.Visible;
+        autoStatus.Text = "正在检查已核实的作品资料…";
+        var startedImport = false;
+        try
+        {
+            // Read the committed metadata file on the worker. The main window's
+            // live dictionary can change as the scraping queue completes.
+            var nameFilter = search.Text.Trim();
+            var preview = await Task.Run(() => RoleProfileAutoScraper.Preview(
+                videos, MetadataStore.Load(dataDir), state, nameFilter, token), token);
+            token.ThrowIfCancellationRequested();
+            if (preview.CapacityExceeded)
+            {
+                autoStatus.Text = preview.WorkCapacityExceededCount > 0
+                    ? $"有 {preview.WorkCapacityExceededCount:N0} 条作品关系会超过单个人物 20,000 部上限。请在左侧搜索框缩小导入范围后重试。"
+                    : "候选人物超过 10,000 份档案上限。请在左侧搜索框输入姓名或来源 ID 后重试。";
+                return;
+            }
+            if (preview.Candidates.Count == 0)
+            {
+                autoStatus.Text = "没有可自动建立的人物：请先为作品搜刮并审核完整资料，或手工建立档案。";
+                return;
+            }
+            autoStatus.Text = $"找到 {preview.Candidates.Count:N0} 位有来源 ID 的人物，等待确认。";
+            if (!ShowAutoPreview(preview))
+            {
+                autoStatus.Text = "已取消，人物档案未更改。";
+                return;
+            }
+            startedImport = true;
+            var progress = new Progress<RoleProfileAutoScraper.Progress>(item =>
+            {
+                if (!autoRunning) return;
+                autoStatus.Text = $"正在搜刮 {item.Processed:N0}/{item.Total:N0} · 新建 {item.Created:N0} · 更新 {item.Updated:N0} · 详情 {item.Fetched:N0} · 失败 {item.Failed:N0}"
+                    + (item.CurrentName.Length == 0 ? "" : "\n当前：" + item.CurrentName);
+            });
+            var result = await Task.Run(() => RoleProfileAutoScraper.RunAsync(dataDir,
+                preview, tmdbToken, progress, token), token);
+            autoStatus.Text = $"完成：新建 {result.Created:N0}、更新 {result.Updated:N0}，读取详情 {result.Fetched:N0}；失败 {result.Failed:N0}。"
+                + (result.SkippedCredentials > 0 ? $" {result.SkippedCredentials:N0} 位缺少来源凭据，仍保留来源身份。" : "")
+                + (result.SkippedChanged > 0 ? $" {result.SkippedChanged:N0} 位因作品资料变更而跳过，请重新预览。" : "")
+                + (result.SkippedRateLimited > 0 ? $" {result.SkippedRateLimited:N0} 位详情因来源限速暂未读取，稍后可重试。" : "");
+            if (result.Failures.Count > 0)
+                MessageBox.Show(this, "部分人物详情暂未读取，档案中已保存可核实的来源身份：\n"
+                    + string.Join("\n", result.Failures.Take(8)), "自动搜刮人物",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (OperationCanceledException)
+        {
+            autoStatus.Text = startedImport
+                ? "已停止搜刮；已完成的来源档案会保留。"
+                : "已取消，人物档案未更改。";
+        }
+        catch (Exception ex)
+        {
+            autoStatus.Text = "自动搜刮未完成。";
+            MessageBox.Show(this, "自动搜刮人物失败：" + ex.Message,
+                "人物与角色档案", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            if (startedImport)
+            {
+                try
+                {
+                    state = await Task.Run(() => RoleProfileStore.Load(dataDir));
+                    RefreshList();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, "人物档案已写入，但重新读取失败：" + ex.Message,
+                        "人物与角色档案", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+            autoRunning = false;
+            autoCancellation.Dispose();
+            autoCancellation = null;
+            autoCancel.Visibility = Visibility.Collapsed;
+            autoStart.IsEnabled = true;
+            if (autoEmptyButton is not null) autoEmptyButton.IsEnabled = true;
+            manualAdd.IsEnabled = true;
+            search.IsEnabled = true;
+            profiles.IsEnabled = true;
+            content.IsEnabled = true;
+        }
+    }
+
+    bool ShowAutoPreview(RoleProfileAutoScraper.PreviewResult preview)
+    {
+        var dialog = new Window
+        {
+            Title = "预览自动搜刮人物", Owner = this, Width = 680, Height = 540,
+            MinWidth = 520, MinHeight = 400,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = new SolidColorBrush(Color.FromRgb(247, 249, 253))
+        };
+        var layout = new DockPanel { Margin = new Thickness(20) };
+        var footer = new WrapPanel { HorizontalAlignment = System.Windows.HorizontalAlignment.Right };
+        var cancel = UiButton("返回");
+        cancel.Click += (_, _) => dialog.DialogResult = false;
+        var start = UiButton("开始搜刮", true);
+        start.Click += (_, _) => dialog.DialogResult = true;
+        footer.Children.Add(cancel); footer.Children.Add(start);
+        DockPanel.SetDock(footer, Dock.Bottom); layout.Children.Add(footer);
+        var heading = new StackPanel { Margin = new Thickness(0, 0, 0, 12) };
+        heading.Children.Add(new TextBlock { Text = "将从已审核的作品发现人物",
+            FontSize = 18, FontWeight = FontWeights.SemiBold, Foreground = Ink() });
+        heading.Children.Add(new TextBlock
+        {
+            Text = $"候选 {preview.Candidates.Count:N0} 位 · 新建 {preview.NewCount:N0} 位 · 已有档案 {preview.ExistingCount:N0} 位 · 作品关系 {preview.WorkCount:N0} 条",
+            Foreground = Muted(), TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 7, 0, 4)
+        });
+        var providers = preview.Candidates.GroupBy(candidate => candidate.Provider)
+            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.Key + " " + group.Count().ToString("N0"));
+        heading.Children.Add(new TextBlock { Text = "来源：" + string.Join(" · ", providers),
+            Foreground = Muted(), TextWrapping = TextWrapping.Wrap });
+        heading.Children.Add(new TextBlock
+        {
+            Text = $"未核实来源的人名不会自动合并。跳过 {preview.SkippedUnverifiedCount:N0} 条未核实记录；已填写的手工资料不会被覆盖。确认后会访问 TMDB 或 TVmaze 读取人物详情；JavDB 目前只建立来源身份与作品关系。请求逐个进行，可随时取消；大量肖像只保存来源链接，按需读取图片。",
+            Foreground = Muted(), TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 7, 0, 0)
+        });
+        DockPanel.SetDock(heading, Dock.Top); layout.Children.Add(heading);
+        var items = preview.Candidates.Take(150).Select(candidate =>
+            $"{candidate.Provider} · {candidate.Name} · {candidate.WorkCount:N0} 部作品"
+            + (candidate.CanFetchDetails ? " · 可读取详情" : " · 仅来源身份")).ToArray();
+        var list = new ListBox { ItemsSource = items, Background = Brushes.White,
+            BorderBrush = Line(), BorderThickness = new Thickness(1) };
+        if (preview.Candidates.Count > items.Length)
+            heading.Children.Add(new TextBlock { Text = $"以下展示前 {items.Length} 位；确认后处理全部候选。",
+                Foreground = Muted(), Margin = new Thickness(0, 5, 0, 0) });
+        layout.Children.Add(list);
+        dialog.Content = layout;
+        return dialog.ShowDialog() == true;
+    }
+
     void RenderProfile()
     {
         content.Children.Clear();
+        autoEmptyButton = null;
         var profile = SelectedProfile();
         if (profile is null)
         {
-            content.Children.Add(new TextBlock { Text = "选择一份档案，或创建新的角色档案。",
-                Foreground = Muted(), FontSize = 15 });
+            content.Children.Add(new TextBlock { Text = state.Profiles.Count == 0
+                    ? "还没有人物档案" : "没有匹配的人物档案",
+                Foreground = Ink(), FontSize = 19, FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 8) });
+            content.Children.Add(new TextBlock
+            {
+                Text = "可以从视频已核实的作品资料中发现人物并读取简介、肖像等来源信息；只有演员姓名而没有来源 ID 的作品仍需手工核对。",
+                Foreground = Muted(), TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 12)
+            });
+            autoEmptyButton = UiButton("自动发现并搜刮人物", true);
+            autoEmptyButton.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
+            autoEmptyButton.IsEnabled = !autoRunning;
+            autoEmptyButton.Click += async (_, _) => await StartAutoDiscoveryAsync();
+            content.Children.Add(autoEmptyButton);
             return;
         }
         var tmdbProfile = profile.Sources.Any(source => source.Provider == "TMDB");
@@ -408,7 +602,10 @@ internal sealed class RoleProfilesWindow : Window
             }
             if (source.Provider is "TMDB" or "TVmaze")
             {
-                var fetch = UiButton(sourced is null ? "读取人物来源详情" : "重新读取来源详情");
+                var fetchLabel = sourced is null ? "读取人物来源详情"
+                    : sourced.PortraitUrl.Length > 0 && sourced.PortraitBase64.Length == 0
+                        ? "加载来源肖像" : "重新读取来源详情";
+                var fetch = UiButton(fetchLabel);
                 fetch.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
                 fetch.Click += async (_, _) =>
                 {
@@ -440,7 +637,7 @@ internal sealed class RoleProfilesWindow : Window
                         MessageBox.Show(this, "读取来源详情失败：" + ex.Message,
                             "角色档案", MessageBoxButton.OK, MessageBoxImage.Warning);
                         fetch.IsEnabled = true;
-                        fetch.Content = sourced is null ? "读取人物来源详情" : "重新读取来源详情";
+                        fetch.Content = fetchLabel;
                     }
                 };
                 content.Children.Add(fetch);
@@ -487,7 +684,39 @@ internal sealed class RoleProfilesWindow : Window
                 Foreground = Muted(), FontSize = 12, TextWrapping = TextWrapping.Wrap
             });
             var buttons = new WrapPanel { Margin = new Thickness(0, 5, 0, 0) };
-            if (local is not null && showWork)
+            if (local is not null && showWork && work.ContentSha256.Length != 64)
+            {
+                var verify = UiButton("核对并关联当前文件");
+                verify.Click += async (_, _) =>
+                {
+                    if (work.SourceProvider == "TMDB" && !TmdbWorkIsAllowed(work,
+                            videosById, savedMetadata, origin, originVideo))
+                    {
+                        RenderProfile(); return;
+                    }
+                    var prompt = "这条作品关系来自已核实的来源资料，但本地文件尚未核对。\n\n"
+                        + "来源作品：" + work.WorkTitle + "\n本地文件：" + local.DisplayTitle
+                        + "\n\n确认这是对应的当前文件？软件会读取文件内容来建立校验，文件很大时可能需要一些时间。";
+                    if (MessageBox.Show(this, prompt, "核对本地作品",
+                            MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                    verify.IsEnabled = false;
+                    verify.Content = "正在核对文件…";
+                    try
+                    {
+                        var captured = await RoleLocalWorkIdentity.CaptureAsync(local);
+                        await MutateAsync(() => RoleLocalWorkIdentity.Apply(work, captured));
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show(this, "本地文件核对失败：" + ex.Message,
+                            "角色档案", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        verify.IsEnabled = true;
+                        verify.Content = "核对并关联当前文件";
+                    }
+                };
+                buttons.Children.Add(verify);
+            }
+            if (local is not null && showWork && work.ContentSha256.Length == 64)
             {
                 var details = UiButton("查看本地作品资料");
                 details.Click += async (_, _) =>
@@ -655,6 +884,7 @@ internal sealed class RoleProfilesWindow : Window
 
     async Task CreateOrOpenVerified(VerifiedPersonOption option)
     {
+        if (autoRunning) return;
         if (option.Provider == "TMDB" && !CurrentTmdbWorkIsAllowed())
             throw new InvalidOperationException("当前视频已不符合 TMDB 普通影视来源条件，不能建立人物档案。 ");
         var found = RoleProfileStore.FindBySource(state, option.Provider, option.PersonId);
@@ -692,6 +922,7 @@ internal sealed class RoleProfilesWindow : Window
 
     async Task MutateAsync(Action change, string? selectId = null)
     {
+        if (autoRunning) throw new InvalidOperationException("正在自动搜刮人物，请先等待完成或取消。 ");
         if (saving) throw new InvalidOperationException("角色档案正在保存，请稍后重试。");
         saving = true;
         var visual = (UIElement)Content;
@@ -716,6 +947,7 @@ internal sealed class RoleProfilesWindow : Window
 
     void EditProfile(RoleProfileStore.Profile? existing)
     {
+        if (autoRunning) return;
         var draft = existing is null ? new RoleProfileStore.Profile() :
             RoleProfileStore.Parse(System.Text.Json.JsonSerializer.Serialize(new RoleProfileStore.State
             { Profiles = [existing] })).Profiles[0];

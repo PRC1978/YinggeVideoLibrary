@@ -57,7 +57,7 @@ public partial class MainWindow
         });
         root.Children.Add(new TextBlock
         {
-            Text = "本地视频管理 · 版本 1.5.1 · 项目源码采用 MIT 许可",
+            Text = $"本地视频管理 · 版本 {typeof(MainWindow).Assembly.GetName().Version?.ToString(3)} · 项目采用非商业使用许可",
             FontSize = 12, Foreground = Tint("#64748B"),
             Margin = new Thickness(0, 5, 0, 19)
         });

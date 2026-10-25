@@ -25,6 +25,8 @@ internal static class FeatureDiagnostics
             WindowsCredentialStore.Write(credentialName, "");
             findings["windowsCredentialDelete"] = WindowsCredentialStore.Read(credentialName) is null;
             Directory.CreateDirectory(directory);
+            findings["noncommercialLicenseReplacesOnlyLegacySidecar"] =
+                ProjectLicenseMigration.VerifyForDiagnostics(Path.Combine(directory, "license-migration"));
             foreach (var (name, passed) in MainWindow.VerifyLibraryFormatMigrationForDiagnostics(
                          Path.Combine(directory, "library-format"))) findings[name] = passed;
             try

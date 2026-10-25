@@ -141,6 +141,9 @@ internal static class RoleProfileDiagnostics
             result["roleProfilesTvmazeCountryIsNotBirthplace"] =
                 tvDetails.PlaceOfBirth.Length == 0 && tvDetails.Country == "Canada";
 
+            foreach (var (name, passed) in VerifyAutoScrape(root, tmdb))
+                result[name] = passed;
+
             var forgedProfile = new RoleProfileStore.Profile { Name = "导入身份校验" };
             forgedProfile.Sources.Add(tmdbIdentity);
             forgedProfile.Works.Add(new RoleProfileStore.WorkLink
@@ -242,5 +245,289 @@ internal static class RoleProfileDiagnostics
             try { Directory.Delete(root, true); } catch { }
         }
         return result;
+    }
+
+    static IReadOnlyDictionary<string, bool> VerifyAutoScrape(string root, MovieMetadata firstMovie)
+    {
+        var results = new Dictionary<string, bool>();
+        var directory = Path.Combine(root, "auto-scrape");
+        Directory.CreateDirectory(directory);
+
+        static VideoItem Video(string directory, string id, string category)
+        {
+            var path = Path.Combine(directory, id + ".mp4");
+            File.WriteAllBytes(path, [1, 2, 3, 4]);
+            var file = new FileInfo(path);
+            return new VideoItem
+            {
+                Id = id, Title = "Example", Category = category,
+                Path = path, Folder = directory, Size = file.Length,
+                Modified = file.LastWriteTime
+            };
+        }
+
+        var firstVideo = Video(directory, "auto-first", "电影");
+        var secondVideo = Video(directory, "auto-second", "电影");
+        var adultVideo = Video(directory, "auto-adult", "成人");
+        var unverifiedVideo = Video(directory, "auto-unverified", "电影");
+        var forgedVideo = Video(directory, "auto-forged", "电影");
+        using var nextMovieJson = JsonDocument.Parse("""
+            {"id":43,"title":"Second work","credits":{"cast":[
+              {"id":101,"name":"Alex","character":"另一角色"}]}}
+            """);
+        var secondMovie = AdditionalScrapers.ParseTmdbDetails(new MovieMetadata
+        {
+            Source = "TMDB 电影", SourceUrl = "https://www.themoviedb.org/movie/43",
+            Title = "Second work"
+        }, nextMovieJson.RootElement, "movie");
+        var unverified = firstMovie.Clone();
+        unverified.DetailIdentityVerified = false;
+        var forged = firstMovie.Clone();
+        forged.PersonCredits = [firstMovie.PersonCredits[0].Clone()];
+        forged.PersonCredits[0].PersonId = "999";
+        var videos = new[] { firstVideo, secondVideo, adultVideo, unverifiedVideo, forgedVideo };
+        var records = new Dictionary<string, MovieMetadata>(StringComparer.OrdinalIgnoreCase)
+        {
+            [firstVideo.Id] = firstMovie,
+            [secondVideo.Id] = secondMovie,
+            [adultVideo.Id] = firstMovie.Clone(),
+            [unverifiedVideo.Id] = unverified,
+            [forgedVideo.Id] = forged
+        };
+        MetadataStore.Save(directory, records);
+        var manual = new RoleProfileStore.Profile
+        {
+            Name = "Alex", Biography = "用户手写的同名人物简介"
+        };
+        RoleProfileStore.Save(directory, new RoleProfileStore.State { Profiles = [manual] });
+        var preview = RoleProfileAutoScraper.Preview(videos, records,
+            RoleProfileStore.Load(directory));
+        results["roleProfilesAutoPreviewVerifiedOnlyAndDistinctIds"] =
+            preview.Candidates.Count == 2 && preview.NewCount == 2 &&
+            preview.WorkCount == 3 && !preview.CapacityExceeded &&
+            preview.Candidates.Select(item => item.PersonId).OrderBy(id => id)
+                .SequenceEqual(["101", "102"]);
+        results["roleProfilesAutoRejectsUnverifiedAdultAndForged"] =
+            preview.SkippedUnverifiedCount >= 3 &&
+            preview.Candidates.All(item => item.Provider == "TMDB") &&
+            preview.Candidates.Single(item => item.PersonId == "101").WorkCount == 2;
+
+        static Task<RoleProfileStore.SourceDetails> FakeDetails(
+            RoleProfileStore.SourceIdentity identity, CancellationToken _)
+            => Task.FromResult(new RoleProfileStore.SourceDetails
+            {
+                Provider = identity.Provider, PersonId = identity.PersonId,
+                SourceUrl = identity.PersonUrl, Name = identity.NameAtSource,
+                Biography = "来源独立简介"
+            });
+
+        var imported = Task.Run(() => RoleProfileAutoScraper.RunAsync(directory, preview,
+            "offline-diagnostic-token", fetchDetails: FakeDetails)).GetAwaiter().GetResult();
+        var state = RoleProfileStore.Load(directory);
+        var id101 = RoleProfileStore.FindBySource(state, "TMDB", "101");
+        var id102 = RoleProfileStore.FindBySource(state, "TMDB", "102");
+        results["roleProfilesAutoImportsStablePeopleAndWorkEvidence"] =
+            imported.Created == 2 && imported.Fetched == 2 && imported.Failed == 0 &&
+            state.Profiles.Count == 3 && id101 is not null && id102 is not null &&
+            id101.Id != id102.Id && id101.Works.Count == 2 && id102.Works.Count == 1 &&
+            id101.Works.All(work => work.LinkOrigin == "verified-source" &&
+                work.EvidenceUrl == work.SourceWorkId && work.SourcePersonId == "101") &&
+            id101.Works.All(work => work.LocalVideoId != adultVideo.Id &&
+                work.LocalVideoId != unverifiedVideo.Id && work.LocalVideoId != forgedVideo.Id) &&
+            state.Profiles.Single(item => item.Id == manual.Id).Biography == manual.Biography;
+        results["roleProfilesAutoKeepsManualAndSourcedFieldsSeparate"] =
+            id101?.Biography.Length == 0 &&
+            id101.SourcedDetails.SingleOrDefault()?.Biography == "来源独立简介" &&
+            state.Profiles.Single(item => item.Id == manual.Id).Sources.Count == 0;
+
+        id101!.Biography = "用户后来手写的简介";
+        RoleProfileStore.Save(directory, state);
+        var secondPreview = RoleProfileAutoScraper.Preview(videos, records,
+            RoleProfileStore.Load(directory));
+        var repeated = Task.Run(() => RoleProfileAutoScraper.RunAsync(directory, secondPreview,
+            "offline-diagnostic-token", fetchDetails: FakeDetails)).GetAwaiter().GetResult();
+        var afterRepeat = RoleProfileStore.Load(directory);
+        var repeatedPerson = RoleProfileStore.FindBySource(afterRepeat, "TMDB", "101");
+        results["roleProfilesAutoRerunIsIdempotentAndPreservesManualEdits"] =
+            secondPreview.NewCount == 0 && secondPreview.ExistingCount == 2 &&
+            repeated.Created == 0 && repeated.Fetched == 0 &&
+            afterRepeat.Profiles.Count == 3 && repeatedPerson?.Works.Count == 2 &&
+            repeatedPerson.Biography == "用户后来手写的简介" &&
+            repeatedPerson.SourcedDetails.Single().Biography == "来源独立简介";
+
+        // The store accepts 10,000 profiles. A preview that would cross that
+        // boundary must stop before changing even one existing profile.
+        var quotaDirectory = Path.Combine(root, "auto-scrape-quota");
+        Directory.CreateDirectory(quotaDirectory);
+        var quotaState = new RoleProfileStore.State
+        {
+            Profiles = Enumerable.Range(0, 9999).Select(index => new RoleProfileStore.Profile
+            {
+                Name = "容量测试 " + index
+            }).ToList()
+        };
+        RoleProfileStore.Save(quotaDirectory, quotaState);
+        var quotaPreview = RoleProfileAutoScraper.Preview(videos, records,
+            RoleProfileStore.Load(quotaDirectory));
+        var revisionBefore = RoleProfileStore.Load(quotaDirectory).Revision;
+        var quotaRejected = false;
+        try
+        {
+            _ = Task.Run(() => RoleProfileAutoScraper.RunAsync(quotaDirectory, quotaPreview,
+                "offline-diagnostic-token", fetchDetails: FakeDetails)).GetAwaiter().GetResult();
+        }
+        catch (InvalidOperationException) { quotaRejected = true; }
+        var quotaAfter = RoleProfileStore.Load(quotaDirectory);
+        results["roleProfilesAutoQuotaRejectsWithoutMutation"] =
+            quotaPreview.CapacityExceeded && quotaRejected &&
+            quotaAfter.Profiles.Count == 9999 && quotaAfter.Revision == revisionBefore;
+
+        // A long network request can overlap another process accepting a
+        // changed work. The next candidate must use the fresh disk record.
+        var changedDirectory = Path.Combine(root, "auto-scrape-changed-work");
+        Directory.CreateDirectory(changedDirectory);
+        var changedRecords = records.ToDictionary(pair => pair.Key, pair => pair.Value.Clone(),
+            StringComparer.OrdinalIgnoreCase);
+        MetadataStore.Save(changedDirectory, changedRecords);
+        var changingPreview = RoleProfileAutoScraper.Preview(videos, changedRecords,
+            RoleProfileStore.Load(changedDirectory));
+        var changedDuringFetch = false;
+        Task<RoleProfileStore.SourceDetails> ChangeLaterCredit(
+            RoleProfileStore.SourceIdentity identity, CancellationToken token)
+        {
+            if (!changedDuringFetch)
+            {
+                changedDuringFetch = true;
+                changedRecords[firstVideo.Id].PersonCredits.RemoveAll(credit => credit.PersonId == "102");
+                MetadataStore.Save(changedDirectory, changedRecords);
+            }
+            return FakeDetails(identity, token);
+        }
+        var changingRun = Task.Run(() => RoleProfileAutoScraper.RunAsync(changedDirectory,
+            changingPreview, "offline-diagnostic-token", fetchDetails: ChangeLaterCredit))
+            .GetAwaiter().GetResult();
+        var changedState = RoleProfileStore.Load(changedDirectory);
+        results["roleProfilesAutoRechecksDiskMetadataDuringLongRun"] =
+            changedDuringFetch && changingRun.SkippedChanged == 1 &&
+            RoleProfileStore.FindBySource(changedState, "TMDB", "101") is not null &&
+            RoleProfileStore.FindBySource(changedState, "TMDB", "102") is null;
+
+        var batchDirectory = Path.Combine(root, "auto-scrape-batch-change");
+        Directory.CreateDirectory(batchDirectory);
+        var batchRecords = records.ToDictionary(pair => pair.Key, pair => pair.Value.Clone(),
+            StringComparer.OrdinalIgnoreCase);
+        MetadataStore.Save(batchDirectory, batchRecords);
+        var batchPreview = RoleProfileAutoScraper.Preview(videos, batchRecords,
+            RoleProfileStore.Load(batchDirectory));
+        Task<RoleProfileStore.SourceDetails> InvalidateFirstBeforeBatchSave(
+            RoleProfileStore.SourceIdentity identity, CancellationToken token)
+        {
+            if (identity.PersonId == "102")
+            {
+                batchRecords[firstVideo.Id].PersonCredits.RemoveAll(credit => credit.PersonId == "101");
+                batchRecords[secondVideo.Id].PersonCredits.RemoveAll(credit => credit.PersonId == "101");
+                MetadataStore.Save(batchDirectory, batchRecords);
+            }
+            return FakeDetails(identity, token);
+        }
+        var batchRefused = false;
+        try
+        {
+            _ = Task.Run(() => RoleProfileAutoScraper.RunAsync(batchDirectory,
+                batchPreview, "offline-diagnostic-token", fetchDetails: InvalidateFirstBeforeBatchSave))
+                .GetAwaiter().GetResult();
+        }
+        catch (InvalidDataException) { batchRefused = true; }
+        results["roleProfilesAutoRejectsChangedPendingBatchBeforeSave"] =
+            batchRefused && RoleProfileStore.Load(batchDirectory).Profiles.Count == 0;
+
+        // TVmaze permits a user-authored link. Import should not add a second
+        // verified row pointing to the same local video in that profile.
+        var manualDirectory = Path.Combine(root, "auto-scrape-manual-work");
+        Directory.CreateDirectory(manualDirectory);
+        var tvVideo = Video(manualDirectory, "auto-tv", "剧集");
+        using var tvJson = JsonDocument.Parse("""
+            {"id":7,"name":"Show","_embedded":{"cast":[{"person":{"id":29,"name":"Taylor"},
+              "character":{"name":"Protagonist"}}]}}
+            """);
+        var tvRecord = AdditionalScrapers.ParseTvMazeDetails(new MovieMetadata
+        {
+            Source = "TVmaze", SourceUrl = "https://www.tvmaze.com/shows/7", Title = "Show"
+        }, tvJson.RootElement);
+        var tvIdentityValid = RoleProfileStore.TryVerifiedPersonCredit(tvRecord,
+            tvRecord.PersonCredits.Single(), out var tvIdentity);
+        var tvProfile = new RoleProfileStore.Profile { Name = "Taylor" };
+        tvProfile.Sources.Add(tvIdentity);
+        tvProfile.Works.Add(new RoleProfileStore.WorkLink
+        {
+            LocalVideoId = tvVideo.Id, WorkTitle = "用户手工关联的 Show", LinkOrigin = "manual"
+        });
+        var tvRecords = new Dictionary<string, MovieMetadata>(StringComparer.OrdinalIgnoreCase)
+            { [tvVideo.Id] = tvRecord };
+        MetadataStore.Save(manualDirectory, tvRecords);
+        RoleProfileStore.Save(manualDirectory, new RoleProfileStore.State { Profiles = [tvProfile] });
+        var tvPreview = RoleProfileAutoScraper.Preview([tvVideo], tvRecords,
+            RoleProfileStore.Load(manualDirectory));
+        var tvRun = Task.Run(() => RoleProfileAutoScraper.RunAsync(manualDirectory, tvPreview,
+            "", fetchDetails: FakeDetails)).GetAwaiter().GetResult();
+        var tvAfter = RoleProfileStore.Load(manualDirectory).Profiles.Single();
+        results["roleProfilesAutoKeepsManualSameVideoWithoutDuplicate"] =
+            tvIdentityValid && tvPreview.ExistingCount == 1 && tvRun.Created == 0 &&
+            tvAfter.Works.Count == 1 && tvAfter.Works[0].LinkOrigin == "manual" &&
+            tvAfter.SourcedDetails.Count == 1;
+
+        // The per-profile 20k cap is explicit in preview and refuses the run
+        // before touching the 20,000 existing work rows.
+        var fullDirectory = Path.Combine(root, "auto-scrape-full-works");
+        Directory.CreateDirectory(fullDirectory);
+        var fullProfile = new RoleProfileStore.Profile { Name = "Taylor" };
+        fullProfile.Sources.Add(tvIdentity);
+        for (var index = 0; index < 20000; index++)
+            fullProfile.Works.Add(new RoleProfileStore.WorkLink
+            {
+                LocalVideoId = "prior-" + index, WorkTitle = "已有关联", LinkOrigin = "manual"
+            });
+        RoleProfileStore.Save(fullDirectory, new RoleProfileStore.State { Profiles = [fullProfile] });
+        var fullPreview = RoleProfileAutoScraper.Preview([tvVideo], tvRecords,
+            RoleProfileStore.Load(fullDirectory));
+        var fullRevision = RoleProfileStore.Load(fullDirectory).Revision;
+        var fullRejected = false;
+        try
+        {
+            _ = Task.Run(() => RoleProfileAutoScraper.RunAsync(fullDirectory, fullPreview,
+                "", fetchDetails: FakeDetails)).GetAwaiter().GetResult();
+        }
+        catch (InvalidOperationException) { fullRejected = true; }
+        var fullAfter = RoleProfileStore.Load(fullDirectory);
+        results["roleProfilesAutoWorkCapExplicitAndAtomic"] =
+            fullPreview.CapacityExceeded && fullPreview.WorkCapacityExceededCount == 1 &&
+            fullRejected && fullAfter.Profiles.Single().Works.Count == 20000 &&
+            fullAfter.Revision == fullRevision;
+
+        // A persistent 429 makes at most one retry for that provider, then
+        // stops the provider for this run and keeps its identities/works.
+        var throttledDirectory = Path.Combine(root, "auto-scrape-throttled");
+        Directory.CreateDirectory(throttledDirectory);
+        MetadataStore.Save(throttledDirectory, records);
+        var throttledPreview = RoleProfileAutoScraper.Preview(videos, records,
+            RoleProfileStore.Load(throttledDirectory));
+        var rateCalls = 0;
+        Task<RoleProfileStore.SourceDetails> Always429(
+            RoleProfileStore.SourceIdentity identity, CancellationToken token)
+        {
+            rateCalls++;
+            throw new RolePersonDetailsFetcher.RateLimitException(identity.Provider, TimeSpan.Zero);
+        }
+        var throttledRun = Task.Run(() => RoleProfileAutoScraper.RunAsync(throttledDirectory,
+            throttledPreview, "offline-diagnostic-token", fetchDetails: Always429))
+            .GetAwaiter().GetResult();
+        var throttledState = RoleProfileStore.Load(throttledDirectory);
+        var retryHeader = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(17));
+        results["roleProfilesAuto429StopsProviderAndRespectsRetryAfter"] =
+            rateCalls == 2 && throttledRun.SkippedRateLimited == 2 &&
+            throttledRun.Fetched == 0 && throttledState.Profiles.Count == 2 &&
+            RolePersonDetailsFetcher.RetryAfterDelay(retryHeader,
+                DateTimeOffset.UtcNow) == TimeSpan.FromSeconds(17);
+        return results;
     }
 }

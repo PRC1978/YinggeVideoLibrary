@@ -44,16 +44,22 @@ public partial class MainWindow
         var row = new StackPanel { Margin = new Thickness(0, 14, 0, 0) };
         row.Children.Add(new TextBlock
         {
-            Text = "开源许可", FontWeight = FontWeights.SemiBold,
+            Text = "项目与第三方许可", FontWeight = FontWeights.SemiBold,
             Foreground = Brushes.SlateGray, Margin = new Thickness(0, 0, 0, 7)
         });
         var button = new Button
         {
-            Content = "查看开源许可与第三方声明", Style = (Style)FindResource("Action"),
+            Content = "查看非商业使用许可与第三方声明", Style = (Style)FindResource("Action"),
             HorizontalAlignment = System.Windows.HorizontalAlignment.Left
         };
         button.Click += (_, _) => ShowLicenseDialog();
         row.Children.Add(button);
+        row.Children.Add(new TextBlock
+        {
+            Text = "源码公开供许可范围内的非商业使用；商业用途请先通过项目 GitHub Issues 联系 PRC1978。",
+            TextWrapping = TextWrapping.Wrap, Foreground = Brushes.SlateGray,
+            Margin = new Thickness(0, 7, 0, 0)
+        });
         return row;
     }
 
@@ -64,7 +70,7 @@ public partial class MainWindow
         {
             documents =
             [
-                ("映格视频库 · MIT 许可", ReadEmbeddedLicense()),
+                ("映格视频库 · PolyForm 非商业许可", ReadEmbeddedLicense()),
                 ("Microsoft.Web.WebView2 1.0.3595.46 · 许可", ReadEmbeddedWebView2License()),
                 ("Microsoft.Web.WebView2 1.0.3595.46 · 第三方声明", ReadEmbeddedWebView2Notice()),
                 (".NET Runtime 9.0.17 · 许可", ReadEmbeddedDotNetCoreRuntimeLicense()),
@@ -74,13 +80,13 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            System.Windows.MessageBox.Show(this, ex.Message, "开源许可",
+            System.Windows.MessageBox.Show(this, ex.Message, "项目许可",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
         var dialog = new Window
         {
-            Title = "开源许可与第三方声明", Owner = this,
+            Title = "项目许可与第三方声明", Owner = this,
             Width = 690, Height = 550, MinWidth = 480, MinHeight = 360,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Background = Brushes.White

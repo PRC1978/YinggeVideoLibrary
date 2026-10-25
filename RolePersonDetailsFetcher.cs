@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -6,9 +7,9 @@ using System.Text.RegularExpressions;
 
 namespace YinggeVideoLibrary;
 
-// This adapter is called only after a user opens a verified person identity
-// and presses "read source details". It never scans the local library or
-// searches by a name. Requests are built from a numeric, verified source ID.
+// This adapter reads an already verified person identity, either on demand
+// or from a user-confirmed bulk import. It never searches by a name. Requests
+// are built from the numeric identity independently verified on a work.
 internal static class RolePersonDetailsFetcher
 {
     const int MaxJsonBytes = 512 * 1024;
@@ -18,13 +19,37 @@ internal static class RolePersonDetailsFetcher
         Timeout = TimeSpan.FromSeconds(18)
     };
 
+    internal sealed class RateLimitException : HttpRequestException
+    {
+        internal RateLimitException(string provider, TimeSpan retryAfter)
+            : base(provider + " 人物来源请求过于频繁。", null, HttpStatusCode.TooManyRequests)
+        {
+            RetryAfter = retryAfter;
+        }
+
+        internal TimeSpan RetryAfter { get; }
+    }
+
+    internal static TimeSpan RetryAfterDelay(RetryConditionHeaderValue? header, DateTimeOffset now)
+    {
+        if (header?.Delta is { } delta) return delta > TimeSpan.Zero ? delta : TimeSpan.Zero;
+        if (header?.Date is { } date)
+        {
+            var remaining = date - now;
+            return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+        }
+        return TimeSpan.FromSeconds(5);
+    }
+
     static RolePersonDetailsFetcher()
     {
-        Client.DefaultRequestHeaders.UserAgent.ParseAdd("YinggeVideoLibrary/1.5.1 (local profile viewer)");
+        var version = typeof(RolePersonDetailsFetcher).Assembly.GetName().Version?.ToString(3) ?? "1.5.2";
+        Client.DefaultRequestHeaders.UserAgent.ParseAdd($"YinggeVideoLibrary/{version} (local profile viewer)");
     }
 
     internal static async Task<RoleProfileStore.SourceDetails> FetchAsync(
-        RoleProfileStore.SourceIdentity source, string tmdbToken, CancellationToken token = default)
+        RoleProfileStore.SourceIdentity source, string tmdbToken, CancellationToken token = default,
+        bool downloadPortrait = true)
     {
         if (!int.TryParse(source.PersonId, out var personId) || personId <= 0)
             throw new InvalidDataException("人物来源 ID 无效。");
@@ -49,14 +74,18 @@ internal static class RolePersonDetailsFetcher
         if (source.Provider == "TMDB")
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tmdbToken);
         using var response = await Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            throw new RateLimitException(source.Provider,
+                RetryAfterDelay(response.Headers.RetryAfter, DateTimeOffset.UtcNow));
         if (!response.IsSuccessStatusCode)
-            throw new HttpRequestException($"{source.Provider} 人物详情返回 {(int)response.StatusCode}。");
+            throw new HttpRequestException($"{source.Provider} 人物详情返回 {(int)response.StatusCode}。",
+                null, response.StatusCode);
         var bytes = await ReadBoundedAsync(response.Content, MaxJsonBytes, token);
         using var document = JsonDocument.Parse(bytes);
         var details = source.Provider == "TMDB"
             ? ParseTmdb(source, document.RootElement)
             : ParseTvmaze(source, document.RootElement);
-        if (details.PortraitUrl.Length > 0)
+        if (downloadPortrait && details.PortraitUrl.Length > 0)
         {
             try
             {

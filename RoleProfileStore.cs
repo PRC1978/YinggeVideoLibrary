@@ -284,6 +284,8 @@ internal static class RoleProfileStore
         };
     }
 
+    internal static bool IsTrustedIdentity(SourceIdentity source) => VerifiedSourceIdentity(source);
+
     static bool ImageSignatureMatches(byte[] bytes, string mime) => mime switch
     {
         "image/jpeg" => bytes.Length >= 3 && bytes[0] == 0xff && bytes[1] == 0xd8 && bytes[2] == 0xff,

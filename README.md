@@ -2,18 +2,18 @@
   <img src="docs/images/yingge-mark.svg" width="80" height="80" alt="映格视频库图标">
   <h1>映格视频库</h1>
   <p>把分散在硬盘里的视频，整理成可搜索、可审核、可探索的个人资料库。</p>
-  <p><strong>Windows x64</strong> · <strong>v1.5.1</strong> · <a href="LICENSE">MIT 开源</a></p>
+  <p><strong>Windows x64</strong> · <strong>v1.5.2</strong> · <a href="LICENSE">源码公开 · 仅限非商业使用</a></p>
   <p>
-    <a href="https://github.com/PRC1978/YinggeVideoLibrary/releases/download/v1.5.1/YinggeVideoLibrary-Setup.exe"><strong>下载安装版</strong></a>
+    <a href="https://github.com/PRC1978/YinggeVideoLibrary/releases/download/v1.5.2/YinggeVideoLibrary-Setup.exe"><strong>下载安装版</strong></a>
     &nbsp;·&nbsp;
-    <a href="https://github.com/PRC1978/YinggeVideoLibrary/releases/download/v1.5.1/YinggeVideoLibrary-win-x64.exe"><strong>下载免安装版</strong></a>
+    <a href="https://github.com/PRC1978/YinggeVideoLibrary/releases/download/v1.5.2/YinggeVideoLibrary-win-x64.exe"><strong>下载免安装版</strong></a>
   </p>
   <p>
     <a href="#它能做什么">功能</a> ·
     <a href="#开始使用">上手</a> ·
     <a href="#数据与联网">数据与联网</a> ·
     <a href="docs/USER_GUIDE.md">详细指南</a> ·
-    <a href="RELEASE_NOTES_1.5.1.md">1.5.1 发布说明</a>
+    <a href="RELEASE_NOTES_1.5.2.md">1.5.2 发布说明</a>
   </p>
 </div>
 
@@ -37,21 +37,21 @@
 
 ## 开始使用
 
-1. **下载并打开。** 推荐使用[安装版](https://github.com/PRC1978/YinggeVideoLibrary/releases/download/v1.5.1/YinggeVideoLibrary-Setup.exe)，按向导安装即可；也可把[免安装版](https://github.com/PRC1978/YinggeVideoLibrary/releases/download/v1.5.1/YinggeVideoLibrary-win-x64.exe)放在当前用户可写的文件夹中直接运行。安装版只为当前 Windows 用户安装，无需管理员权限。
+1. **下载并打开。** 推荐使用[安装版](https://github.com/PRC1978/YinggeVideoLibrary/releases/download/v1.5.2/YinggeVideoLibrary-Setup.exe)，按向导安装即可；也可把[免安装版](https://github.com/PRC1978/YinggeVideoLibrary/releases/download/v1.5.2/YinggeVideoLibrary-win-x64.exe)放在当前用户可写的文件夹中直接运行。安装版只为当前 Windows 用户安装，无需管理员权限。
 2. **添加视频文件夹。** 在“全部”页点击“添加文件夹”。扫描后可用列表、分类页或“文件夹”页浏览；视频仍保留在原目录。
 3. **按需搜刮。** 在“搜刮”页选择来源和跳过条件，先预览入队范围。搜刮会显示多个候选和来源证据；在审核页确认后再采用不确定的资料。
 
-安装版与免安装版共用当前 Windows 用户的数据目录。软件可检查 GitHub Release 中的新版本，显示更新内容；选择更新后下载并校验独立程序，退出旧程序、替换并重启。**软件所在目录须可写**，否则按提示手动下载安装包。下载文件及校验值见[本版 Release](https://github.com/PRC1978/YinggeVideoLibrary/releases/tag/v1.5.1)。
+安装版与免安装版共用当前 Windows 用户的数据目录。软件可检查 GitHub Release 中的新版本，显示更新内容；选择更新后下载并校验独立程序，退出旧程序、替换并重启。**软件所在目录须可写**，否则按提示手动下载安装包。下载文件及校验值见[本版 Release](https://github.com/PRC1978/YinggeVideoLibrary/releases/tag/v1.5.2)。
 
 ## 数据与联网
 
 - **本地数据：** 默认保存在 `%USERPROFILE%\.YinggeVideoLibrary`，包括索引、缩略图、分类和审核历史；添加视频库不会复制视频文件。
 - **接口凭据：** TMDB Token、AI API Key 等保存在当前 Windows 用户的凭据管理器中。备份不包含这些凭据。
-- **可选联网：** 启用在线搜刮或云端 AI 后，相关查询才会发送到所选服务；本地浏览、分类和规则处理无需连接这些服务。各来源的适用范围、凭据要求及已验证范围见[详细指南](docs/USER_GUIDE.md)和[发布说明](RELEASE_NOTES_1.5.1.md)。
+- **可选联网：** 启用在线搜刮或云端 AI 后，相关查询才会发送到所选服务；本地浏览、分类和规则处理无需连接这些服务。各来源的适用范围、凭据要求及已验证范围见[详细指南](docs/USER_GUIDE.md)和[发布说明](RELEASE_NOTES_1.5.2.md)。
 
 ## 更多文档
 
 - [使用与维护指南](docs/USER_GUIDE.md)：搜刮来源、队列、审核、分类、人物、备份、设置和源码构建。
-- [1.5.1 发布说明](RELEASE_NOTES_1.5.1.md)：本次改进、本机验收和使用边界。
+- [1.5.2 发布说明](RELEASE_NOTES_1.5.2.md)：本次改进、本机验收和使用边界。
 - [版本方案](NEXT_VERSION_PLAN.md)：原阶段目标与功能对照；计划项不等同于当前已实现功能。
-- [MIT 许可证](LICENSE)：适用于本项目源码。第三方组件、标志和外部资料遵循各自的许可与来源要求，详见[指南中的说明](docs/USER_GUIDE.md#许可与第三方资料)。
+- [非商业使用许可](LICENSE)：本项目源码公开，个人及其他许可允许的非商业用途可使用、修改和分发；商业用途请先通过 [GitHub Issues](https://github.com/PRC1978/YinggeVideoLibrary/issues) 联系 PRC1978 取得单独授权。第三方组件、标志和外部资料遵循各自的许可与来源要求，详见[指南中的说明](docs/USER_GUIDE.md#许可与第三方资料)。

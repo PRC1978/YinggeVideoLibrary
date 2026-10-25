@@ -74,6 +74,10 @@ public partial class MainWindow
         ,EnableOmdb = source.EnableOmdb
         ,EnableKitsu = source.EnableKitsu
         ,EnableTenrai = source.EnableTenrai
+        ,EnableMikan = source.EnableMikan
+        ,EnableFankuHub = source.EnableFankuHub
+        ,EnableDmhy = source.EnableDmhy
+        ,AnimeSourcesInQueue = source.AnimeSourcesInQueue
         ,EnableTrakt = source.EnableTrakt
         ,UseFolderPersonHint = source.UseFolderPersonHint
         ,SmartFilters = new Dictionary<string, string>(source.SmartFilters, StringComparer.CurrentCultureIgnoreCase)
@@ -165,6 +169,10 @@ public partial class MainWindow
             EnableOmdb = MergeScalar(baseline.EnableOmdb, current.EnableOmdb, latest.EnableOmdb),
             EnableKitsu = MergeScalar(baseline.EnableKitsu, current.EnableKitsu, latest.EnableKitsu),
             EnableTenrai = MergeScalar(baseline.EnableTenrai, current.EnableTenrai, latest.EnableTenrai),
+            EnableMikan = MergeScalar(baseline.EnableMikan, current.EnableMikan, latest.EnableMikan),
+            EnableFankuHub = MergeScalar(baseline.EnableFankuHub, current.EnableFankuHub, latest.EnableFankuHub),
+            EnableDmhy = MergeScalar(baseline.EnableDmhy, current.EnableDmhy, latest.EnableDmhy),
+            AnimeSourcesInQueue = MergeScalar(baseline.AnimeSourcesInQueue, current.AnimeSourcesInQueue, latest.AnimeSourcesInQueue),
             EnableTrakt = MergeScalar(baseline.EnableTrakt, current.EnableTrakt, latest.EnableTrakt),
             UseFolderPersonHint = MergeScalar(baseline.UseFolderPersonHint, current.UseFolderPersonHint, latest.UseFolderPersonHint),
             SmartFilters = MergeMap(baseline.SmartFilters, current.SmartFilters, latest.SmartFilters, StringComparer.CurrentCultureIgnoreCase),

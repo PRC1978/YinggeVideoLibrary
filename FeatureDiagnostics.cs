@@ -102,8 +102,13 @@ internal static class FeatureDiagnostics
                 Path.Combine(directory, "kitsu-source"))) findings[name] = kitsuPassed;
             foreach (var (name, tenraiPassed) in TenraiScraperDiagnostics.Verify(
                 Path.Combine(directory, "tenrai-source"))) findings[name] = tenraiPassed;
+            foreach (var (name, passed) in MikanScraperDiagnostics.Verify()) findings[name] = passed;
+            foreach (var (name, passed) in FankuHubScraperDiagnostics.Verify()) findings[name] = passed;
+            foreach (var (name, passed) in DmhyAnimeReleaseDiagnostics.Verify()) findings[name] = passed;
+            foreach (var (name, passed) in AnimeSourceIntegrationDiagnostics.Verify()) findings[name] = passed;
             foreach (var (name, traktPassed) in TraktScraperDiagnostics.Verify()) findings[name] = traktPassed;
             findings["wikidataVerifiedCacheCanBypassCooldown"] = await ScrapeCandidateCache.VerifyWikidataCacheReadyAsync(directory);
+            findings["animeVerifiedCacheCanBypassCooldown"] = ScrapeCandidateCache.VerifyAnimeSourceCacheReady(directory);
             findings["detailCacheBindsSourceUrlAndCode"] = await ScrapeCandidateCache.VerifyDetailIdentityBindingAsync(directory);
             findings["reviewHistoryJsonAndCsvRoundTrip"] = ReviewHistoryExport.VerifyForDiagnostics();
             findings["reviewHistoryCombinedFilters"] = ReviewHistoryQuery.VerifyForDiagnostics();

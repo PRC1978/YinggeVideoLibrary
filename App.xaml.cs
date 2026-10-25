@@ -56,6 +56,11 @@ public partial class App : System.Windows.Application
             Shutdown(await FeatureDiagnostics.RunAsync(e.Args[1]));
             return;
         }
+        if (e.Args.Length > 1 && e.Args[0] == "--self-test-anime")
+        {
+            Shutdown(AnimeFeatureDiagnostics.RunToFile(e.Args[1]));
+            return;
+        }
         if (e.Args.Length > 1 && e.Args[0] == "--self-test-shared-cache")
         {
             Shutdown(await Task.Run(() => SharedCacheReadOnlyProbe.Run(e.Args[1])));

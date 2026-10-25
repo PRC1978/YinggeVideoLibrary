@@ -36,7 +36,8 @@ public partial class MainWindow
     {
         cancellationToken.ThrowIfCancellationRequested();
         var originals = firstCandidates.ToList();
-        if (selectedSource is 8 or 10 or 13) return originals; // Manual key-backed sources get no implicit second request.
+        if (selectedSource is 8 or 10 or 13 or 14 or 15 || IsAnimeCategory(video))
+            return originals; // No implicit person-name query for anime catalogues or manual key-backed sources.
         if (!config.UseFolderPersonHint) return originals;
         if (originals.Count > 0 && originals.Max(candidate => LocalScrapeConfidence(video, candidate, out _)) >= 65)
             return originals;

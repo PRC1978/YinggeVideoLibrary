@@ -19,6 +19,8 @@ public partial class MainWindow
     {
         if (ScrapePanel.Child is not StackPanel panel) return;
         AppendManualSourceOptions(ScrapeSourceBox);
+        ScrapeSourceBox.Items.Add(new ComboBoxItem { Content = "蜜柑计划 番剧" });
+        ScrapeSourceBox.Items.Add(new ComboBoxItem { Content = "番库 番剧" });
 
         var section = new StackPanel { Margin = new Thickness(0, 8, 0, 18) };
         section.Children.Add(new Separator { Margin = new Thickness(0, 8, 0, 14) });

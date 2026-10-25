@@ -236,6 +236,10 @@ public static class AdditionalScrapers
             return await KitsuScraper.FetchFullDetailsAsync(candidate);
         if (candidate.Source.Equals("Tenrai", StringComparison.OrdinalIgnoreCase))
             return await TenraiScraper.FetchFullDetailsAsync(candidate);
+        if (candidate.Source.Equals("Mikan", StringComparison.OrdinalIgnoreCase))
+            return await MikanScraper.FetchFullDetailsAsync(candidate);
+        if (candidate.Source.Equals("FankuHub", StringComparison.OrdinalIgnoreCase))
+            return await FankuHubScraper.FetchFullDetailsAsync(candidate);
         if (candidate.Source.Equals("OMDb", StringComparison.OrdinalIgnoreCase))
             return await OmdbScraper.FetchFullDetailsAsync(candidate);
         if (candidate.Source.Equals("Trakt", StringComparison.OrdinalIgnoreCase))
@@ -439,6 +443,10 @@ public static class AdditionalScrapers
                           || uri.Host.Equals("media.kitsu.io", StringComparison.OrdinalIgnoreCase)
                     : record.Source.Equals("Tenrai", StringComparison.OrdinalIgnoreCase)
                         ? uri.Host.Equals("cdn.myanimelist.net", StringComparison.OrdinalIgnoreCase)
+                    : record.Source.Equals("Mikan", StringComparison.OrdinalIgnoreCase)
+                        ? uri.Host.Equals("mikanani.me", StringComparison.OrdinalIgnoreCase)
+                    : record.Source.Equals("FankuHub", StringComparison.OrdinalIgnoreCase)
+                        ? uri.Host.Equals("assets.fankuhub.cn", StringComparison.OrdinalIgnoreCase)
                     : record.Source.Equals("JavDB", StringComparison.OrdinalIgnoreCase)
                         ? uri.Host.Equals("jdbstatic.com", StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith(".jdbstatic.com", StringComparison.OrdinalIgnoreCase)
                         : record.Source.Equals("JAVDatabase", StringComparison.OrdinalIgnoreCase)

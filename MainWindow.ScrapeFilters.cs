@@ -202,13 +202,13 @@ public partial class MainWindow
             MessageBox.Show(this, "准备搜刮范围失败：" + ex.Message, "搜刮范围预览", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
-        var eligible = plans.Where(plan => plan.Item is not null).ToList();
+        var eligible = plans.Where(plan => plan.Item is not null && QueuePlanHasApplicableSource(plan)).ToList();
         var known = queued.Select(item => item.VideoId).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var newlyQueued = eligible.Where(plan => !known.Contains(plan.Video.Id)).ToList();
         var pendingCount = queued.Count(item => !item.Failed);
         var skipped = string.Join("\n", groups);
         MessageBox.Show(this,
-            $"模式：{(refreshExisting ? "未搜刮＋已存资料补全（需人工审核）" : "默认未搜刮入队")}\n候选视频：{candidate.Count} 部\n排除条件后：{eligible.Count} 部（番号 {eligible.Count(plan => plan.Item!.Kind == "code")}，标题 {eligible.Count(plan => plan.Item!.Kind == "title")}；已存资料补全 {eligible.Count(plan => plan.Item!.RefreshExisting)}）\n目录补出作品标题：{eligible.Count(plan => plan.UsedFolderTitle)} 部；标题较弱或番号冲突、需人工核对：{eligible.Count(plan => plan.NeedsManualTitle)} 部。\n已在队列：{eligible.Count - newlyQueued.Count} 部；本次可新增：{newlyQueued.Count} 部。\n当前待处理：{pendingCount} 项；全部加入后最少约 {FormatScrapeMinimumDuration(pendingCount + newlyQueued.Count)}，不含网络耗时和重试。\n\n"
+            $"模式：{(refreshExisting ? "未搜刮＋已存资料补全（需人工审核）" : "默认未搜刮入队")}\n候选视频：{candidate.Count} 部\n排除条件和来源范围后：{eligible.Count} 部（番号 {eligible.Count(plan => plan.Item!.Kind == "code")}，标题 {eligible.Count(plan => plan.Item!.Kind == "title")}；已存资料补全 {eligible.Count(plan => plan.Item!.RefreshExisting)}）\n目录补出作品标题：{eligible.Count(plan => plan.UsedFolderTitle)} 部；标题较弱或番号冲突、需人工核对：{eligible.Count(plan => plan.NeedsManualTitle)} 部。\n已在队列：{eligible.Count - newlyQueued.Count} 部；本次可新增：{newlyQueued.Count} 部。\n当前待处理：{pendingCount} 项；全部加入后最少约 {FormatScrapeMinimumDuration(pendingCount + newlyQueued.Count)}，不含网络耗时和重试。\n\n"
             + (skipped.Length > 0 ? "排除明细：\n" + skipped + "\n\n" : "")
             + "本次前几项：\n" + string.Join("\n", newlyQueued.Take(8).Select(plan => plan.Video.Title)),
             "搜刮范围预览");

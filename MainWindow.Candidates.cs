@@ -27,6 +27,10 @@ public partial class MainWindow
     CheckBox? wikidataEnabledBox;
     CheckBox? kitsuEnabledBox;
     CheckBox? tenraiEnabledBox;
+    CheckBox? mikanEnabledBox;
+    CheckBox? fankuHubEnabledBox;
+    CheckBox? dmhyEnabledBox;
+    CheckBox? animeQueueEnabledBox;
 
     void InitializeCandidateSettings()
     {
@@ -60,7 +64,15 @@ public partial class MainWindow
             Margin = new Thickness(0, 0, 0, 10), ToolTip = "无需密钥；默认关闭。启用后参与标题队列，请在动画库使用。详情核对动画 ID、标题和年份后只进入人工审核。" };
         tenraiEnabledBox = new CheckBox { Content = "启用 Tenrai 动画候选（MyAnimeList）", IsChecked = config.EnableTenrai,
             Margin = new Thickness(0, 0, 0, 10), ToolTip = "无需密钥；默认关闭。Tenrai 提供缓存的 MyAnimeList 动画资料；后台每次请求至少间隔 5 秒，核对编号和标题后只进入人工审核。" };
-        foreach (var box in new[] { javDatabaseEnabledBox, javDbTitleEnabledBox, bangumiEnabledBox, aniListEnabledBox, tvMazeEnabledBox, wikidataEnabledBox, kitsuEnabledBox, tenraiEnabledBox }) toggleGroup.Children.Add(box);
+        mikanEnabledBox = new CheckBox { Content = "启用蜜柑计划番剧作品候选", IsChecked = config.EnableMikan,
+            Margin = new Thickness(0, 0, 0, 10), ToolTip = "读取公开番组页；不读取种子、磁链。作品身份须人工审核。" };
+        fankuHubEnabledBox = new CheckBox { Content = "启用番库公开番剧作品候选", IsChecked = config.EnableFankuHub,
+            Margin = new Thickness(0, 0, 0, 10), ToolTip = "只读取无需登录的公开搜索与详情；遇到人机校验或访问限制时停止。作品身份须人工审核。" };
+        dmhyEnabledBox = new CheckBox { Content = "启用动漫花园发布线索手动查询", IsChecked = config.EnableDmhy,
+            Margin = new Thickness(0, 0, 0, 10), ToolTip = "只读取公开 RSS 的字幕组、集数和发布时间；不会下载种子或磁链，也不会直接覆盖作品资料。" };
+        animeQueueEnabledBox = new CheckBox { Content = "在后台标题队列查询已分类为动漫的视频", IsChecked = config.AnimeSourcesInQueue,
+            Margin = new Thickness(0, 0, 0, 10), ToolTip = "仅向蜜柑、番库查询已明确归入动漫分类的视频；每来源至少间隔 5 秒。默认关闭。" };
+        foreach (var box in new[] { javDatabaseEnabledBox, javDbTitleEnabledBox, bangumiEnabledBox, aniListEnabledBox, tvMazeEnabledBox, wikidataEnabledBox, kitsuEnabledBox, tenraiEnabledBox, mikanEnabledBox, fankuHubEnabledBox, dmhyEnabledBox, animeQueueEnabledBox }) toggleGroup.Children.Add(box);
         var ordinaryPreset = new Button
         {
             Content = "启用普通影视与动画公开来源",
@@ -100,11 +112,15 @@ public partial class MainWindow
             config.EnableWikidata = wikidataEnabledBox.IsChecked == true;
             config.EnableKitsu = kitsuEnabledBox.IsChecked == true;
             config.EnableTenrai = tenraiEnabledBox.IsChecked == true;
+            config.EnableMikan = mikanEnabledBox.IsChecked == true;
+            config.EnableFankuHub = fankuHubEnabledBox.IsChecked == true;
+            config.EnableDmhy = dmhyEnabledBox.IsChecked == true;
+            config.AnimeSourcesInQueue = animeQueueEnabledBox.IsChecked == true;
             config.UseFolderPersonHint = folderHintBox.IsChecked == true;
             SaveConfig();
             RefreshSourceDiagnostics();
         }
-        foreach (var box in new[] { JavDbEnabledBox, PornhubEnabledBox, TmdbEnabledBox, javDatabaseEnabledBox, javDbTitleEnabledBox, bangumiEnabledBox, aniListEnabledBox, tvMazeEnabledBox, wikidataEnabledBox, kitsuEnabledBox, tenraiEnabledBox, folderHintBox })
+        foreach (var box in new[] { JavDbEnabledBox, PornhubEnabledBox, TmdbEnabledBox, javDatabaseEnabledBox, javDbTitleEnabledBox, bangumiEnabledBox, aniListEnabledBox, tvMazeEnabledBox, wikidataEnabledBox, kitsuEnabledBox, tenraiEnabledBox, mikanEnabledBox, fankuHubEnabledBox, dmhyEnabledBox, animeQueueEnabledBox, folderHintBox })
         {
             box.Checked += SaveSourceToggles;
             box.Unchecked += SaveSourceToggles;
@@ -430,17 +446,19 @@ public partial class MainWindow
                 9 => wikidataEnabledBox?.IsChecked == true,
                 11 => kitsuEnabledBox?.IsChecked == true,
                 12 => tenraiEnabledBox?.IsChecked == true,
+                14 => mikanEnabledBox?.IsChecked == true,
+                15 => fankuHubEnabledBox?.IsChecked == true,
                 _ => false
             });
         if (selectedSource == 0 && string.IsNullOrWhiteSpace(config.TmdbToken))
             throw new InvalidOperationException("请先在搜刮页保存 TMDB API Read Access Token。");
-        var sources = PlanCandidateSources(selectedSource, bulk);
+        var sources = PlanCandidateSources(selectedSource, bulk, config.AnimeSourcesInQueue);
         var results = new List<MovieMetadata>();
         var completedSources = 0;
         var failedSources = 0;
         async Task<(string name, IReadOnlyList<MovieMetadata>? found, Exception? error)> QueryAsync(int source)
         {
-            var name = source switch { 1 => "Pornhub", 2 => "TVmaze", 4 => "Bangumi", 5 => "JavDB 标题", 6 => "AniList", 7 => "JAVDatabase 标题", 8 => "Javinfo 手动", 9 => "Wikidata", 10 => "OMDb", 11 => "Kitsu", 12 => "Tenrai", 13 => "Trakt", _ => "TMDB" };
+            var name = source switch { 1 => "Pornhub", 2 => "TVmaze", 4 => "Bangumi", 5 => "JavDB 标题", 6 => "AniList", 7 => "JAVDatabase 标题", 8 => "Javinfo 手动", 9 => "Wikidata", 10 => "OMDb", 11 => "Kitsu", 12 => "Tenrai", 13 => "Trakt", 14 => "Mikan", 15 => "FankuHub", _ => "TMDB" };
             var sourceKey = source switch { 5 => "JavDB", 7 => "JAVDatabase", _ => name };
             try
             {
@@ -458,6 +476,8 @@ public partial class MainWindow
                     11 => KitsuScraper.SearchAsync(title, cancellationToken),
                     12 => TenraiScraper.SearchAsync(title, cancellationToken),
                     13 => TraktScraper.SearchAsync(title, cancellationToken),
+                    14 => MikanScraper.SearchAsync(AnimeReleaseTitleParser.CleanWorkTitle(title), cancellationToken),
+                    15 => FankuHubScraper.SearchAsync(AnimeReleaseTitleParser.CleanWorkTitle(title), cancellationToken),
                     _ => AdditionalScrapers.SearchTmdbAsync(title, config.TmdbToken)
                 };
                 // The cache itself decides whether a network request is needed.
@@ -488,7 +508,11 @@ public partial class MainWindow
                                         source == 7 && javDatabaseEnabledBox?.IsChecked != true ||
                                         source == 9 && wikidataEnabledBox?.IsChecked != true ||
                                         source == 11 && kitsuEnabledBox?.IsChecked != true ||
-                                        source == 12 && tenraiEnabledBox?.IsChecked != true)) continue;
+                                        source == 12 && tenraiEnabledBox?.IsChecked != true ||
+                                        source == 14 && mikanEnabledBox?.IsChecked != true ||
+                                        source == 15 && fankuHubEnabledBox?.IsChecked != true)) continue;
+            if ((source is 14 or 15) && bulk &&
+                (video is null || !IsAnimeCategory(video))) continue;
             if (bulk && source == 6) continue; // AniList terms prohibit mass collection.
             if (source == 0 && (!tmdbScope.Allowed || string.IsNullOrWhiteSpace(config.TmdbToken))) continue;
             pending.Add(QueryAsync(source));
@@ -500,7 +524,7 @@ public partial class MainWindow
             else
             {
                 failedSources++;
-                if (selectedSource is 8 or 10 or 11 or 12 or 13) throw outcome.error;
+                if (selectedSource is 8 or 10 or 11 or 12 or 13 or 14 or 15) throw outcome.error;
                 Log($"{outcome.name} 候选查询失败：{outcome.error.Message}");
             }
         }
@@ -516,9 +540,9 @@ public partial class MainWindow
                 StringComparer.OrdinalIgnoreCase).Select(group => group.First()).ToList();
     }
 
-    internal static int[] PlanCandidateSources(int selectedSource, bool bulk)
+    internal static int[] PlanCandidateSources(int selectedSource, bool bulk, bool animeQueue = false)
     {
-        if (selectedSource is < 0 or > 13) throw new ArgumentOutOfRangeException(nameof(selectedSource));
+        if (selectedSource is < 0 or > 15) throw new ArgumentOutOfRangeException(nameof(selectedSource));
         if (bulk && selectedSource == 8)
             throw new InvalidOperationException("Javinfo 只能手动选择，不能进入批量搜刮。");
         if (bulk && selectedSource == 6)
@@ -527,7 +551,23 @@ public partial class MainWindow
             throw new InvalidOperationException("OMDb 只能手动选择，不能进入批量搜刮。");
         if (bulk && selectedSource == 13)
             throw new InvalidOperationException("Trakt 只能手动选择，不能进入批量搜刮。");
-        return selectedSource == 3 ? [0, 1, 2, 4, 5, 6, 7, 9, 11, 12] : [selectedSource];
+        if (bulk && selectedSource is (14 or 15) && !animeQueue)
+            throw new InvalidOperationException("番剧新来源仅在开启动漫分类后台队列后参与批量搜刮。");
+        if (selectedSource != 3) return [selectedSource];
+        return bulk && !animeQueue
+            ? [0, 1, 2, 4, 5, 6, 7, 9, 11, 12]
+            : [0, 1, 2, 4, 5, 6, 7, 9, 11, 12, 14, 15];
+    }
+
+    internal static bool IsAnimeCategory(VideoItem video)
+    {
+        IEnumerable<string> paths = video.CategoryList.Count == 0 ? [video.Category] : video.CategoryList;
+        return paths.Any(path => path.Equals("动漫", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("动漫 / ", StringComparison.OrdinalIgnoreCase) ||
+            path.Equals("动画", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("动画 / ", StringComparison.OrdinalIgnoreCase) ||
+            path.Equals("番剧", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("番剧 / ", StringComparison.OrdinalIgnoreCase));
     }
 
     internal static void RequireManualTrakt(bool bulk, bool enabled, bool credentialReady)
@@ -551,7 +591,7 @@ public partial class MainWindow
         var name = selectedSource switch
         {
             0 => "TMDB", 1 => "Pornhub", 2 => "TVmaze", 4 => "Bangumi", 5 => "JavDB 标题",
-            6 => "AniList", 7 => "JAVDatabase", 9 => "Wikidata", 11 => "Kitsu", 12 => "Tenrai",
+            6 => "AniList", 7 => "JAVDatabase", 9 => "Wikidata", 11 => "Kitsu", 12 => "Tenrai", 14 => "Mikan", 15 => "FankuHub",
             _ => throw new ArgumentOutOfRangeException(nameof(selectedSource))
         };
         if (!enabled) throw new InvalidOperationException($"请先在搜刮设置中启用 {name} 来源。");

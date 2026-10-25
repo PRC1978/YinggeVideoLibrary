@@ -6,7 +6,10 @@ public sealed class ScrapeSourcePolicy
 {
     public static double DefaultIntervalFor(string source, double legacyIntervalSeconds)
         => source.Equals("Kitsu", StringComparison.OrdinalIgnoreCase) ||
-           source.Equals("Tenrai", StringComparison.OrdinalIgnoreCase)
+           source.Equals("Tenrai", StringComparison.OrdinalIgnoreCase) ||
+           source.Equals("Mikan", StringComparison.OrdinalIgnoreCase) ||
+           source.Equals("FankuHub", StringComparison.OrdinalIgnoreCase) ||
+           source.Equals("DMHY", StringComparison.OrdinalIgnoreCase)
             ? (double.IsFinite(legacyIntervalSeconds) ? Math.Max(legacyIntervalSeconds, 5) : 5)
             : legacyIntervalSeconds;
 

@@ -195,6 +195,8 @@ public partial class MainWindow
             "Wikidata" => "Wikidata",
             "Kitsu" => "Kitsu",
             "Tenrai" => "Tenrai",
+            "Mikan" => "Mikan",
+            "FankuHub" => "FankuHub",
             "Pornhub" => "Pornhub",
             "Bangumi" => "Bangumi",
             _ => ""

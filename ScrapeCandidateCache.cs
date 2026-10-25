@@ -300,6 +300,8 @@ internal static class ScrapeCandidateCache
         "Kitsu" => "Kitsu",
         "Tenrai" => "Tenrai",
         "Bangumi" => "Bangumi",
+        "Mikan" => "Mikan",
+        "FankuHub" => "FankuHub",
         "JavDB" => "JavDB 标题",
         "JAVDatabase" => "JAVDatabase 标题",
         _ => null
@@ -467,6 +469,48 @@ internal static class ScrapeCandidateCache
         return HasReadyVerifiedTitleDetail(directory, title, ["Wikidata"])
             && !HasReadyVerifiedTitleDetail(directory, "Other Title", ["Wikidata"])
             && CandidateMatchesCacheSource("Wikidata 详情", detail);
+    }
+
+    internal static bool VerifyAnimeSourceCacheReady(string dataDir)
+    {
+        var directory = System.IO.Path.Combine(dataDir, "anime-source-cache-ready");
+        Directory.CreateDirectory(directory);
+        static void Seed(string directory, string source, string query, List<MovieMetadata> candidates)
+        {
+            var path = PathFor(directory, source, query);
+            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, JsonSerializer.Serialize(new Entry
+            {
+                SchemaVersion = CurrentSchemaVersion, Source = source, Query = query,
+                ParserVersion = DefaultParserVersion, ExpiresUtc = DateTime.UtcNow.AddHours(1),
+                Candidates = candidates
+            }));
+        }
+
+        foreach (var (source, url) in new[]
+        {
+            ("Mikan", "https://mikanani.me/Home/Bangumi/3141"),
+            ("FankuHub", "https://fankuhub.com/anime/cmpaxwdmq0amnmhlhtwpagp5l")
+        })
+        {
+            var title = "Anime " + source;
+            var candidate = new MovieMetadata { Source = source, SourceUrl = url, Title = title };
+            var detail = candidate.Clone();
+            detail.DetailFetched = true;
+            detail.DetailIdentityVerified = true;
+            Seed(directory, source, title, [candidate]);
+            Seed(directory, source + " 详情", url, [detail]);
+            ScrapeQueueStore.RecordSourceFailure(directory, source, "429", true, TimeSpan.FromMinutes(10));
+            var cacheFiles = SnapshotCacheFiles(directory);
+            if (ScrapeQueueStore.GetSourceReadyAt(directory, source) <= DateTimeOffset.UtcNow ||
+                !HasReadyVerifiedTitleDetail(directory, title, [source], cacheFiles) ||
+                FirstReadyQueuedTitle(directory,
+                    [new ScrapeQueueItem { VideoId = source, Kind = "title", SearchTitle = title }],
+                    [source], cacheFiles) != source ||
+                HasReadyVerifiedTitleDetail(directory, "Other " + title, [source], cacheFiles))
+                return false;
+        }
+        return true;
     }
 
     internal static async Task<bool> VerifyDetailIdentityBindingAsync(string dataDir)

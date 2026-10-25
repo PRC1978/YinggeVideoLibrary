@@ -34,7 +34,7 @@ internal static class SourceHealthDiagnostics
         bool omdbCredentialReady = false, bool traktCredentialReady = false)
     {
         var parser = AppVersion + " · 规则 r1";
-        var sources = new List<SourceState>(13);
+        var sources = new List<SourceState>(16);
         var backoffUnknown = recordStatus == "冷却记录不可读，状态可能不完整";
         void Add(string name, bool enabled, string mode, bool credentialReady = true)
         {
@@ -64,6 +64,11 @@ internal static class SourceHealthDiagnostics
         Add("Wikidata", config.EnableWikidata, "电影 / 剧集 / 动画标题队列；无密钥，需核验条目");
         Add("Kitsu", config.EnableKitsu, "动画标题队列；无密钥，核对条目和年份后人工审核");
         Add("Tenrai", config.EnableTenrai, "动画标题队列；缓存的 MyAnimeList 条目，核对编号与标题后人工审核");
+        Add("Mikan", config.EnableMikan, config.AnimeSourcesInQueue
+            ? "番剧标题队列（仅动漫分类）；公开番组详情，人工审核" : "番剧作品；仅手动与动漫分类的全部来源查询，人工审核");
+        Add("FankuHub", config.EnableFankuHub, config.AnimeSourcesInQueue
+            ? "番剧标题队列（仅动漫分类）；公开作品详情，人工审核" : "番剧作品；仅手动与动漫分类的全部来源查询，人工审核");
+        Add("DMHY", config.EnableDmhy, "仅手动查询发布线索；不覆盖作品资料");
         Add("OMDb", config.EnableOmdb, "电影 / 剧集标题；仅手动按需查询并核对 IMDb ID", omdbCredentialReady);
         Add("Trakt", config.EnableTrakt,
             "电影 / 剧集；仅手动按需查询并核对 Trakt、IMDb/TMDB 编号", traktCredentialReady);
@@ -197,7 +202,7 @@ internal static class SourceHealthDiagnostics
         var snapshot = Build(config, backoffs, new PaidBudgetState("本地预留次数", 1, 3, "2026-10-25"),
             "本地冷却记录正常", now);
         var json = ToRedactedJson(snapshot);
-        return snapshot.Sources.Count == 13
+        return snapshot.Sources.Count == 16
             && snapshot.Sources.Single(item => item.Name == "JavDB").Status == "冷却中"
             && snapshot.Sources.Single(item => item.Name == "JavDB").LastFailureCategory == "请求受限（429）"
             && snapshot.Sources.Single(item => item.Name == "TMDB").LastFailureCategory == "其他来源错误"

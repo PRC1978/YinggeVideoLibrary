@@ -90,7 +90,7 @@ public sealed class LibraryConfig
     // Keep a short, privacy-friendly local history so repeated searches can
     // be reused without making the toolbar wider or sending anything online.
     [JsonPropertyName("searchHistory")] public List<string> SearchHistory { get; set; } = [];
-    [JsonPropertyName("sourceTrustWeights")] public Dictionary<string, int> SourceTrustWeights { get; set; } = new(StringComparer.OrdinalIgnoreCase) { ["TMDB"] = 12, ["JavDB"] = 10, ["Bangumi"] = 8, ["AniList"] = 9, ["JAVDatabase"] = 7, ["Javinfo"] = 7, ["TVmaze"] = 8, ["Wikidata"] = 6, ["OMDb"] = 7, ["Kitsu"] = 8, ["Tenrai"] = 7, ["Trakt"] = 8, ["Pornhub"] = 4 };
+    [JsonPropertyName("sourceTrustWeights")] public Dictionary<string, int> SourceTrustWeights { get; set; } = new(StringComparer.OrdinalIgnoreCase) { ["TMDB"] = 12, ["JavDB"] = 10, ["Bangumi"] = 8, ["AniList"] = 9, ["JAVDatabase"] = 7, ["Javinfo"] = 7, ["TVmaze"] = 8, ["Wikidata"] = 6, ["OMDb"] = 7, ["Kitsu"] = 8, ["Tenrai"] = 7, ["Trakt"] = 8, ["Pornhub"] = 4, ["Mikan"] = 5, ["FankuHub"] = 6 };
     [JsonPropertyName("enableJavDb")] public bool EnableJavDb { get; set; } = true;
     [JsonPropertyName("enableJavDatabase")] public bool EnableJavDatabase { get; set; } = true;
     [JsonPropertyName("enableJavDbTitle")] public bool EnableJavDbTitle { get; set; } = true;
@@ -106,6 +106,10 @@ public sealed class LibraryConfig
     [JsonPropertyName("enableOmdb")] public bool EnableOmdb { get; set; }
     [JsonPropertyName("enableKitsu")] public bool EnableKitsu { get; set; }
     [JsonPropertyName("enableTenrai")] public bool EnableTenrai { get; set; }
+    [JsonPropertyName("enableMikan")] public bool EnableMikan { get; set; } = true;
+    [JsonPropertyName("enableFankuHub")] public bool EnableFankuHub { get; set; } = true;
+    [JsonPropertyName("enableDmhy")] public bool EnableDmhy { get; set; } = true;
+    [JsonPropertyName("animeSourcesInQueue")] public bool AnimeSourcesInQueue { get; set; }
     [JsonPropertyName("enableTrakt")] public bool EnableTrakt { get; set; }
     [JsonPropertyName("useFolderPersonHint")] public bool UseFolderPersonHint { get; set; } = true;
     [JsonPropertyName("smartFilters")] public Dictionary<string, string> SmartFilters { get; set; } = [];
@@ -446,6 +450,7 @@ public partial class MainWindow : Window
         InitializeAiQueueSettings();
         InitializeCandidateSettings();
         InitializeJavinfoSettings();
+        InitializeAnimeReleaseEvidence();
         InitializeLibraryUtilities();
         PlayerPathBox.Text = FindPlayer() ?? "";
         TmdbTokenBox.Password = config.TmdbToken;
@@ -705,7 +710,7 @@ public partial class MainWindow : Window
     internal static void RestoreDefaultSourceTrustWeights(LibraryConfig loaded)
     {
         loaded.SourceTrustWeights ??= new(StringComparer.OrdinalIgnoreCase);
-        foreach (var (name, weight) in new[] { ("TMDB", 12), ("JavDB", 10), ("Bangumi", 8), ("AniList", 9), ("JAVDatabase", 7), ("Javinfo", 7), ("TVmaze", 8), ("Wikidata", 6), ("OMDb", 7), ("Kitsu", 8), ("Tenrai", 7), ("Trakt", 8), ("Pornhub", 4) })
+        foreach (var (name, weight) in new[] { ("TMDB", 12), ("JavDB", 10), ("Bangumi", 8), ("AniList", 9), ("JAVDatabase", 7), ("Javinfo", 7), ("TVmaze", 8), ("Wikidata", 6), ("OMDb", 7), ("Kitsu", 8), ("Tenrai", 7), ("Trakt", 8), ("Pornhub", 4), ("Mikan", 5), ("FankuHub", 6) })
             loaded.SourceTrustWeights.TryAdd(name, weight);
     }
 
@@ -4105,14 +4110,14 @@ public partial class MainWindow : Window
                     MessageBox.Show(this, "没有找到新的候选；已有的视频信息和标签保持不变。", "完整资料搜刮");
                     return;
                 }
-                if (source is 8 or 10 or 11 or 12 or 13)
+                if (source is 8 or 10 or 11 or 12 or 13 or 14 or 15)
                 {
-                    var manualSource = source switch { 8 => "Javinfo", 10 => "OMDb", 12 => "Tenrai", 13 => "Trakt", _ => "Kitsu" };
+                    var manualSource = source switch { 8 => "Javinfo", 10 => "OMDb", 12 => "Tenrai", 13 => "Trakt", 14 => "蜜柑计划", 15 => "番库", _ => "Kitsu" };
                     TaskStatusText.Text = manualSource + " 没有找到候选 · 视频状态未改变";
                     MessageBox.Show(this, manualSource + " 没有找到候选。视频状态和标签未改变；可换用其他来源继续搜索。", "完整资料搜刮");
                     return;
                 }
-                StoreUnmatchedScrape(video, source switch { 1 => "Pornhub", 2 => "TVmaze", 3 => "全部来源", 4 => "Bangumi", 5 => "JavDB 标题", 6 => "AniList", 7 => "JAVDatabase 标题", 8 => "Javinfo", 9 => "Wikidata", 11 => "Kitsu", 12 => "Tenrai", 13 => "Trakt", _ => "TMDB" }, "已查询来源，没有找到候选结果。");
+                StoreUnmatchedScrape(video, source switch { 1 => "Pornhub", 2 => "TVmaze", 3 => "全部来源", 4 => "Bangumi", 5 => "JavDB 标题", 6 => "AniList", 7 => "JAVDatabase 标题", 8 => "Javinfo", 9 => "Wikidata", 11 => "Kitsu", 12 => "Tenrai", 13 => "Trakt", 14 => "Mikan", 15 => "FankuHub", _ => "TMDB" }, "已查询来源，没有找到候选结果。");
                 TaskStatusText.Text = "完整资料搜刮完成 · 未找到匹配，已标记素人";
                 RenderCards();
                 return;
@@ -4142,9 +4147,11 @@ public partial class MainWindow : Window
             var (aggregatedRecord, nativeForcePending) = await AggregateNativeTitleCandidateAsync(record, video.Id);
             record = aggregatedRecord;
             await AdditionalScrapers.DownloadPosterAsync(record, video.Id, DataDir);
-            var status = await StoreScrapeReviewAsync(video, record, forcePending: nativeForcePending || source is 10 or 13 ||
+            var status = await StoreScrapeReviewAsync(video, record, forcePending: nativeForcePending || source is 10 or 13 or 14 or 15 ||
                 record.Source.Equals("Kitsu", StringComparison.OrdinalIgnoreCase) ||
-                record.Source.Equals("Tenrai", StringComparison.OrdinalIgnoreCase));
+                record.Source.Equals("Tenrai", StringComparison.OrdinalIgnoreCase) ||
+                record.Source.Equals("Mikan", StringComparison.OrdinalIgnoreCase) ||
+                record.Source.Equals("FankuHub", StringComparison.OrdinalIgnoreCase));
             RenderCards();
             TaskStatusText.Text = status == "approved" ? "完整资料搜刮完成 · 已自动通过" : status == "rejected" ? "完整资料搜刮完成 · AI 否决" : "完整资料搜刮完成 · 待人工审核";
             Log($"完整资料搜刮成功：{record.Source} · {record.Title} · 可信度审核={status}");

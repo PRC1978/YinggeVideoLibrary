@@ -71,7 +71,7 @@ internal static class ScrapeRefreshDiagnostics
             ["scrapeNativeQueueNeverPlansJavinfo"] = codeSources.SequenceEqual(["JavDB", "JAVDatabase"])
                 && titleSources.SequenceEqual(["TMDB", "Pornhub", "TVmaze", "Bangumi", "JavDB", "JAVDatabase"])
                 && !codeSources.Concat(titleSources).Contains("Javinfo", StringComparer.OrdinalIgnoreCase),
-            ["scrapeAllManualSourcesExcludeJavinfo"] = allManualSources.SequenceEqual([0, 1, 2, 4, 5, 6, 7, 9, 11, 12])
+            ["scrapeAllManualSourcesExcludeJavinfo"] = allManualSources.SequenceEqual([0, 1, 2, 4, 5, 6, 7, 9, 11, 12, 14, 15])
                 && !allManualSources.Contains(8),
             ["wikidataOptInTitleQueueWithoutPaidSource"] = titleSourcesWithWikidata.SequenceEqual(
                 ["TMDB", "Pornhub", "TVmaze", "Bangumi", "JavDB", "JAVDatabase", "Wikidata"])

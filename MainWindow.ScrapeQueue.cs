@@ -30,8 +30,19 @@ public partial class MainWindow
             PornhubEnabledBox.IsChecked == true, tvMazeEnabledBox?.IsChecked == true,
             bangumiEnabledBox?.IsChecked == true, javDbTitleEnabledBox?.IsChecked == true,
             javDatabaseEnabledBox?.IsChecked == true, wikidataEnabledBox?.IsChecked == true,
-            kitsuEnabledBox?.IsChecked == true, tenraiEnabledBox?.IsChecked == true);
+            kitsuEnabledBox?.IsChecked == true, tenraiEnabledBox?.IsChecked == true,
+            config.AnimeSourcesInQueue && mikanEnabledBox?.IsChecked == true,
+            config.AnimeSourcesInQueue && fankuHubEnabledBox?.IsChecked == true);
     }
+
+    bool AnimeOnlyTitleSources()
+    {
+        var sources = EnabledQueueTitleSources();
+        return sources.Length > 0 && sources.All(source => source is "Mikan" or "FankuHub");
+    }
+
+    bool QueuePlanHasApplicableSource(PlannedScrapeItem plan) =>
+        plan.Item is not { Kind: "title" } || !AnimeOnlyTitleSources() || IsAnimeCategory(plan.Video);
 
     internal static string[] PlanQueueCodeSources(bool javDb, bool javDatabase)
     {
@@ -43,7 +54,7 @@ public partial class MainWindow
 
     internal static string[] PlanQueueTitleSources(bool tmdb, bool pornHub, bool tvMaze,
         bool bangumi, bool javDb, bool javDatabase, bool wikidata = false, bool kitsu = false,
-        bool tenrai = false)
+        bool tenrai = false, bool mikan = false, bool fankuHub = false)
     {
         var sources = new List<string>(7);
         if (tmdb) sources.Add("TMDB");
@@ -55,6 +66,8 @@ public partial class MainWindow
         if (wikidata) sources.Add("Wikidata");
         if (kitsu) sources.Add("Kitsu");
         if (tenrai) sources.Add("Tenrai");
+        if (mikan) sources.Add("Mikan");
+        if (fankuHub) sources.Add("FankuHub");
         // Javinfo is paid/manual; AniList disallows mass collection.
         return [.. sources];
     }
@@ -314,7 +327,8 @@ public partial class MainWindow
             var plans = await Task.Run(() => inputs.Select(input =>
                 PlanScrapeQueueItem(input.video, hasCodeSource, useFolderHint, libraryFolders,
                     input.refresh, input.code, input.title)).ToList());
-            var pending = plans.Select(plan => plan.Item).OfType<ScrapeQueueItem>().ToList();
+            var pending = plans.Where(QueuePlanHasApplicableSource)
+                .Select(plan => plan.Item).OfType<ScrapeQueueItem>().ToList();
             if (pending.Count == 0 && queued.All(x => x.Failed))
             {
                 var failed = queued.Count(x => x.Failed);

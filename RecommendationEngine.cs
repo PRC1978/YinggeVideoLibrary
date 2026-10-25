@@ -14,6 +14,14 @@ internal sealed record RecommendationSnapshot(
 
 internal sealed record LocalRecommendation(string VideoId, double Score, string Reason);
 
+internal sealed record RecommendationOptions(
+    bool UseFavorites = true,
+    bool UseWatchStatus = true,
+    bool UseCategories = true,
+    bool UseTags = true,
+    bool EnableOnlineTopics = true,
+    IReadOnlySet<string>? LessLikeVideoIds = null);
+
 // Keyword is selected from a fixed, generic list. No title, filename, path,
 // person name, custom tag or custom category is sent to Bilibili.
 internal sealed record BilibiliRecommendationTopic(string Label, string Keyword, string Reason);
@@ -47,53 +55,75 @@ internal static class RecommendationEngine
         ("编程", "编程教程", ["编程", "代码", "programming"])
     ];
 
-    public static List<LocalRecommendation> Rank(IReadOnlyList<RecommendationSnapshot> videos, int limit = 24)
+    public static List<LocalRecommendation> Rank(IReadOnlyList<RecommendationSnapshot> videos, int limit = 24,
+        RecommendationOptions? options = null)
     {
         if (videos.Count == 0 || limit <= 0) return [];
+        options ??= new RecommendationOptions();
+        var lessLike = options.LessLikeVideoIds;
         var categoryInterest = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         var tagInterest = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        var reducedCategories = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var reducedTags = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var video in videos)
         {
-            var weight = InterestWeight(video);
+            if (lessLike?.Contains(video.Id) == true)
+            {
+                if (options.UseCategories)
+                    foreach (var category in CleanTokens(video.Categories, 8, true))
+                        reducedCategories[category] = reducedCategories.GetValueOrDefault(category) + 1;
+                if (options.UseTags)
+                    foreach (var tag in CleanTokens(video.Tags, 12, false))
+                        reducedTags[tag] = reducedTags.GetValueOrDefault(tag) + 1;
+                continue;
+            }
+            var weight = InterestWeight(video, options);
             if (weight == 0) continue;
-            foreach (var category in CleanTokens(video.Categories, 8, true))
-                categoryInterest[category] = categoryInterest.GetValueOrDefault(category) + weight;
-            foreach (var tag in CleanTokens(video.Tags, 12, false))
-                tagInterest[tag] = tagInterest.GetValueOrDefault(tag) + weight;
+            if (options.UseCategories)
+                foreach (var category in CleanTokens(video.Categories, 8, true))
+                    categoryInterest[category] = categoryInterest.GetValueOrDefault(category) + weight;
+            if (options.UseTags)
+                foreach (var tag in CleanTokens(video.Tags, 12, false))
+                    tagInterest[tag] = tagInterest.GetValueOrDefault(tag) + weight;
         }
 
         var newest = videos.Max(video => video.Modified);
         var ranked = new List<RankedCandidate>(videos.Count);
         foreach (var video in videos)
         {
-            var categories = CleanTokens(video.Categories, 8, true);
-            var tags = CleanTokens(video.Tags, 12, false);
+            if (lessLike?.Contains(video.Id) == true) continue;
+            var categories = options.UseCategories ? CleanTokens(video.Categories, 8, true) : [];
+            var tags = options.UseTags ? CleanTokens(video.Tags, 12, false) : [];
             // The candidate must not count its own favorite/watch signals as evidence
             // that somebody with similar interests also liked it.
-            var ownWeight = InterestWeight(video);
+            var ownWeight = InterestWeight(video, options);
             var bestTag = tags.Select(tag => (tag, affinity: Math.Max(0, tagInterest.GetValueOrDefault(tag) - ownWeight)))
                 .OrderByDescending(hit => hit.affinity).FirstOrDefault();
             var bestCategory = categories.Select(category => (category, affinity: Math.Max(0, categoryInterest.GetValueOrDefault(category) - ownWeight)))
                 .OrderByDescending(hit => hit.affinity).FirstOrDefault();
-            var baseScore = video.WatchStatus switch
+            var baseScore = !options.UseWatchStatus ? 24d : video.WatchStatus switch
             {
                 "未看" => 36d,
                 "观看中" => 28d,
                 _ => 8d
             };
-            if (video.Favorite) baseScore += 8;
+            if (options.UseFavorites && video.Favorite) baseScore += 8;
             var daysFromNewest = Math.Max(0, (newest - video.Modified).TotalDays);
             var freshness = 14d / (1d + daysFromNewest / 45d);
             var tagBonus = Math.Min(24d, 6d * Math.Log2(1d + bestTag.affinity));
             var categoryBonus = Math.Min(18d, 5d * Math.Log2(1d + bestCategory.affinity));
-            var score = baseScore + freshness + tagBonus + categoryBonus;
+            var reducedTagCount = tags.Length == 0 ? 0 : tags.Max(tag => reducedTags.GetValueOrDefault(tag));
+            var reducedCategoryCount = categories.Length == 0 ? 0 : categories.Max(category => reducedCategories.GetValueOrDefault(category));
+            var reduction = Math.Min(32d, 9d * Math.Log2(1d + reducedTagCount)
+                + 7d * Math.Log2(1d + reducedCategoryCount));
+            var score = baseScore + freshness + tagBonus + categoryBonus - reduction;
             var reason = tagBonus >= categoryBonus && tagBonus > 0
                 ? $"与你常看的标签「{bestTag.tag}」相关"
                 : categoryBonus > 0
                     ? $"与你常看的分类「{bestCategory.category}」相关"
-                    : video.WatchStatus == "观看中" ? "继续观看"
-                    : video.Favorite ? "你收藏的视频"
-                    : video.WatchStatus == "已看" ? "重温已看视频" : "最近加入 · 尚未观看";
+                    : options.UseWatchStatus && video.WatchStatus == "观看中" ? "继续观看"
+                    : options.UseFavorites && video.Favorite ? "你收藏的视频"
+                    : options.UseWatchStatus && video.WatchStatus == "已看" ? "重温已看视频" : "最近加入的视频";
             var group = categories.Length > 0 ? categories[0].Split(" / ", 2, StringSplitOptions.TrimEntries)[0]
                 : tags.Length > 0 ? tags[0] : "未分类";
             ranked.Add(new RankedCandidate(new LocalRecommendation(video.Id, score, reason), group));
@@ -130,21 +160,37 @@ internal static class RecommendationEngine
         return result;
     }
 
-    private static double InterestWeight(RecommendationSnapshot video) => video.Favorite ? 5d : video.WatchStatus switch
+    private static double InterestWeight(RecommendationSnapshot video, RecommendationOptions options) =>
+        options.UseFavorites && video.Favorite ? 5d : !options.UseWatchStatus ? 0d : video.WatchStatus switch
     {
         "观看中" => 2d,
         "已看" => 1d,
         _ => 0d
     };
 
-    public static List<BilibiliRecommendationTopic> BuildBilibiliTopics(IReadOnlyList<RecommendationSnapshot> videos, int limit = 6)
+    public static List<BilibiliRecommendationTopic> BuildBilibiliTopics(IReadOnlyList<RecommendationSnapshot> videos,
+        int limit = 6, RecommendationOptions? options = null)
     {
-        if (limit <= 0) return [];
+        options ??= new RecommendationOptions();
+        if (limit <= 0 || !options.EnableOnlineTopics) return [];
         var scores = new double[PublicTopics.Length];
-        var hasExplicitInterest = videos.Any(video => video.Favorite || video.WatchStatus is "观看中" or "已看");
+        var reducedTopics = new int[PublicTopics.Length];
+        var hasExplicitInterest = videos.Any(video =>
+            options.LessLikeVideoIds?.Contains(video.Id) != true
+            && ((options.UseFavorites && video.Favorite)
+                || (options.UseWatchStatus && video.WatchStatus is "观看中" or "已看")));
         foreach (var video in videos)
         {
-            var weight = video.Favorite ? 4d : video.WatchStatus switch
+            var interests = (options.UseCategories ? CleanTokens(video.Categories, 8, true) : [])
+                .Concat(options.UseTags ? CleanTokens(video.Tags, 12, false) : []).ToArray();
+            if (options.LessLikeVideoIds?.Contains(video.Id) == true)
+            {
+                for (var index = 0; index < PublicTopics.Length; index++)
+                    if (MatchesPublicTopic(interests, PublicTopics[index].Aliases)) reducedTopics[index]++;
+                continue;
+            }
+            var weight = options.UseFavorites && video.Favorite ? 4d : !options.UseWatchStatus
+                ? hasExplicitInterest ? 0d : 0.25d : video.WatchStatus switch
             {
                 "观看中" => 2d,
                 "已看" => 1d,
@@ -153,14 +199,12 @@ internal static class RecommendationEngine
                 _ => hasExplicitInterest ? 0d : 0.25d
             };
             if (weight == 0) continue;
-            var interests = CleanTokens(video.Categories, 8, true)
-                .Concat(CleanTokens(video.Tags, 12, false)).ToArray();
             for (var index = 0; index < PublicTopics.Length; index++)
-                if (interests.Any(value => PublicTopics[index].Aliases.Any(alias =>
-                    alias.All(char.IsAsciiLetter) ? value.Equals(alias, StringComparison.OrdinalIgnoreCase)
-                        : value.Contains(alias, StringComparison.OrdinalIgnoreCase))))
+                if (MatchesPublicTopic(interests, PublicTopics[index].Aliases))
                     scores[index] += weight;
         }
+        for (var index = 0; index < scores.Length; index++)
+            scores[index] /= 1d + 2d * reducedTopics[index];
         var selected = Enumerable.Range(0, PublicTopics.Length)
             .Where(index => scores[index] > 0)
             .OrderByDescending(index => scores[index]).ThenBy(index => index)
@@ -172,10 +216,17 @@ internal static class RecommendationEngine
         {
             if (selected.Count >= limit) break;
             if (selected.Any(topic => topic.Keyword == fallback.Keyword)) continue;
+            var topicIndex = Array.FindIndex(PublicTopics, topic => topic.Keyword == fallback.Keyword);
+            if (topicIndex >= 0 && reducedTopics[topicIndex] > 0) continue;
             selected.Add(new BilibiliRecommendationTopic(fallback.Label, fallback.Keyword, "通用主题；不包含本地视频信息"));
         }
         return selected;
     }
+
+    private static bool MatchesPublicTopic(IEnumerable<string> interests, IEnumerable<string> aliases) =>
+        interests.Any(value => aliases.Any(alias =>
+            alias.All(char.IsAsciiLetter) ? value.Equals(alias, StringComparison.OrdinalIgnoreCase)
+                : value.Contains(alias, StringComparison.OrdinalIgnoreCase)));
 
     private static string[] CleanTokens(IEnumerable<string> values, int limit, bool categories)
     {

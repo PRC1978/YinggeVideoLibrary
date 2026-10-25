@@ -24,6 +24,9 @@ public static class JavDatabaseScraper
     static readonly Regex MetaTags = new(@"<meta\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
     static readonly Regex Attribute = new(@"(?<name>[\w:-]+)\s*=\s*(['""'])(?<value>.*?)\1", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
     static readonly Regex Links = new(@"<a\b[^>]*>(?<value>.*?)</a>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+    static readonly Regex PreviewAnchors = new(@"<a\b(?=[^>]*\bdata-image-(?:href|src)\s*=)[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+    static readonly Regex VideoTags = new(@"<video\b[^>]*>(?<body>.*?)</video>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+    static readonly Regex VideoSources = new(@"<source\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
     static readonly Regex SearchCards = new(@"<(?:div|article)\b[^>]*\bclass\s*=\s*(['""'])[^'""']*\bborderlesscard\b[^'""']*\1[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
     static readonly Regex SearchCode = new(@"<p\b[^>]*\bclass\s*=\s*(['""'])[^'""']*\bpcard\b[^'""']*\1[^>]*>(?<body>.*?)</p>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
     static readonly Regex SearchTitleBlock = new(@"<(?:div|p)\b[^>]*\bclass\s*=\s*(['""'])[^'""']*\bmt-auto\b[^'""']*\1[^>]*>(?<body>.*?)</(?:div|p)>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
@@ -34,6 +37,7 @@ public static class JavDatabaseScraper
         var handler = new HttpClientHandler
         {
             AllowAutoRedirect = false,
+            UseCookies = false,
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli
         };
         var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(18) };
@@ -184,6 +188,7 @@ public static class JavDatabaseScraper
         uri = null;
         raw = WebUtility.HtmlDecode(raw);
         if (!Uri.TryCreate(Site, raw, out var parsed) || parsed.Scheme != Uri.UriSchemeHttps ||
+            parsed.Port != 443 || parsed.UserInfo.Length != 0 ||
             !IsSiteHost(parsed.Host) || !parsed.AbsolutePath.StartsWith("/movies/", StringComparison.OrdinalIgnoreCase) ||
             parsed.Query.Length > 0 || parsed.Fragment.Length > 0) return false;
         var slug = parsed.AbsolutePath["/movies/".Length..].TrimEnd('/');
@@ -233,6 +238,15 @@ public static class JavDatabaseScraper
         var title = Regex.Replace(headingText, @"^" + Regex.Escape(expectedCode) + @"\s*[-–—:]?\s*", "", RegexOptions.IgnoreCase).Trim();
         if (title.Length > 0) result.Title = title;
         var recognized = title.Length > 0 ? 1 : 0;
+        // The ordinary Title row is an English display title on current
+        // public pages. Only an explicitly labelled Japanese/original title
+        // with Japanese script may populate OriginalTitle.
+        if ((TryRow(rows, "Japanese Title", out var japaneseTitle) ||
+             TryRow(rows, "Original Japanese Title", out japaneseTitle) ||
+             TryRow(rows, "Original Title", out japaneseTitle)) &&
+            japaneseTitle.Length is >= 2 and <= 500 &&
+            japaneseTitle.Any(c => c is >= '\u3040' and <= '\u30ff' or >= '\uff66' and <= '\uff9f'))
+        { result.OriginalTitle = japaneseTitle; recognized++; }
         if ((TryRow(rows, "Release Date", out var date) || TryRow(rows, "Released", out date)) &&
             DateOnly.TryParseExact(date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
         { result.ReleaseDate = date; recognized++; }
@@ -245,6 +259,10 @@ public static class JavDatabaseScraper
             if (value is > 0 and <= 3000) { result.RuntimeMinutes = value; recognized++; }
         }
         if (TryRow(rows, "Studio", out var studio)) { result.Studio = studio; recognized++; }
+        if (TryRow(rows, "Maker", out var maker) || TryRow(rows, "Manufacturer", out maker))
+        { result.Maker = maker; recognized++; }
+        if (TryRow(rows, "Label", out var brandLabel) || TryRow(rows, "JAV Label", out brandLabel))
+        { result.Label = brandLabel; recognized++; }
         if (TryRow(rows, "Director", out var director)) { result.Director = director; recognized++; }
         if (TryRow(rows, "JAV Series", out var series) || TryRow(rows, "Series", out series)) { result.Series = series; recognized++; }
         if (rows.TryGetValue("Genre(s)", out var rawGenres))
@@ -301,6 +319,12 @@ public static class JavDatabaseScraper
                     IsAllowedPosterHost(imageUri.Host)) { result.PosterUrl = imageUri.AbsoluteUri; recognized++; }
             }
         }
+        // These links are read from the exact-code detail page after its
+        // heading and DVD ID have both been checked. No media request occurs.
+        result.PreviewImageUrls = ExtractPreviewImageUrls(html, sourceUri, expectedCode);
+        if (result.PreviewImageUrls.Count > 0) recognized++;
+        result.TrailerUrl = ExtractTrailerUrl(html, sourceUri);
+        if (result.TrailerUrl is not null) recognized++;
         result.RefreshChangedFieldProvenance(candidate, "详情页");
         result.DetailFetched = recognized > 0;
         result.DetailIdentityVerified = result.DetailFetched;
@@ -314,6 +338,104 @@ public static class JavDatabaseScraper
 
     static bool IsAllowedPosterHost(string host) => IsSiteHost(host) ||
         host.Equals("pics.dmm.co.jp", StringComparison.OrdinalIgnoreCase);
+
+    // Keep the public media hosts narrow. The URL is only displayed and can
+    // be opened by an explicit user action; it is never fetched by scraping.
+    internal static bool IsTrustedPreviewUrl(string? url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out _) && TrustedMediaUri(url, Site, trailer: false) is not null;
+
+    internal static bool IsTrustedTrailerUrl(string? url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out _) && TrustedMediaUri(url, Site, trailer: true) is not null;
+
+    internal static bool IsVerifiedDetailSource(string code, string? sourceUrl) =>
+        ValidCode.IsMatch((code ?? "").Trim().ToUpperInvariant()) &&
+        Uri.TryCreate(sourceUrl, UriKind.Absolute, out _) &&
+        TryMovieUri(sourceUrl ?? "", out var uri) && uri is not null &&
+        string.Equals(uri.AbsolutePath["/movies/".Length..].TrimEnd('/'), code, StringComparison.OrdinalIgnoreCase);
+
+    internal static bool HasVerifiedMediaEvidence(MovieMetadata record, string field)
+    {
+        if (!record.DetailFetched || !record.DetailIdentityVerified ||
+            record.FieldProvenance is null || !record.FieldProvenance.TryGetValue(field, out var origin) ||
+            origin.Source != SourceName || !IsVerifiedDetailSource(record.Code, origin.SourceUrl)) return false;
+        return field switch
+        {
+            nameof(MovieMetadata.PreviewImageUrls) => record.PreviewImageUrls is { Count: > 0 and <= 48 } &&
+                record.PreviewImageUrls.All(IsTrustedPreviewUrl),
+            nameof(MovieMetadata.TrailerUrl) => IsTrustedTrailerUrl(record.TrailerUrl),
+            _ => false
+        };
+    }
+
+    static Dictionary<string, string> Attributes(string tag)
+    {
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Match match in Attribute.Matches(tag))
+            values[match.Groups["name"].Value] = WebUtility.HtmlDecode(match.Groups["value"].Value);
+        return values;
+    }
+
+    static Uri? TrustedMediaUri(string? raw, Uri pageUri, bool trailer)
+    {
+        if (string.IsNullOrWhiteSpace(raw) || raw.Length > 2048 || raw.Any(char.IsControl) ||
+            !Uri.TryCreate(pageUri, WebUtility.HtmlDecode(raw.Trim()), out var uri) ||
+            uri.Scheme != Uri.UriSchemeHttps || uri.Port != 443 || uri.UserInfo.Length != 0 ||
+            uri.Query.Length != 0 || uri.Fragment.Length != 0) return null;
+        var host = uri.Host;
+        var allowedHost = trailer
+            ? IsSiteHost(host) || Regex.IsMatch(host, @"^cc\d{4}\.dmm\.co\.jp$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            : IsAllowedPosterHost(host);
+        if (!allowedHost) return null;
+        var path = uri.AbsolutePath;
+        if (trailer)
+        {
+            if (!path.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) ||
+                (!IsSiteHost(host) && !path.StartsWith("/litevideo/freepv/", StringComparison.OrdinalIgnoreCase))) return null;
+        }
+        else if (!Regex.IsMatch(path, @"\.(?:jpe?g|png|webp)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)) return null;
+        return uri;
+    }
+
+    static List<string> ExtractPreviewImageUrls(string html, Uri pageUri, string code)
+    {
+        var result = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Match anchor in PreviewAnchors.Matches(html))
+        {
+            var attrs = Attributes(anchor.Value);
+            if (!attrs.ContainsKey("data-post-link") && !attrs.ContainsKey("data-post-title")) continue;
+            if (attrs.TryGetValue("data-post-link", out var postLink) &&
+                !IsVerifiedDetailSource(code, postLink)) continue;
+            if (attrs.TryGetValue("data-post-title", out var postTitle) &&
+                !ScrapeCodeIdentity.Same(postTitle, code)) continue;
+            var raw = attrs.GetValueOrDefault("data-image-href") ?? attrs.GetValueOrDefault("data-image-src");
+            var image = TrustedMediaUri(raw, pageUri, trailer: false);
+            if (image is null && attrs.TryGetValue("data-image-src", out var fallback))
+                image = TrustedMediaUri(fallback, pageUri, trailer: false);
+            if (image is not null && seen.Add(image.AbsoluteUri)) result.Add(image.AbsoluteUri);
+            if (result.Count == 48) break;
+        }
+        return result;
+    }
+
+    static string? ExtractTrailerUrl(string html, Uri pageUri)
+    {
+        foreach (Match video in VideoTags.Matches(html))
+        {
+            var openEnd = video.Value.IndexOf('>');
+            if (openEnd < 0) continue;
+            var attrs = Attributes(video.Value[..(openEnd + 1)]);
+            if (attrs.GetValueOrDefault("id") != "jav-player") continue;
+            var direct = TrustedMediaUri(attrs.GetValueOrDefault("src"), pageUri, trailer: true);
+            if (direct is not null) return direct.AbsoluteUri;
+            foreach (Match source in VideoSources.Matches(video.Groups["body"].Value))
+            {
+                var value = TrustedMediaUri(Attributes(source.Value).GetValueOrDefault("src"), pageUri, trailer: true);
+                if (value is not null) return value.AbsoluteUri;
+            }
+        }
+        return null;
+    }
 
     static bool TryRow(Dictionary<string, string> rows, string name, out string text)
     {

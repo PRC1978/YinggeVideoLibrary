@@ -1,0 +1,2 @@
+# Keep upstream third-party notice text byte-for-byte, including its spacing.
+third-party/Microsoft.Web.WebView2/1.0.3595.46/LICENSE.txt whitespace=-blank-at-eol

@@ -65,6 +65,7 @@ public static class RatingAggregation
         if (source.Equals("AniList", StringComparison.OrdinalIgnoreCase)) return "AniList";
         if (source.Equals("Bangumi", StringComparison.OrdinalIgnoreCase)) return "Bangumi";
         if (source.Equals("TVmaze", StringComparison.OrdinalIgnoreCase)) return "TVmaze";
+        if (source.Equals("Tenrai", StringComparison.OrdinalIgnoreCase)) return "MyAnimeList";
         if (source.Equals("Pornhub", StringComparison.OrdinalIgnoreCase)) return "Pornhub";
         return source;
     }

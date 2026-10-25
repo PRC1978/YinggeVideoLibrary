@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using CheckBox = System.Windows.Controls.CheckBox;
 using TextBox = System.Windows.Controls.TextBox;
 using Button = System.Windows.Controls.Button;
+using ComboBox = System.Windows.Controls.ComboBox;
 using MessageBox = System.Windows.MessageBox;
 
 namespace YinggeVideoLibrary;
@@ -17,14 +18,14 @@ public partial class MainWindow
     void InitializeJavinfoSettings()
     {
         if (ScrapePanel.Child is not StackPanel panel) return;
-        ScrapeSourceBox.Items.Add(new ComboBoxItem { Content = "Javinfo 聚合来源（手动）" });
+        AppendManualSourceOptions(ScrapeSourceBox);
 
         var section = new StackPanel { Margin = new Thickness(0, 8, 0, 18) };
         section.Children.Add(new Separator { Margin = new Thickness(0, 8, 0, 14) });
         section.Children.Add(new TextBlock { Text = "Javinfo 聚合来源（可选付费）", FontWeight = FontWeights.SemiBold, FontSize = 16 });
         section.Children.Add(new TextBlock
         {
-            Text = "手动搜索时可选择；不会加入“全部来源”或后台全量队列。需自行在 javinfo.dev 获取 API Key。",
+            Text = "仅作为可选付费的手动备用来源。必须先核对当前视频的明确番号和日文作品原名；纯汉字原名须由你确认。只按精确番号查询，不加入“全部来源”或后台全量队列。",
             Foreground = System.Windows.Media.Brushes.SlateGray, TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 5, 0, 12)
         });
@@ -79,5 +80,80 @@ public partial class MainWindow
             Margin = new Thickness(0, 10, 0, 0)
         });
         panel.Children.Insert(panel.Children.IndexOf(TmdbEnabledBox) + 2, section);
+        InitializeOmdbSettings(panel);
+        InitializeTraktSettings(panel);
+    }
+
+    internal static void AppendManualSourceOptions(ComboBox sourceBox)
+    {
+        sourceBox.Items.Add(new ComboBoxItem { Content = "Javinfo 聚合来源（手动）" });
+        sourceBox.Items.Add(new ComboBoxItem { Content = "Wikidata 电影 / 剧集 / 动画" });
+        sourceBox.Items.Add(new ComboBoxItem { Content = "OMDb 电影 / 剧集（手动）" });
+        sourceBox.Items.Add(new ComboBoxItem { Content = "Kitsu 动画" });
+        sourceBox.Items.Add(new ComboBoxItem { Content = "Tenrai 动画（MyAnimeList）" });
+        sourceBox.Items.Add(new ComboBoxItem { Content = "Trakt 电影 / 剧集（手动）" });
+    }
+
+    JavinfoSearchEvidence? PromptJavinfoEvidence(VideoItem video)
+    {
+        metadata.TryGetValue(video.Id, out var saved);
+        var filenameCode = JavinfoSearchEvidence.CanonicalCode(JavDbScraper.GuessCode(video.Title));
+        var storedCode = JavinfoSearchEvidence.CanonicalCode(video.Code)
+            ?? JavinfoSearchEvidence.CanonicalCode(saved?.Code);
+        var code = storedCode ?? filenameCode ?? "";
+        var proposedTitle = JavinfoSearchEvidence.SuggestedJapaneseTitle(saved?.OriginalTitle)
+            ?? JavinfoSearchEvidence.SuggestedJapaneseTitle(video.Title)
+            ?? JavinfoSearchEvidence.SuggestedJapaneseTitle(saved?.Title) ?? "";
+        var dialog = new Window { Title = "Javinfo 手动搜刮 · 核对付费查询", Owner = this,
+            Width = 580, Height = 430, MinWidth = 520, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        var panel = new StackPanel { Margin = new Thickness(20) };
+        panel.Children.Add(new TextBlock { Text = "只在番号与日文作品原名都明确时查询。Javinfo 是付费来源，每次请求可能消耗额度。",
+            TextWrapping = TextWrapping.Wrap, Foreground = System.Windows.Media.Brushes.SlateGray,
+            Margin = new Thickness(0, 0, 0, 12) });
+        panel.Children.Add(new TextBlock { Text = "作品番号", FontWeight = FontWeights.SemiBold });
+        var codeBox = new TextBox { Text = code, Height = 34, Margin = new Thickness(0, 5, 0, 12),
+            ToolTip = "例如 ABC-123；不能填写模糊文件序号" };
+        panel.Children.Add(codeBox);
+        panel.Children.Add(new TextBlock { Text = "日文作品原名", FontWeight = FontWeights.SemiBold });
+        var titleBox = new TextBox { Text = proposedTitle, Height = 34, Margin = new Thickness(0, 5, 0, 9),
+            ToolTip = "填写已核对的日文原名；请勿填写中文译名或人物目录名称" };
+        panel.Children.Add(titleBox);
+        var confirmHan = new CheckBox { Content = "纯汉字标题：我已核对这是日文原名且与此番号对应",
+            Margin = new Thickness(0, 0, 0, 10) };
+        panel.Children.Add(confirmHan);
+        var confirmMatch = new CheckBox { Content = "我已核对上方番号与日文原名属于当前视频",
+            Margin = new Thickness(0, 0, 0, 10) };
+        panel.Children.Add(confirmMatch);
+        var error = new TextBlock { Foreground = System.Windows.Media.Brushes.IndianRed,
+            TextWrapping = TextWrapping.Wrap, MinHeight = 34 };
+        panel.Children.Add(error);
+        JavinfoSearchEvidence? evidence = null;
+        var actions = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal,
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Right };
+        var cancel = new Button { Content = "取消", Width = 76, Style = (Style)FindResource("Action"),
+            Margin = new Thickness(0, 0, 8, 0) };
+        cancel.Click += (_, _) => dialog.DialogResult = false;
+        actions.Children.Add(cancel);
+        var search = new Button { Content = "按番号搜索", Width = 112, Style = (Style)FindResource("Primary") };
+        search.Click += (_, _) =>
+        {
+            try
+            {
+                if (confirmMatch.IsChecked != true)
+                    throw new InvalidOperationException("请先核对当前视频的番号和日文原名；没有发出付费请求。");
+                if (storedCode is not null && filenameCode is not null &&
+                    !storedCode.Equals(filenameCode, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("视频已存番号与文件名番号不一致，请先核对或修正；没有发出付费请求。");
+                evidence = JavinfoSearchEvidence.Create(codeBox.Text, titleBox.Text,
+                    confirmHan.IsChecked == true, storedCode ?? filenameCode);
+                dialog.DialogResult = true;
+            }
+            catch (Exception ex) { error.Text = ex.Message; }
+        };
+        actions.Children.Add(search);
+        panel.Children.Add(actions);
+        dialog.Content = panel;
+        dialog.Loaded += (_, _) => codeBox.Focus();
+        return dialog.ShowDialog() == true ? evidence : null;
     }
 }

@@ -12,9 +12,11 @@ internal static class PortableUpdateWorker
     internal static int Apply(string[] args)
     {
         var testOnly = args.Length > 0 && args[0] == "--test-apply-update";
-        var resultFile = testOnly && args.Length == 5 ? args[4] : Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".YinggeVideoLibrary", "updates", "last-update-result.txt");
+        var resultFile = testOnly
+            ? (args.Length == 5 && Path.IsPathFullyQualified(args[4]) ? args[4]
+                : Path.Combine(Path.GetTempPath(), $"YinggeUpdateTest-invalid-{Environment.ProcessId}.txt"))
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".YinggeVideoLibrary", "updates", "last-update-result.txt");
         string? target = null;
         var previousExited = false;
         var replacementCompleted = false;
@@ -30,6 +32,11 @@ internal static class PortableUpdateWorker
                 || expectedHash.Length != 64 || !expectedHash.All(Uri.IsHexDigit))
                 throw new InvalidDataException("更新目标或校验值无效");
             if (!MatchesHash(source, expectedHash)) throw new InvalidDataException("更新文件校验失败");
+            if (!PublishedExecutable.IsThisApplication(source)
+                || !PublishedExecutable.TryGetBinaryVersion(target, out var oldVersion)
+                || !PublishedExecutable.TryGetBinaryVersion(source, out var newVersion)
+                || newVersion <= oldVersion)
+                throw new InvalidDataException("更新程序或目标不是预期的映格版本");
 
             try
             {
@@ -39,6 +46,9 @@ internal static class PortableUpdateWorker
             catch (ArgumentException) { /* The old process has already exited. */ }
             previousExited = true;
 
+            if (!PublishedExecutable.TryGetBinaryVersion(target, out var stillInstalled)
+                || stillInstalled != oldVersion)
+                throw new InvalidDataException("等待旧版退出期间，目标程序已变化");
             ReplaceVerifiedFile(source, target, expectedHash);
             replacementCompleted = true;
             Directory.CreateDirectory(Path.GetDirectoryName(resultFile)!);
@@ -138,6 +148,115 @@ internal static class PortableUpdateWorker
                 Directory.Delete(directory);
             }
         }
+    }
+
+    // The caller supplies an older published executable. Both versions are
+    // copied into a fresh temporary directory; the user's installed copy and
+    // updater preferences are never opened. The restarted process exits before
+    // creating a MainWindow, so this test stays in the background.
+    internal static int TransitionSelfTest(string olderExecutable, string destination)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "YinggeUpdateTransition-" + Guid.NewGuid().ToString("N"));
+        var findings = new Dictionary<string, object>(StringComparer.Ordinal);
+        try
+        {
+            var current = Environment.ProcessPath ?? "";
+            if (!PublishedExecutable.TryGetRunningPath(out current, out var currentError))
+                throw new InvalidDataException(currentError);
+            if (!PublishedExecutable.TryGetBinaryVersion(olderExecutable, out var oldVersion)
+                || !PublishedExecutable.TryGetBinaryVersion(current, out var newVersion)
+                || newVersion <= oldVersion)
+                throw new InvalidDataException("必须提供比当前发布版更旧的映格视频库程序");
+            Directory.CreateDirectory(directory);
+            var target = Path.Combine(directory, "映格视频库.exe");
+            File.Copy(olderExecutable, target);
+            var oldHash = FileHash(target);
+            var newHash = FileHash(current);
+            var updateResult = Path.Combine(directory, "apply-result.txt");
+            var applied = Apply(["--test-apply-update", target, int.MaxValue.ToString(), newHash, updateResult]);
+            findings["verifiedReplacement"] = applied == 0
+                && PublishedExecutable.IsReleaseBinary(target, newVersion)
+                && MatchesHash(target, newHash)
+                && File.Exists(target + ".update-previous")
+                && MatchesHash(target + ".update-previous", oldHash);
+            if (applied != 0)
+                throw new InvalidDataException("离线更新替换失败：" + File.ReadAllText(updateResult));
+
+            var probePath = Path.Combine(directory, "restarted.json");
+            var start = new ProcessStartInfo(target)
+            {
+                UseShellExecute = false, CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
+                WorkingDirectory = directory
+            };
+            start.ArgumentList.Add("--self-test-restarted");
+            start.ArgumentList.Add(probePath);
+            using var child = Process.Start(start) ?? throw new IOException("无法在后台重启新版程序");
+            if (!child.WaitForExit(30000))
+            {
+                child.Kill(entireProcessTree: true);
+                throw new TimeoutException("新版程序后台重启超时");
+            }
+            using var probe = JsonDocument.Parse(File.ReadAllText(probePath));
+            findings["newVersionRestartedFromUpdatedPath"] = child.ExitCode == 0
+                && probe.RootElement.GetProperty("passed").GetBoolean()
+                && Path.GetFullPath(probe.RootElement.GetProperty("processPath").GetString() ?? "")
+                    .Equals(target, StringComparison.OrdinalIgnoreCase)
+                && probe.RootElement.GetProperty("version").GetString() == newVersion.ToString(4);
+            findings["oldVersionBackupPreserved"] = MatchesHash(target + ".update-previous", oldHash);
+            findings["passed"] = findings.Values.OfType<bool>().All(value => value);
+            findings["oldVersion"] = oldVersion.ToString(4);
+            findings["newVersion"] = newVersion.ToString(4);
+            findings["method"] = "Verified replacement uses production PortableUpdateWorker.Apply; restart uses hidden --self-test-restarted instead of the visible normal-launch path.";
+        }
+        catch (Exception ex)
+        {
+            findings["passed"] = false;
+            findings["error"] = ex.ToString();
+        }
+        finally
+        {
+            try
+            {
+                var full = Path.GetFullPath(directory);
+                var temporaryRoot = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar)
+                    + Path.DirectorySeparatorChar;
+                if (full.StartsWith(temporaryRoot, StringComparison.OrdinalIgnoreCase)
+                    && Path.GetFileName(full).StartsWith("YinggeUpdateTransition-", StringComparison.Ordinal)
+                    && Directory.Exists(full))
+                    Directory.Delete(full, recursive: true);
+            }
+            catch { }
+        }
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(destination))!);
+        File.WriteAllText(destination, JsonSerializer.Serialize(findings, new JsonSerializerOptions { WriteIndented = true }));
+        return findings.TryGetValue("passed", out var passed) && passed is true ? 0 : 1;
+    }
+
+    internal static int WriteRestartProbe(string destination)
+    {
+        try
+        {
+            var executable = Environment.ProcessPath ?? "";
+            var passed = PublishedExecutable.TryGetRunningPath(out var path, out _)
+                && Path.GetFullPath(path).Equals(Path.GetFullPath(executable), StringComparison.OrdinalIgnoreCase)
+                && PublishedExecutable.TryGetBinaryVersion(path, out _);
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(destination))!);
+            File.WriteAllText(destination, JsonSerializer.Serialize(new
+            {
+                passed, processPath = executable,
+                version = PublishedExecutable.TryGetBinaryVersion(executable, out var version)
+                    ? version.ToString(4) : ""
+            }));
+            return passed ? 0 : 1;
+        }
+        catch { return 1; }
+    }
+
+    static string FileHash(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return Convert.ToHexString(SHA256.HashData(stream));
     }
 
     internal static void ReplaceVerifiedFile(string source, string target, string expectedHash)

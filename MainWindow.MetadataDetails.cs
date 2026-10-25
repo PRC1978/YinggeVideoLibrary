@@ -39,6 +39,9 @@ public partial class MainWindow
         var root = new DockPanel { Margin = new Thickness(22) };
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
             Margin = new Thickness(0, 12, 0, 0) };
+        var roles = new Button { Content = "人物 / 角色档案…", Style = (Style)FindResource("Action") };
+        roles.Click += (_, _) => { dialog.Close(); OpenRoleProfiles(video, record); };
+        buttons.Children.Add(roles);
         if (Uri.TryCreate(record.SourceUrl, UriKind.Absolute, out var sourceUri) &&
             sourceUri.Scheme == Uri.UriSchemeHttps &&
             (sourceUri.Host == "javdb.com" || sourceUri.Host == "www.javdb.com" ||
@@ -99,7 +102,9 @@ public partial class MainWindow
         AddSourcedField("发行日期", record.ReleaseDate, nameof(MovieMetadata.ReleaseDate));
         AddSourcedField("时长", record.RuntimeMinutes is > 0 ? $"{record.RuntimeMinutes} 分钟" : null, nameof(MovieMetadata.RuntimeMinutes));
         AddSourcedField("导演", record.Director, nameof(MovieMetadata.Director));
-        AddSourcedField("制作 / 发行", record.Studio, nameof(MovieMetadata.Studio));
+        AddSourcedField("工作室 / 发行", record.Studio, nameof(MovieMetadata.Studio));
+        AddSourcedField("片商 / 制作方", record.Maker, nameof(MovieMetadata.Maker));
+        AddSourcedField("厂牌", record.Label, nameof(MovieMetadata.Label));
         AddSourcedField("系列", record.Series, nameof(MovieMetadata.Series));
         AddSourcedField("演员", JoinMetadata(record.Actors), nameof(MovieMetadata.Actors));
         AddSourcedField("类型 / 类别", JoinMetadata(record.Genres), nameof(MovieMetadata.Genres));
@@ -109,6 +114,94 @@ public partial class MainWindow
         AddSourcedField("来源评分", record.Rating, nameof(MovieMetadata.Rating));
         AddSourcedField("简介", record.Summary, nameof(MovieMetadata.Summary));
         AddSourcedField("封面地址", record.PosterUrl, nameof(MovieMetadata.PosterUrl));
+        var verifiedImages = JavDatabaseScraper.HasVerifiedMediaEvidence(record, nameof(MovieMetadata.PreviewImageUrls));
+        var verifiedTrailer = JavDatabaseScraper.HasVerifiedMediaEvidence(record, nameof(MovieMetadata.TrailerUrl));
+        AddSourcedField("样张图片", verifiedImages ? $"{record.PreviewImageUrls.Count} 张 · 点击展开可逐张打开" : null,
+            nameof(MovieMetadata.PreviewImageUrls));
+        if (verifiedImages)
+        {
+            var imageLinks = new Expander
+            {
+                Header = $"查看样张链接 · {record.PreviewImageUrls.Count} 张",
+                Margin = new Thickness(0, 6, 0, 8), Padding = new Thickness(8),
+                Background = System.Windows.Media.Brushes.White
+            };
+            var imageButtons = new WrapPanel();
+            for (var index = 0; index < record.PreviewImageUrls.Count; index++)
+                AddMediaOpenButton(imageButtons, dialog, $"样张 {index + 1}", record.PreviewImageUrls[index], trailer: false);
+            imageLinks.Content = imageButtons;
+            panel.Children.Add(imageLinks);
+        }
+        AddSourcedField("预告视频", verifiedTrailer ? "已找到公开预告链接 · 点击后在浏览器打开" : null,
+            nameof(MovieMetadata.TrailerUrl));
+        if (verifiedTrailer)
+        {
+            var trailerButtons = new WrapPanel { Margin = new Thickness(8, 4, 0, 10) };
+            AddMediaOpenButton(trailerButtons, dialog, "打开预告链接", record.TrailerUrl!, trailer: true);
+            panel.Children.Add(trailerButtons);
+        }
+        if (record.SourceObservations is { Count: > 0 })
+        {
+            var sourceCount = record.SourceObservations.Select(item => item.Source)
+                .Distinct(StringComparer.OrdinalIgnoreCase).Count();
+            var conflicting = record.SourceConflictFields ?? [];
+            var comparison = new Expander
+            {
+                Header = $"{(sourceCount > 1 ? "多来源" : "来源")}原始字段对照 · {sourceCount} 个来源" +
+                    (sourceCount == 1 ? "" : conflicting.Count == 0 ? " · 无身份字段冲突" : $" · {conflicting.Count} 项需核对"),
+                Margin = new Thickness(0, 12, 0, 10), Padding = new Thickness(10),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(221, 230, 245)),
+                BorderThickness = new Thickness(1), Background = System.Windows.Media.Brushes.White
+            };
+            var rows = new StackPanel();
+            var labels = new Dictionary<string, string>
+            {
+                [nameof(MovieMetadata.Title)] = "标题", [nameof(MovieMetadata.Code)] = "番号",
+                [nameof(MovieMetadata.OriginalTitle)] = "原始标题", [nameof(MovieMetadata.ReleaseDate)] = "发行日期",
+                [nameof(MovieMetadata.RuntimeMinutes)] = "时长", [nameof(MovieMetadata.Director)] = "导演",
+                [nameof(MovieMetadata.Studio)] = "工作室 / 发行",
+                [nameof(MovieMetadata.Maker)] = "片商 / 制作方", [nameof(MovieMetadata.Label)] = "厂牌",
+                [nameof(MovieMetadata.Series)] = "系列",
+                [nameof(MovieMetadata.Actors)] = "演员", [nameof(MovieMetadata.Genres)] = "类型 / 类别",
+                [nameof(MovieMetadata.Keywords)] = "关键词", [nameof(MovieMetadata.Country)] = "地区",
+                [nameof(MovieMetadata.Language)] = "语言", [nameof(MovieMetadata.Rating)] = "来源评分",
+                [nameof(MovieMetadata.Summary)] = "简介", [nameof(MovieMetadata.PosterUrl)] = "封面地址",
+                [nameof(MovieMetadata.PreviewImageUrls)] = "样张图片", [nameof(MovieMetadata.TrailerUrl)] = "预告视频"
+            };
+            foreach (var group in record.SourceObservations
+                .Where(item => item.Field is not (nameof(MovieMetadata.PreviewImageUrls) or nameof(MovieMetadata.TrailerUrl)) ||
+                    ReviewFieldApproval.ValidMediaObservation(record, item))
+                .GroupBy(item => item.Field, StringComparer.Ordinal))
+            {
+                var isConflict = conflicting.Contains(group.Key, StringComparer.Ordinal);
+                rows.Children.Add(new TextBlock
+                {
+                    Text = (labels.TryGetValue(group.Key, out var label) ? label : group.Key) +
+                        (isConflict ? " · 来源不一致，待人工核对" : ""),
+                    FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 11, 0, 4),
+                    Foreground = isConflict ? new SolidColorBrush(Color.FromRgb(172, 81, 48))
+                        : new SolidColorBrush(Color.FromRgb(46, 65, 99))
+                });
+                foreach (var observation in group)
+                {
+                    rows.Children.Add(new TextBlock
+                    {
+                        Text = $"{observation.Source} · {observation.Stage}：{observation.Value}",
+                        TextWrapping = TextWrapping.Wrap,
+                        Foreground = new SolidColorBrush(Color.FromRgb(65, 82, 110)),
+                        Margin = new Thickness(8, 0, 0, 2)
+                    });
+                    rows.Children.Add(new TextBlock
+                    {
+                        Text = observation.SourceUrl, TextWrapping = TextWrapping.Wrap,
+                        FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(125, 139, 165)),
+                        Margin = new Thickness(8, 0, 0, 4)
+                    });
+                }
+            }
+            comparison.Content = rows;
+            panel.Children.Add(comparison);
+        }
         AddMetadataRow(panel, "来源链接", record.SourceUrl);
         AddMetadataRow(panel, "搜刮时间", record.ScrapedAt.ToString("yyyy-MM-dd HH:mm"));
         scroll.Content = panel;
@@ -121,6 +214,25 @@ public partial class MainWindow
     {
         var items = values?.Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         return items is { Count: > 0 } ? string.Join("、", items) : null;
+    }
+
+    static void AddMediaOpenButton(WrapPanel parent, Window dialog, string label, string url, bool trailer)
+    {
+        // Recheck at click time. Reading metadata never downloads or streams
+        // media, and a malformed persisted URL must not reach the browser.
+        if (trailer ? !JavDatabaseScraper.IsTrustedTrailerUrl(url) : !JavDatabaseScraper.IsTrustedPreviewUrl(url)) return;
+        var open = new Button
+        {
+            Content = label, Style = (Style)dialog.FindResource("Action"),
+            Margin = new Thickness(0, 0, 6, 6), ToolTip = url
+        };
+        open.Click += (_, _) =>
+        {
+            if (trailer ? !JavDatabaseScraper.IsTrustedTrailerUrl(url) : !JavDatabaseScraper.IsTrustedPreviewUrl(url)) return;
+            try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); }
+            catch (Exception ex) { MessageBox.Show(dialog, "无法打开链接：" + ex.Message, "搜刮资料"); }
+        };
+        parent.Children.Add(open);
     }
 
     static void AddMetadataRow(StackPanel parent, string label, string? value,

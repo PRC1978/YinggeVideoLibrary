@@ -17,6 +17,8 @@ namespace YinggeVideoLibrary;
 
 public partial class MainWindow
 {
+    internal sealed record CategoryPickerEntry(string Path, string Name, string Parent, Thickness Indent);
+
     internal sealed record BatchCategoryPickerUi(Window Dialog, TextBox Search, ListBox Categories, TextBlock ResultCount,
         Button Add, Button Replace, Button Clear);
 
@@ -46,7 +48,7 @@ public partial class MainWindow
 
         var heading = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };
         heading.Children.Add(new TextBlock { Text = "选择目标分类", FontSize = 20, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(38, 51, 71)) });
-        heading.Children.Add(new TextBlock { Text = description ?? $"已选 {selectedCount:N0} 部视频 · 可添加到多个分类，也可替换原分类", Margin = new Thickness(0, 6, 0, 0), Foreground = new SolidColorBrush(Color.FromRgb(117, 131, 153)), TextTrimming = TextTrimming.CharacterEllipsis });
+        heading.Children.Add(new TextBlock { Text = description ?? $"已选 {selectedCount:N0} 部视频 · 选中父分类后可在其下新建子分类", Margin = new Thickness(0, 6, 0, 0), Foreground = new SolidColorBrush(Color.FromRgb(117, 131, 153)), TextTrimming = TextTrimming.CharacterEllipsis });
         layout.Children.Add(heading);
 
         var search = new TextBox { Height = 40, Padding = new Thickness(12, 8, 12, 8), BorderBrush = new SolidColorBrush(Color.FromRgb(213, 223, 239)), Background = Brushes.White, ToolTip = moveOnly ? "输入分类名称或路径筛选；按 Enter 移动到选中分类" : "输入分类名称或路径筛选；按 Enter 添加到选中分类" };
@@ -68,20 +70,43 @@ public partial class MainWindow
         rowStyle.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, 36.0));
         rowStyle.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, System.Windows.HorizontalAlignment.Stretch));
         categories.ItemContainerStyle = rowStyle;
-        var text = new FrameworkElementFactory(typeof(TextBlock));
-        text.SetBinding(TextBlock.TextProperty, new Binding("."));
-        text.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
-        categories.ItemTemplate = new DataTemplate { VisualTree = text };
+        var row = new FrameworkElementFactory(typeof(StackPanel));
+        row.SetBinding(FrameworkElement.MarginProperty, new Binding(nameof(CategoryPickerEntry.Indent)));
+        var name = new FrameworkElementFactory(typeof(TextBlock));
+        name.SetBinding(TextBlock.TextProperty, new Binding(nameof(CategoryPickerEntry.Name)));
+        name.SetBinding(FrameworkElement.ToolTipProperty, new Binding(nameof(CategoryPickerEntry.Path)));
+        name.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
+        name.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
+        row.AppendChild(name);
+        var parent = new FrameworkElementFactory(typeof(TextBlock));
+        parent.SetBinding(TextBlock.TextProperty, new Binding(nameof(CategoryPickerEntry.Parent)));
+        parent.SetValue(TextBlock.ForegroundProperty, new SolidColorBrush(Color.FromRgb(117, 131, 153)));
+        parent.SetValue(TextBlock.FontSizeProperty, 11.0);
+        parent.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
+        row.AppendChild(parent);
+        categories.ItemTemplate = new DataTemplate { VisualTree = row };
         Grid.SetRow(categories, 3);
         layout.Children.Add(categories);
+
+        var entries = targets.Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path, StringComparer.CurrentCultureIgnoreCase)
+            .Select(path =>
+            {
+                var split = path.LastIndexOf(" / ", StringComparison.Ordinal);
+                var depth = path.Split(" / ", StringSplitOptions.None).Length - 1;
+                return new CategoryPickerEntry(path, split < 0 ? path : path[(split + 3)..],
+                    split < 0 ? "顶级分类" : path[..split], new Thickness(Math.Min(depth, 4) * 15, 0, 0, 0));
+            }).ToArray();
 
         void RefreshResults()
         {
             var terms = search.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            var results = terms.Length == 0 ? targets.ToArray() : targets.Where(path => terms.All(term => path.Contains(term, StringComparison.CurrentCultureIgnoreCase))).ToArray();
+            var selected = (categories.SelectedItem as CategoryPickerEntry)?.Path;
+            var results = terms.Length == 0 ? entries : entries.Where(entry => terms.All(term => entry.Path.Contains(term, StringComparison.CurrentCultureIgnoreCase))).ToArray();
             categories.ItemsSource = results;
-            count.Text = $"显示 {results.Length:N0} / {targets.Count:N0} 个分类";
-            if (results.Length > 0) categories.SelectedIndex = 0;
+            count.Text = $"显示 {results.Length:N0} / {entries.Length:N0} 个分类 · 缩进表示父子层级";
+            categories.SelectedItem = results.FirstOrDefault(entry => entry.Path.Equals(selected, StringComparison.OrdinalIgnoreCase))
+                ?? (terms.Length > 0 ? results.FirstOrDefault() : null);
         }
 
         Button Action(string label, bool primary = false)
@@ -91,25 +116,58 @@ public partial class MainWindow
         var replace = Action("替换原分类");
         var create = Action(moveOnly ? "＋ 新建并移动" : "＋ 新建并添加");
         var createReplace = Action("＋ 新建并替换");
+        var createChild = Action(moveOnly ? "＋ 子分类并移动" : "＋ 子分类并添加");
+        var createChildReplace = Action("＋ 子分类并替换");
         var clear = Action("清除分类");
         var cancel = Action("取消");
-        add.Click += (_, _) => { if (categories.SelectedItem is string target) choose(target, false); };
-        replace.Click += (_, _) => { if (categories.SelectedItem is string target) choose(target, true); };
+        add.Click += (_, _) => { if (categories.SelectedItem is CategoryPickerEntry target) choose(target.Path, false); };
+        replace.Click += (_, _) => { if (categories.SelectedItem is CategoryPickerEntry target) choose(target.Path, true); };
         create.Click += (_, _) => { var target = CreateCategory(dialog); if (!string.IsNullOrWhiteSpace(target)) choose(target, false); };
         createReplace.Click += (_, _) => { var target = CreateCategory(dialog); if (!string.IsNullOrWhiteSpace(target)) choose(target, true); };
+        createChild.Click += (_, _) =>
+        {
+            if (categories.SelectedItem is not CategoryPickerEntry parent) return;
+            var target = CreateChildCategory(parent.Path, dialog);
+            if (!string.IsNullOrWhiteSpace(target)) choose(target, false);
+        };
+        createChildReplace.Click += (_, _) =>
+        {
+            if (categories.SelectedItem is not CategoryPickerEntry parent) return;
+            var target = CreateChildCategory(parent.Path, dialog);
+            if (!string.IsNullOrWhiteSpace(target)) choose(target, true);
+        };
         clear.Click += (_, _) => choose("未分类", true);
         cancel.Click += (_, _) => dialog.DialogResult = false;
-        categories.SelectionChanged += (_, _) => add.IsEnabled = replace.IsEnabled = categories.SelectedItem is string;
-        categories.MouseDoubleClick += (_, _) => { if (categories.SelectedItem is string target) choose(target, false); };
+        var selectionHint = new TextBlock
+        {
+            Text = "先选择父分类，再点“＋ 子分类并添加”。",
+            Foreground = new SolidColorBrush(Color.FromRgb(92, 111, 150)),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(0, 0, 0, 4)
+        };
+        categories.SelectionChanged += (_, _) =>
+        {
+            add.IsEnabled = replace.IsEnabled = createChild.IsEnabled = createChildReplace.IsEnabled = categories.SelectedItem is CategoryPickerEntry;
+            createChild.ToolTip = categories.SelectedItem is CategoryPickerEntry parent ? $"在“{parent.Path}”下新建子分类" : "先选择一个父分类";
+            createChildReplace.ToolTip = createChild.ToolTip;
+            selectionHint.Text = categories.SelectedItem is CategoryPickerEntry selected
+                ? $"当前选择：{selected.Path} · 新建子分类会放在此分类下"
+                : "先选择父分类，再点“＋ 子分类并添加”。";
+            selectionHint.ToolTip = (categories.SelectedItem as CategoryPickerEntry)?.Path;
+        };
+        categories.MouseDoubleClick += (_, _) => { if (categories.SelectedItem is CategoryPickerEntry target) choose(target.Path, false); };
         search.TextChanged += (_, _) => RefreshResults();
         search.KeyDown += (_, e) =>
         {
-            if (e.Key == Key.Enter && categories.SelectedItem is string target) { choose(target, false); e.Handled = true; }
+            if (e.Key == Key.Enter && categories.SelectedItem is CategoryPickerEntry target) { choose(target.Path, false); e.Handled = true; }
             else if (e.Key == Key.Escape) { dialog.DialogResult = false; e.Handled = true; }
         };
-        foreach (var button in moveOnly ? new[] { add, create, cancel } : new[] { add, replace, create, createReplace, clear, cancel }) actions.Children.Add(button);
-        Grid.SetRow(actions, 4);
-        layout.Children.Add(actions);
+        foreach (var button in moveOnly ? new[] { add, create, createChild, cancel } : new[] { add, replace, create, createReplace, createChild, createChildReplace, clear, cancel }) actions.Children.Add(button);
+        var footer = new StackPanel();
+        footer.Children.Add(selectionHint);
+        footer.Children.Add(actions);
+        Grid.SetRow(footer, 4);
+        layout.Children.Add(footer);
         dialog.Content = layout;
         dialog.Loaded += (_, _) => search.Focus();
         RefreshResults();
@@ -152,11 +210,11 @@ public partial class MainWindow
                 throw new InvalidOperationException("批量分类搜索没有缩小结果范围");
             picker.Search.Text = "";
             picker.Categories.SelectedIndex = 0;
-            if (picker.Categories.SelectedItem is not string first) throw new InvalidOperationException("批量分类无法选择节点");
+            if (picker.Categories.SelectedItem is not CategoryPickerEntry first) throw new InvalidOperationException("批量分类无法选择节点");
             picker.Add.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            if (chosen != first || shouldReplace) throw new InvalidOperationException("批量分类添加动作不正确");
+            if (chosen != first.Path || shouldReplace) throw new InvalidOperationException("批量分类添加动作不正确");
             picker.Replace.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            if (chosen != first || !shouldReplace) throw new InvalidOperationException("批量分类替换动作不正确");
+            if (chosen != first.Path || !shouldReplace) throw new InvalidOperationException("批量分类替换动作不正确");
             picker.Clear.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             if (chosen != "未分类" || !shouldReplace) throw new InvalidOperationException("批量分类清除动作不正确");
             return $"实际 {categoryCount:N0} 分类下卡片菜单 {card.Items.Count} 项、文件夹菜单 {folder.Items.Count} 项，构建 {timer.ElapsedMilliseconds} ms；3,500 分类的选择器仅创建 {realized} 个可见条目，搜索、添加、替换、清除正常";

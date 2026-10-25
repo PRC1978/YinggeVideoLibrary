@@ -34,6 +34,9 @@ namespace YinggeVideoLibrary;
 
 public sealed class LibraryConfig
 {
+    // Missing in 1.5.0 files, which deserialize as version 1. A successful
+    // write upgrades the copied snapshot to the current format.
+    [JsonPropertyName("schemaVersion")] public int SchemaVersion { get; set; } = 1;
     [JsonPropertyName("folders")] public List<string> Folders { get; set; } = [];
     [JsonPropertyName("foldersClearedByUser")] public bool FoldersClearedByUser { get; set; }
     [JsonPropertyName("favorites")] public List<string> Favorites { get; set; } = [];
@@ -46,10 +49,20 @@ public sealed class LibraryConfig
     [JsonPropertyName("autoCategorize")] public bool AutoCategorize { get; set; } = true;
     [JsonPropertyName("categoryRenames")] public Dictionary<string, string> CategoryRenames { get; set; } = [];
     [JsonPropertyName("customPosters")] public Dictionary<string, string> CustomPosters { get; set; } = [];
+    [JsonPropertyName("displayTitleOverrides")] public Dictionary<string, string> DisplayTitleOverrides { get; set; } = [];
+    [JsonPropertyName("recommendationUseFavorites")] public bool RecommendationUseFavorites { get; set; } = true;
+    [JsonPropertyName("recommendationUseWatchStatus")] public bool RecommendationUseWatchStatus { get; set; } = true;
+    [JsonPropertyName("recommendationUseCategories")] public bool RecommendationUseCategories { get; set; } = true;
+    [JsonPropertyName("recommendationUseTags")] public bool RecommendationUseTags { get; set; } = true;
+    [JsonPropertyName("recommendationOnlineTopics")] public bool RecommendationOnlineTopics { get; set; } = true;
+    [JsonPropertyName("recommendationLessLikeVideoIds")] public List<string> RecommendationLessLikeVideoIds { get; set; } = [];
     [JsonPropertyName("showAll")] public bool ShowAll { get; set; } = true;
     [JsonPropertyName("tmdbToken")] public string TmdbToken { get; set; } = "";
     [JsonPropertyName("enableExtension")] public bool EnableExtension { get; set; } = true;
     [JsonPropertyName("autoStart")] public bool AutoStart { get; set; }
+    [JsonPropertyName("minimizeToTray")] public bool MinimizeToTray { get; set; }
+    [JsonPropertyName("startMinimized")] public bool StartMinimized { get; set; }
+    [JsonPropertyName("startPage")] public string StartPage { get; set; } = "all";
     [JsonPropertyName("gpuThumbnails")] public bool GpuThumbnails { get; set; } = true;
     [JsonPropertyName("aiEndpoint")] public string AiEndpoint { get; set; } = "";
     [JsonPropertyName("aiModel")] public string AiModel { get; set; } = "";
@@ -59,11 +72,25 @@ public sealed class LibraryConfig
     [JsonPropertyName("aiOutputUsdPerMillion")] public double AiOutputUsdPerMillion { get; set; } = 4;
     [JsonPropertyName("aiMaxOutputTokens")] public int AiMaxOutputTokens { get; set; } = 2048;
     [JsonPropertyName("aiRequestIntervalMs")] public int AiRequestIntervalMs { get; set; } = 1200;
+    // Zero interval means a pre-1.5.1 profile still uses AiRequestIntervalMs.
+    [JsonPropertyName("aiLocalRequestIntervalMs")] public int AiLocalRequestIntervalMs { get; set; }
+    [JsonPropertyName("aiCloudRequestIntervalMs")] public int AiCloudRequestIntervalMs { get; set; }
+    [JsonPropertyName("aiLocalConcurrency")] public int AiLocalConcurrency { get; set; } = 1;
+    [JsonPropertyName("aiCloudConcurrency")] public int AiCloudConcurrency { get; set; } = 1;
+    [JsonPropertyName("aiLocalRetryCount")] public int AiLocalRetryCount { get; set; } = 2;
+    [JsonPropertyName("aiCloudRetryCount")] public int AiCloudRetryCount { get; set; } = 2;
     [JsonPropertyName("aiReviews")] public Dictionary<string, AiReviewRecord> AiReviews { get; set; } = [];
+    // Independent, field-isolated AI classification/tag audit. Proposal and
+    // decision history live in the same atomic config snapshot as their edits.
+    [JsonPropertyName("aiSuggestions")] public Dictionary<string, AiSuggestionRecord> AiSuggestions { get; set; } = [];
+    [JsonPropertyName("aiSuggestionActions")] public Dictionary<string, AiSuggestionAction> AiSuggestionActions { get; set; } = [];
+    // User-confirmed site-list favorite/tag edits and their undo snapshots share
+    // the atomic config write with the fields they change.
+    [JsonPropertyName("siteListLocalActions")] public Dictionary<string, SiteListLocalAction> SiteListLocalActions { get; set; } = [];
     // Keep a short, privacy-friendly local history so repeated searches can
     // be reused without making the toolbar wider or sending anything online.
     [JsonPropertyName("searchHistory")] public List<string> SearchHistory { get; set; } = [];
-    [JsonPropertyName("sourceTrustWeights")] public Dictionary<string, int> SourceTrustWeights { get; set; } = new(StringComparer.OrdinalIgnoreCase) { ["TMDB"] = 12, ["JavDB"] = 10, ["Bangumi"] = 8, ["AniList"] = 9, ["JAVDatabase"] = 7, ["Javinfo"] = 7, ["TVmaze"] = 8, ["Pornhub"] = 4 };
+    [JsonPropertyName("sourceTrustWeights")] public Dictionary<string, int> SourceTrustWeights { get; set; } = new(StringComparer.OrdinalIgnoreCase) { ["TMDB"] = 12, ["JavDB"] = 10, ["Bangumi"] = 8, ["AniList"] = 9, ["JAVDatabase"] = 7, ["Javinfo"] = 7, ["TVmaze"] = 8, ["Wikidata"] = 6, ["OMDb"] = 7, ["Kitsu"] = 8, ["Tenrai"] = 7, ["Trakt"] = 8, ["Pornhub"] = 4 };
     [JsonPropertyName("enableJavDb")] public bool EnableJavDb { get; set; } = true;
     [JsonPropertyName("enableJavDatabase")] public bool EnableJavDatabase { get; set; } = true;
     [JsonPropertyName("enableJavDbTitle")] public bool EnableJavDbTitle { get; set; } = true;
@@ -75,6 +102,11 @@ public sealed class LibraryConfig
     [JsonPropertyName("enablePornhub")] public bool EnablePornhub { get; set; } = true;
     [JsonPropertyName("enableTmdb")] public bool EnableTmdb { get; set; } = true;
     [JsonPropertyName("enableTvMaze")] public bool EnableTvMaze { get; set; } = true;
+    [JsonPropertyName("enableWikidata")] public bool EnableWikidata { get; set; }
+    [JsonPropertyName("enableOmdb")] public bool EnableOmdb { get; set; }
+    [JsonPropertyName("enableKitsu")] public bool EnableKitsu { get; set; }
+    [JsonPropertyName("enableTenrai")] public bool EnableTenrai { get; set; }
+    [JsonPropertyName("enableTrakt")] public bool EnableTrakt { get; set; }
     [JsonPropertyName("useFolderPersonHint")] public bool UseFolderPersonHint { get; set; } = true;
     [JsonPropertyName("smartFilters")] public Dictionary<string, string> SmartFilters { get; set; } = [];
     [JsonPropertyName("autoAmateurTags")] public List<string> AutoAmateurTags { get; set; } = [];
@@ -86,8 +118,12 @@ public sealed class LibraryConfig
     [JsonPropertyName("updateAutoCheck")] public bool UpdateAutoCheck { get; set; } = true;
     [JsonPropertyName("updateCheckIntervalHours")] public int UpdateCheckIntervalHours { get; set; } = 12;
     [JsonPropertyName("scrapeRequestIntervalSeconds")] public double ScrapeRequestIntervalSeconds { get; set; } = 2.5;
+    [JsonPropertyName("scrapeSourcePolicies")] public Dictionary<string, ScrapeSourcePolicy> ScrapeSourcePolicies { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     [JsonPropertyName("scrapeRefreshIncompleteMetadata")] public bool ScrapeRefreshIncompleteMetadata { get; set; }
     [JsonPropertyName("cardPageSize")] public int CardPageSize { get; set; } = 60;
+    // 0 intentionally means no in-memory poster cache limit. Disk thumbnails
+    // remain under the shared user data directory either way.
+    [JsonPropertyName("posterCacheLimitMb")] public int PosterCacheLimitMb { get; set; } = 128;
 }
 
 public sealed class IndexEntry
@@ -111,20 +147,26 @@ public sealed class VideoItem : INotifyPropertyChanged
     public required string Folder { get; init; }
     public required long Size { get; init; }
     public required DateTime Modified { get; init; }
-    public string Detail => $"{(string.IsNullOrEmpty(Code) ? "" : Code + " · ")}{Category} · {System.IO.Path.GetFileName(Folder)} · {FormatSize(Size)}";
+    // Cards rebind this summary on every recycled row. Folder and Size are
+    // init-only; the two mutable inputs clear the cached value in their setters.
+    private string? cachedDetail;
+    public string Detail => cachedDetail ??= $"{(string.IsNullOrEmpty(Code) ? "" : Code + " · ")}{Category} · {System.IO.Path.GetFileName(Folder)} · {FormatSize(Size)}";
     public List<string> CategoryList { get; } = [];
+    public string CategoryPathsText => CategoryList.Count == 0
+        ? $"当前分类：{Category}"
+        : "当前分类：" + Environment.NewLine + string.Join(Environment.NewLine, CategoryList);
     public List<string> Tags { get; } = [];
     public string TagsText => Tags.Count == 0 ? "" : "#" + string.Join("  #", Tags);
     public string TagsPreviewText => Tags.Count == 0 ? "尚无标签" : TagsText;
     public void RefreshTags() { PropertyChanged?.Invoke(this, new(nameof(TagsText))); PropertyChanged?.Invoke(this, new(nameof(TagsPreviewText))); }
     private string category = "未分类";
-    public string Category { get => category; set { category = value; PropertyChanged?.Invoke(this, new(nameof(Category))); PropertyChanged?.Invoke(this, new(nameof(Detail))); } }
+    public string Category { get => category; set { category = value; cachedDetail = null; PropertyChanged?.Invoke(this, new(nameof(Category))); PropertyChanged?.Invoke(this, new(nameof(Detail))); PropertyChanged?.Invoke(this, new(nameof(CategoryPathsText))); } }
     private string watchStatus = "未看";
     public string WatchStatus { get => watchStatus; set { watchStatus = value; PropertyChanged?.Invoke(this, new(nameof(WatchStatus))); } }
     private string? displayTitle;
     public string DisplayTitle { get => displayTitle ?? Title; set { displayTitle = value; PropertyChanged?.Invoke(this, new(nameof(DisplayTitle))); } }
     private string? code;
-    public string? Code { get => code; set { code = value; PropertyChanged?.Invoke(this, new(nameof(Code))); PropertyChanged?.Invoke(this, new(nameof(Detail))); } }
+    public string? Code { get => code; set { code = value; cachedDetail = null; PropertyChanged?.Invoke(this, new(nameof(Code))); PropertyChanged?.Invoke(this, new(nameof(Detail))); } }
     private string matchReviewText = "";
     public string MatchReviewText { get => matchReviewText; set { matchReviewText = value; PropertyChanged?.Invoke(this, new(nameof(MatchReviewText))); } }
     private bool favorite;
@@ -138,14 +180,79 @@ public sealed class VideoItem : INotifyPropertyChanged
     public string? Poster { get => poster; set { poster = value; PropertyChanged?.Invoke(this, new(nameof(Poster))); PropertyChanged?.Invoke(this, new(nameof(PosterSource))); } }
     // Keep large source images out of the visual tree. Posters are decoded once at card size.
     static readonly Dictionary<string, BitmapImage> PosterCache = new(StringComparer.OrdinalIgnoreCase);
-    static readonly Queue<string> PosterCacheOrder = new();
-    const int MaxPosterCacheEntries = 600;
+    static readonly LinkedList<string> PosterCacheOrder = new();
+    static readonly Dictionary<string, LinkedListNode<string>> PosterCacheNodes = new(StringComparer.OrdinalIgnoreCase);
+    static long PosterCacheLimitBytes = 128L * 1024 * 1024;
+    static long PosterCacheBytes;
+    static long PosterCachePeakBytes;
+    static long PosterCacheHits;
+    static long PosterCacheMisses;
+    static long PosterCacheEvictions;
+    internal static int NormalizePosterCacheLimitMiB(int value) =>
+        value is 0 or 64 or 128 or 256 or 512 or 1024 or 2048 ? value : 128;
+    internal static void ConfigurePosterCache(int limitMiB)
+    {
+        var normalized = NormalizePosterCacheLimitMiB(limitMiB);
+        lock (PosterCache)
+        {
+            PosterCacheLimitBytes = normalized == 0 ? 0 : (long)normalized * 1024 * 1024;
+            TrimPosterCache();
+        }
+    }
+    internal static (long Bytes, long PeakBytes, long LimitBytes, int Entries, long Hits, long Misses, long Evictions) PosterCacheStats()
+    {
+        lock (PosterCache) return (PosterCacheBytes, PosterCachePeakBytes, PosterCacheLimitBytes, PosterCache.Count,
+            PosterCacheHits, PosterCacheMisses, PosterCacheEvictions);
+    }
+    static void TrimPosterCache()
+    {
+        // Caller holds PosterCache's lock. A zero limit means the user chose
+        // unrestricted RAM caching; it does not change disk thumbnail storage.
+        while (PosterCacheLimitBytes > 0 && PosterCacheBytes > PosterCacheLimitBytes && PosterCacheOrder.First is not null)
+        {
+            var evicted = PosterCacheOrder.First.Value;
+            PosterCacheOrder.RemoveFirst();
+            PosterCacheNodes.Remove(evicted);
+            if (PosterCache.Remove(evicted, out var removed))
+            {
+                PosterCacheBytes -= (long)removed.PixelWidth * removed.PixelHeight * 4;
+                PosterCacheEvictions++;
+            }
+        }
+    }
+    static void TouchPoster(string path)
+    {
+        // Caller holds PosterCache's lock. The visible cards stay in the cache
+        // while a large background batch warms unrelated folders.
+        if (!PosterCacheNodes.TryGetValue(path, out var node) || node == PosterCacheOrder.Last) return;
+        PosterCacheOrder.Remove(node);
+        PosterCacheOrder.AddLast(node);
+    }
+    internal static void InvalidatePoster(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        lock (PosterCache)
+        {
+            if (PosterCache.Remove(path, out var old))
+                PosterCacheBytes -= (long)old.PixelWidth * old.PixelHeight * 4;
+            if (PosterCacheNodes.Remove(path, out var node)) PosterCacheOrder.Remove(node);
+        }
+    }
     public ImageSource? PosterSource
     {
         get
         {
             if (string.IsNullOrWhiteSpace(Poster)) return null;
-            lock (PosterCache) if (PosterCache.TryGetValue(Poster, out var cached)) return cached;
+            lock (PosterCache)
+            {
+                if (PosterCache.TryGetValue(Poster, out var cached))
+                {
+                    PosterCacheHits++;
+                    TouchPoster(Poster);
+                    return cached;
+                }
+                PosterCacheMisses++;
+            }
             // A cache miss must not decode on the UI thread. Visible cards are
             // queued by ScheduleVisiblePosters/ScheduleVirtualPosters and the
             // background worker raises PosterSource again after decoding.
@@ -153,10 +260,20 @@ public sealed class VideoItem : INotifyPropertyChanged
         }
     }
     internal void RefreshPosterSource() => PropertyChanged?.Invoke(this, new(nameof(PosterSource)));
-    internal static void PreloadPoster(string? path)
+    internal static void PreloadPoster(string? path, bool lowPriority = false)
     {
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return;
-        lock (PosterCache) if (PosterCache.ContainsKey(path)) return;
+        lock (PosterCache)
+        {
+            if (PosterCache.ContainsKey(path))
+            {
+                if (!lowPriority) TouchPoster(path);
+                return;
+            }
+            // A warm-up batch must leave space for currently visible cards.
+            if (lowPriority && PosterCacheLimitBytes > 0 &&
+                PosterCacheBytes >= PosterCacheLimitBytes * 3 / 4) return;
+        }
         _ = LoadPoster(path);
     }
     static BitmapImage? LoadPoster(string path)
@@ -171,12 +288,10 @@ public sealed class VideoItem : INotifyPropertyChanged
                 if (!PosterCache.TryGetValue(path, out var cached))
                 {
                     PosterCache[path] = image;
-                    PosterCacheOrder.Enqueue(path);
-                    while (PosterCache.Count > MaxPosterCacheEntries && PosterCacheOrder.Count > 0)
-                    {
-                        var evicted = PosterCacheOrder.Dequeue();
-                        PosterCache.Remove(evicted);
-                    }
+                    PosterCacheNodes[path] = PosterCacheOrder.AddLast(path);
+                    PosterCacheBytes += (long)image.PixelWidth * image.PixelHeight * 4;
+                    PosterCachePeakBytes = Math.Max(PosterCachePeakBytes, PosterCacheBytes);
+                    TrimPosterCache();
                 }
                 else image = cached;
             }
@@ -196,6 +311,10 @@ public partial class MainWindow : Window
     static readonly string ConfigPath = System.IO.Path.Combine(DataDir, "config.json");
     static readonly string ThumbDir = System.IO.Path.Combine(DataDir, "thumbs");
     static readonly string PosterWarmCursorPath = System.IO.Path.Combine(DataDir, "poster-warm-cursor.txt");
+    // Offscreen scroll probes compare UI changes from the same in-memory warm
+    // position without changing the user's persisted prewarm progress.
+    static readonly bool FixedPosterWarmCursorForUiDiagnostic = Environment.GetCommandLineArgs()
+        .Any(arg => arg is "--diagnose-ui-startup" or "--scroll" or "--scroll-30");
     // Multiple published copies can be opened from different working folders,
     // but they intentionally share this user profile directory. Serialize the two small
     // metadata writes across processes so one instance cannot replace another
@@ -218,12 +337,16 @@ public partial class MainWindow : Window
     int pageIndex;
     int scanVersion;
     long categoryDataVersion;
+    // Configuration writes can overlap an asynchronous batch save. Keep that
+    // generation separate from the category graph's data version: changing a
+    // player, search preference or credential must not rebuild the graph.
+    long configSaveVersion;
     long lastCategoryRenderVersion = -1;
     string lastRenderedSelectedCategory = "";
     CancellationTokenSource? scanCancellation;
     int posterVersion;
     int backgroundPosterVersion;
-    int posterWarmCursor = ReadPosterWarmCursor();
+    int posterWarmCursor = FixedPosterWarmCursorForUiDiagnostic ? 0 : ReadPosterWarmCursor();
     readonly SemaphoreSlim posterGate = new(1, 1);
     readonly DispatcherTimer posterScrollTimer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(140) };
     // Keep search input responsive while a large library is being filtered.  A
@@ -249,6 +372,11 @@ public partial class MainWindow : Window
     int currentPosterStart = -1;
     int currentPosterCount;
     List<VideoItem> pageItems = [];
+    int categoryCardRenderRequest;
+    System.Collections.ObjectModel.ObservableCollection<VideoItem>? categoryCardItems;
+    List<VideoItem>? categoryCardTargets;
+    bool categoryCardPopulationScheduled;
+    TaskCompletionSource<bool>? categoryCardPopulationCompletion;
     // The exact result after view/category/search filters.  Keeping this
     // lightweight list lets batch selection act on the whole filtered result,
     // even when the visible cards are paged or virtualized.
@@ -304,6 +432,7 @@ public partial class MainWindow : Window
         var cacheMigration = TryMigrateLegacyCaches(DataDir);
         Directory.CreateDirectory(ThumbDir);
         config = LoadConfig(out configSource);
+        VideoItem.ConfigurePosterCache(config.PosterCacheLimitMb);
         var hadLegacySecrets = MigrateSecretsToWindows();
         configBaseline = CloneLibraryConfig(config);
         if (hadLegacySecrets) { SaveConfig(); ScrubLegacyCredentialBackups(); }
@@ -313,6 +442,7 @@ public partial class MainWindow : Window
         InitializeScrapePollingUi();
         InitializeScrapeFiltersUi();
         InitializeReviewWorkflowUi();
+        InitializeAiSuggestionReviewUi();
         InitializeAiQueueSettings();
         InitializeCandidateSettings();
         InitializeJavinfoSettings();
@@ -325,6 +455,7 @@ public partial class MainWindow : Window
         InitializeUpdateUi();
         InitializeSettingsOptions();
         RegroupSettingsPanel();
+        InitializeStartupBehavior();
         SearchBox.ToolTip = "搜索视频 · Ctrl+F 聚焦 · Esc 清空 · F5 刷新 · 支持 标签: 分类: 状态: 文件夹: 收藏";
         SearchBox.ContextMenuOpening += SearchContextMenuOpening;
         UpdateSearchControls();
@@ -356,11 +487,12 @@ public partial class MainWindow : Window
             // after the window has been closed.
             ++posterVersion; ++backgroundPosterVersion;
             scanCancellation?.Cancel();
+            CancelSphereGraphIndexBuild();
             StopScrapePollingForClose();
         };
         ConfigureFolderWatchers();
         PreviewKeyDown += MainWindowPreviewKeyDown;
-        ShowView("all");
+        ShowView(NormalizeStartupPage(config.StartPage));
         Loaded += async (_, _) =>
         {
             _ = CheckForUpdatesAsync(false);
@@ -425,6 +557,8 @@ public partial class MainWindow : Window
                 { loaded = saved; source = "config.json.last-good"; }
             }
             loaded ??= new();
+            if (loaded.SchemaVersion is < 1 or > 2)
+                throw new InvalidDataException($"配置格式版本 {loaded.SchemaVersion} 不受当前程序支持。");
             // JSON written by older builds (or hand-edited by a user) may contain
             // explicit null collections. Keep the rest of the UI working with a
             // usable config rather than failing later in ApplySavedFields or a
@@ -439,26 +573,41 @@ public partial class MainWindow : Window
             loaded.WatchStates ??= [];
             loaded.CategoryRenames ??= [];
             loaded.CustomPosters ??= [];
+            loaded.DisplayTitleOverrides ??= [];
+            loaded.RecommendationLessLikeVideoIds ??= [];
             loaded.TmdbToken ??= "";
             loaded.AiEndpoint ??= "";
             loaded.AiModel ??= "";
             loaded.AiKey ??= "";
+            loaded.AiRequestIntervalMs = Math.Clamp(loaded.AiRequestIntervalMs, 500, 60000);
+            loaded.AiLocalRequestIntervalMs = loaded.AiLocalRequestIntervalMs == 0 ? 0
+                : Math.Clamp(loaded.AiLocalRequestIntervalMs, 500, 60000);
+            loaded.AiCloudRequestIntervalMs = loaded.AiCloudRequestIntervalMs == 0 ? 0
+                : Math.Clamp(loaded.AiCloudRequestIntervalMs, 500, 60000);
+            loaded.AiLocalConcurrency = Math.Clamp(loaded.AiLocalConcurrency, 1, 4);
+            loaded.AiCloudConcurrency = Math.Clamp(loaded.AiCloudConcurrency, 1, 4);
+            loaded.AiLocalRetryCount = Math.Clamp(loaded.AiLocalRetryCount, 0, 5);
+            loaded.AiCloudRetryCount = Math.Clamp(loaded.AiCloudRetryCount, 0, 5);
             loaded.JavinfoKey ??= "";
             loaded.JavinfoDailyRequestLimit = Math.Clamp(loaded.JavinfoDailyRequestLimit, 1, 100);
             loaded.AiReviews ??= [];
             loaded.SearchHistory ??= [];
-            loaded.SourceTrustWeights ??= new(StringComparer.OrdinalIgnoreCase);
-            foreach (var (name, weight) in new[] { ("TMDB", 12), ("JavDB", 10), ("Bangumi", 8), ("AniList", 9), ("JAVDatabase", 7), ("Javinfo", 7), ("TVmaze", 8), ("Pornhub", 4) })
-                loaded.SourceTrustWeights.TryAdd(name, weight);
+            RestoreDefaultSourceTrustWeights(loaded);
             loaded.SmartFilters ??= [];
             loaded.AutoAmateurTags ??= [];
             loaded.ScrapeExcludedFolders ??= [];
             loaded.ScrapeFilenameContains ??= "";
             loaded.ScrapeSkipTags ??= "";
+            loaded.StartPage = NormalizeStartupPage(loaded.StartPage);
             loaded.UpdateCheckIntervalHours = Math.Clamp(loaded.UpdateCheckIntervalHours, 1, 168);
             loaded.ScrapeRequestIntervalSeconds = double.IsFinite(loaded.ScrapeRequestIntervalSeconds)
                 ? Math.Clamp(loaded.ScrapeRequestIntervalSeconds, 2.5, 30) : 2.5;
+            loaded.ScrapeSourcePolicies = (loaded.ScrapeSourcePolicies ?? new())
+                .Where(pair => !string.IsNullOrWhiteSpace(pair.Key) && pair.Key.Length <= 80)
+                .ToDictionary(pair => pair.Key, pair => ScrapeSourcePolicy.Normalize(pair.Value,
+                    loaded.ScrapeRequestIntervalSeconds), StringComparer.OrdinalIgnoreCase);
             loaded.CardPageSize = loaded.CardPageSize is 30 or 60 or 90 ? loaded.CardPageSize : 60;
+            loaded.PosterCacheLimitMb = VideoItem.NormalizePosterCacheLimitMiB(loaded.PosterCacheLimitMb);
             loaded.Folders = loaded.Folders.Where(folder => !string.IsNullOrWhiteSpace(folder)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             if (loaded.Folders.Count > 0) loaded.FoldersClearedByUser = false;
             if (loaded.Folders.Count > 0 && source == "config.json") PreserveGoodConfigSnapshot();
@@ -470,7 +619,7 @@ public partial class MainWindow : Window
                 .Distinct(StringComparer.CurrentCultureIgnoreCase)
                 .Take(12)
                 .ToList();
-            loaded.CategoryNames = loaded.CategoryNames.Where(name => !string.IsNullOrWhiteSpace(name)).Distinct(StringComparer.CurrentCultureIgnoreCase).ToList();
+            loaded.CategoryNames = loaded.CategoryNames.Where(name => !string.IsNullOrWhiteSpace(name)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             if (loaded.CategoryNames.Count == 0) loaded.CategoryNames.AddRange(["电影", "剧集", "动漫", "其他"]);
             loaded.Categories = loaded.Categories
                 .Where(pair => !string.IsNullOrWhiteSpace(pair.Key) && !string.IsNullOrWhiteSpace(pair.Value))
@@ -479,7 +628,7 @@ public partial class MainWindow : Window
             loaded.MultiCategories = loaded.MultiCategories
                 .Where(pair => !string.IsNullOrWhiteSpace(pair.Key))
                 .GroupBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(group => group.Key, group => group.SelectMany(pair => pair.Value ?? []).Where(name => !string.IsNullOrWhiteSpace(name)).Distinct(StringComparer.CurrentCultureIgnoreCase).ToList(), StringComparer.OrdinalIgnoreCase);
+                .ToDictionary(group => group.Key, group => group.SelectMany(pair => pair.Value ?? []).Where(name => !string.IsNullOrWhiteSpace(name)).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), StringComparer.OrdinalIgnoreCase);
             loaded.Tags = loaded.Tags
                 .Where(pair => !string.IsNullOrWhiteSpace(pair.Key))
                 .GroupBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
@@ -490,16 +639,32 @@ public partial class MainWindow : Window
                 .ToDictionary(group => group.Key, group => group.First().Value, StringComparer.OrdinalIgnoreCase);
             loaded.CategoryRenames = loaded.CategoryRenames
                 .Where(pair => !string.IsNullOrWhiteSpace(pair.Key) && !string.IsNullOrWhiteSpace(pair.Value))
-                .GroupBy(pair => pair.Key, StringComparer.CurrentCultureIgnoreCase)
-                .ToDictionary(group => group.Key, group => group.First().Value, StringComparer.CurrentCultureIgnoreCase);
+                .GroupBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First().Value, StringComparer.OrdinalIgnoreCase);
             loaded.CustomPosters = loaded.CustomPosters
                 .Where(pair => !string.IsNullOrWhiteSpace(pair.Key) && !string.IsNullOrWhiteSpace(pair.Value))
                 .GroupBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.Key, group => group.First().Value, StringComparer.OrdinalIgnoreCase);
+            loaded.DisplayTitleOverrides = loaded.DisplayTitleOverrides
+                .Where(pair => !string.IsNullOrWhiteSpace(pair.Key) && !string.IsNullOrWhiteSpace(pair.Value))
+                .Select(pair => new KeyValuePair<string, string>(pair.Key, pair.Value.Trim()))
+                .Where(pair => pair.Value.Length is > 0 and <= 180 && !pair.Value.Any(char.IsControl))
+                .GroupBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First().Value, StringComparer.OrdinalIgnoreCase);
+            loaded.RecommendationLessLikeVideoIds = loaded.RecommendationLessLikeVideoIds
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
             loaded.AiReviews = loaded.AiReviews
                 .Where(pair => !string.IsNullOrWhiteSpace(pair.Key) && pair.Value is not null)
                 .GroupBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.Key, group => group.First().Value, StringComparer.OrdinalIgnoreCase);
+            // Keep even malformed audit entries intact. Review actions validate
+            // and fail closed; silently filtering an entry here would erase its
+            // cross-restart history on the next unrelated settings save.
+            loaded.AiSuggestions ??= [];
+            loaded.AiSuggestionActions ??= [];
             foreach (var pair in loaded.AiReviews)
             {
                 var review = pair.Value;
@@ -533,7 +698,15 @@ public partial class MainWindow : Window
             }
             return loaded;
         }
+        catch (InvalidDataException) { throw; }
         catch { source = "invalid config"; return new(); }
+    }
+
+    internal static void RestoreDefaultSourceTrustWeights(LibraryConfig loaded)
+    {
+        loaded.SourceTrustWeights ??= new(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, weight) in new[] { ("TMDB", 12), ("JavDB", 10), ("Bangumi", 8), ("AniList", 9), ("JAVDatabase", 7), ("Javinfo", 7), ("TVmaze", 8), ("Wikidata", 6), ("OMDb", 7), ("Kitsu", 8), ("Tenrai", 7), ("Trakt", 8), ("Pornhub", 4) })
+            loaded.SourceTrustWeights.TryAdd(name, weight);
     }
 
     static void PreserveGoodConfigSnapshot()
@@ -552,13 +725,15 @@ public partial class MainWindow : Window
 
     void SaveConfig()
     {
-        categoryDataVersion++;
+        configSaveVersion++;
         var merged = WriteConfigSnapshot(configBaseline, config, ConfigPath, credentialStoreReady, javinfoCredentialReady);
+        var graphDataChanged = !GraphRelevantConfigEquals(configBaseline, merged);
         merged.TmdbToken = config.TmdbToken;
         merged.AiKey = config.AiKey;
         merged.JavinfoKey = config.JavinfoKey;
         config = merged;
         configBaseline = CloneLibraryConfig(merged);
+        if (graphDataChanged) categoryDataVersion++;
         configSource = "config.json";
     }
 
@@ -577,8 +752,22 @@ public partial class MainWindow : Window
             else if (TryReadJson(path + ".bak", out LibraryConfig? backup) && backup is not null) latest = backup;
             else if (!File.Exists(path) && !File.Exists(path + ".bak")) latest = new();
             else throw new InvalidDataException("配置文件和恢复副本均无法读取；已停止保存以保护已有设置。");
+            if (latest.SchemaVersion is < 1 or > 2 || current.SchemaVersion is < 1 or > 2)
+                throw new InvalidDataException("配置格式版本不受当前程序支持，已停止保存以保护数据。");
 
+            // The generic map merge omits null values. Never let an unrelated
+            // save silently erase a damaged AI audit entry or its history.
+            if (!AiSuggestionAudit.IsHistoryWellFormed(latest) ||
+                !AiSuggestionAudit.IsHistoryWellFormed(current) ||
+                !AiSuggestionAudit.IsHistoryWellFormed(baseline) ||
+                !SiteListLocalActionStore.IsHistoryWellFormed(latest) ||
+                !SiteListLocalActionStore.IsHistoryWellFormed(current) ||
+                !SiteListLocalActionStore.IsHistoryWellFormed(baseline))
+                throw new InvalidDataException("审核或片单操作历史需要修复；已停止保存以免覆盖历史记录。");
             var merged = MergeLibraryConfig(baseline, current, latest);
+            if (!SiteListLocalActionStore.IsHistoryWellFormed(merged))
+                throw new InvalidDataException("合并后的片单操作历史无效，已停止保存。");
+            merged.SchemaVersion = 2;
             // Secrets live only in Windows Credential Manager, including backups.
             var persisted = CloneLibraryConfig(merged);
             if (scrubCredentials) { persisted.TmdbToken = ""; persisted.AiKey = ""; }
@@ -600,6 +789,7 @@ public partial class MainWindow : Window
     }
 
     static string IndexPath => System.IO.Path.Combine(DataDir, "library-index.json");
+    int preservedMismatchedIndexCount;
     static string NormalizeRoot(string path)
     {
         if (string.IsNullOrWhiteSpace(path)) return "";
@@ -677,13 +867,14 @@ public partial class MainWindow : Window
         return (null, "missing or invalid");
     }
 
-    static void PreserveGoodIndexSnapshot()
+    static void PreserveGoodIndexSnapshot(string? sourceIndexPath = null)
     {
-        var destination = IndexPath + ".last-good";
+        sourceIndexPath ??= IndexPath;
+        var destination = sourceIndexPath + ".last-good";
         var temporary = $"{destination}.{Environment.ProcessId}.{Environment.CurrentManagedThreadId}.tmp";
         try
         {
-            File.Copy(IndexPath, temporary, true);
+            File.Copy(sourceIndexPath, temporary, true);
             if (TryReadLibraryIndex(temporary, out LibraryIndex? copy) && copy is { Entries.Count: > 0 })
                 File.Move(temporary, destination, true);
         }
@@ -779,34 +970,29 @@ public partial class MainWindow : Window
         }
     }
 
-    async Task SaveIndexAsync(List<VideoItem> items, string[] roots)
+    async Task<IndexSaveResult> SaveIndexAsync(List<VideoItem> items, string[] roots)
     {
         if (roots.Length == 0 && items.Count == 0 && !config.FoldersClearedByUser)
         {
             Log("没有已配置文件夹，保留已有共享索引");
-            return;
+            return default;
         }
         var index = new LibraryIndex { Folders = NormalizeRoots(roots), Entries = items.Select(v => new IndexEntry { Path = v.Path, Size = v.Size, ModifiedTicks = v.Modified.Ticks }).ToList() };
         await IndexWriteGate.WaitAsync();
         try
         {
-            await Task.Run(() =>
+            return await Task.Run(() =>
             {
-                var temporary = $"{IndexPath}.{Environment.ProcessId}.{Environment.CurrentManagedThreadId}.tmp";
                 var ownsMutex = false;
                 try
                 {
                     try { IndexWriteMutex.WaitOne(); ownsMutex = true; }
                     catch (AbandonedMutexException) { ownsMutex = true; }
-                    File.WriteAllText(temporary, JsonSerializer.Serialize(index));
-                    if (TryReadLibraryIndex(IndexPath, out LibraryIndex? previous) && previous is not null)
-                        File.Replace(temporary, IndexPath, IndexPath + ".bak");
-                    else File.Move(temporary, IndexPath, true);
-                    if (index.Entries.Count > 0) PreserveGoodIndexSnapshot();
+                    return WriteIndexSnapshotAtPath(IndexPath, index,
+                        explicitlyClearedByUser: config.FoldersClearedByUser && roots.Length == 0);
                 }
                 finally
                 {
-                    try { if (File.Exists(temporary)) File.Delete(temporary); } catch { }
                     if (ownsMutex) try { IndexWriteMutex.ReleaseMutex(); } catch { }
                 }
             });
@@ -825,18 +1011,22 @@ public partial class MainWindow : Window
             {
                 var oldRoot = automatic.Split(" / ", StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
                 // Migrate old one-level auto categories to the complete folder path.
-                item.Category = automatic.Contains(" / ", StringComparison.Ordinal) && string.Equals(category, oldRoot, StringComparison.CurrentCultureIgnoreCase) ? automatic : category;
+                item.Category = automatic.Contains(" / ", StringComparison.Ordinal) && string.Equals(category, oldRoot, StringComparison.OrdinalIgnoreCase) ? automatic : category;
             }
             else item.Category = config.CategoryRenames.GetValueOrDefault(automatic, automatic);
             item.CategoryList.Clear();
-            if (config.MultiCategories.TryGetValue(item.Id, out var savedCategories)) item.CategoryList.AddRange(savedCategories.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.CurrentCultureIgnoreCase));
+            if (config.MultiCategories.TryGetValue(item.Id, out var savedCategories)) item.CategoryList.AddRange(savedCategories.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase));
             if (item.CategoryList.Count == 0 && item.Category != "未分类") item.CategoryList.Add(item.Category);
             item.Tags.Clear(); if (config.Tags.TryGetValue(item.Id, out var savedTags)) item.Tags.AddRange(savedTags.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.CurrentCultureIgnoreCase));
             if (config.WatchStates.TryGetValue(item.Id, out var status)) item.WatchStatus = status;
             if (metadata.TryGetValue(item.Id, out var record)) ApplyMetadata(item, record);
+            else item.DisplayTitle = config.DisplayTitleOverrides.GetValueOrDefault(item.Id, item.Title);
             if (config.CustomPosters.TryGetValue(item.Id, out var custom) && File.Exists(custom)) item.Poster = custom;
             ApplyReviewBadge(item);
         }
+        // Cache load, partial load and rescans may replace VideoItem objects.
+        // Rebind saved undo records each time without deleting missing entries.
+        ScheduleRestoreGraphMoveHistory();
     }
 
     void ApplyReviewBadge(VideoItem item)
@@ -1024,6 +1214,7 @@ public partial class MainWindow : Window
     {
         if (isClosing) return;
         var version = ++scanVersion;
+        CancelSphereGraphIndexBuild();
         var cancellation = new CancellationTokenSource();
         var previousCancellation = Interlocked.Exchange(ref scanCancellation, cancellation);
             // A previous refresh can be finishing its finally block at the
@@ -1089,9 +1280,14 @@ public partial class MainWindow : Window
                     if (scan.IncompleteRoots.Any(root => IsDescendantPath(root, item.Path)) && seen.Add(item.Path)) result.Add(item);
             }
             videos = result;
+            preservedMismatchedIndexCount = 0;
             categoryDataVersion++;
             ApplySavedFields(videos);
             ShowView(view);
+            // The cached library has already appeared before this scan.
+            // Capture graph inputs now; only the relation index runs on a
+            // worker, so opening Classification later avoids that full pass.
+            if (view != "categories" && videos.Count > 0) ScheduleSphereGraphIndexBuild();
             _ = WarmPosterCacheAsync();
             TaskStatusText.Text = scan.IncompleteRoots.Count == 0
                 ? $"扫描完成 · {videos.Count} 部视频"
@@ -1102,7 +1298,16 @@ public partial class MainWindow : Window
             RecordCacheDiagnostic("scan completed", TaskStatusText.Text,
                 scan.IncompleteRoots.Count == 0 ? videos.Count : null, scan.IncompleteRoots);
             if (scan.IncompleteRoots.Count == 0)
-                try { await SaveIndexAsync(result, roots); } catch (Exception ex) { Log("索引保存失败：" + ex.Message); }
+                try
+                {
+                    var saved = await SaveIndexAsync(result, roots);
+                    if (saved.PreservedMismatchedIndex)
+                    {
+                        preservedMismatchedIndexCount = saved.PreviousEntryCount;
+                        ShowPreservedMismatchedIndexNotice();
+                    }
+                }
+                catch (Exception ex) { Log("索引保存失败：" + ex.Message); }
             RecordCacheDiagnostic("refresh finished", TaskStatusText.Text,
                 scan.IncompleteRoots.Count == 0 ? videos.Count : null, scan.IncompleteRoots);
         }
@@ -1117,9 +1322,9 @@ public partial class MainWindow : Window
 
     async Task GeneratePostersAsync(List<VideoItem> items, int version)
     {
-        var ffmpeg = FindFfmpeg();
         await Task.Run(() =>
         {
+            var ffmpeg = FindFfmpeg();
             foreach (var item in items)
             {
                 if (version != posterVersion) break;
@@ -1176,7 +1381,6 @@ public partial class MainWindow : Window
     async Task WarmPosterCacheAsync()
     {
         var version = ++backgroundPosterVersion;
-        var ffmpeg = FindFfmpeg();
         // Remember where the last bounded batch stopped. Starting at zero on
         // every launch left most large libraries permanently unwarmed.
         var snapshot = videos.ToList();
@@ -1186,13 +1390,14 @@ public partial class MainWindow : Window
         if (pending.Count == 0) return;
         await Task.Run(() =>
         {
+            var ffmpeg = FindFfmpeg();
             var completed = 0;
             foreach (var item in pending)
             {
                 if (isClosing || version != backgroundPosterVersion) break;
                 if (item.Poster is not null)
                 {
-                    VideoItem.PreloadPoster(item.Poster);
+                    VideoItem.PreloadPoster(item.Poster, lowPriority: true);
                     completed++;
                     continue;
                 }
@@ -1209,7 +1414,7 @@ public partial class MainWindow : Window
                 }
                 if (poster is not null)
                 {
-                    VideoItem.PreloadPoster(poster);
+                    VideoItem.PreloadPoster(poster, lowPriority: true);
                     if (isClosing || version != backgroundPosterVersion || Dispatcher.HasShutdownStarted) break;
                     try
                     {
@@ -1227,7 +1432,8 @@ public partial class MainWindow : Window
             {
                 var next = (startIndex + completed) % snapshot.Count;
                 Interlocked.Exchange(ref posterWarmCursor, next);
-                try { File.WriteAllText(PosterWarmCursorPath, next.ToString(System.Globalization.CultureInfo.InvariantCulture)); } catch { }
+                if (!FixedPosterWarmCursorForUiDiagnostic)
+                    try { File.WriteAllText(PosterWarmCursorPath, next.ToString(System.Globalization.CultureInfo.InvariantCulture)); } catch { }
             }
         });
     }
@@ -1272,7 +1478,7 @@ public partial class MainWindow : Window
     {
         if (view != target) pageIndex = 0;
         view = target;
-        if (target != "categories") sphereGraphTimer.Stop();
+        if (target != "categories") { sphereGraphTimer.Stop(); CancelSphereGraphIndexBuild(); }
         var titles = new Dictionary<string, (string, string, string)> {
             ["all"] = ("我的视频", "把喜欢的影像，放在一个顺手的地方。", "全部视频"),
             ["recent"] = ("最近更新", "从最近修改的文件开始看。", "最近更新"),
@@ -1286,12 +1492,16 @@ public partial class MainWindow : Window
             , ["online"] = ("在线", "在应用内浏览视频网站。", "在线")
         };
         var current = titles[target];
-        PageTitle.Text = current.Item1; PageSubtitle.Text = current.Item2; SectionTitle.Text = current.Item3;
+        PageTitle.Text = current.Item1;
+        PageSubtitle.Text = preservedMismatchedIndexCount > 0 && (target is "all" or "recent" or "favorites" or "categories")
+            ? "当前文件夹扫描为 0，且与旧索引的位置不同；旧索引已保留。请检查视频文件夹设置。"
+            : current.Item2;
+        SectionTitle.Text = current.Item3;
         HeaderArea.Margin = target == "online" ? new Thickness(28, 18, 28, 12) : new Thickness(48, 42, 48, 25);
         foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav }) { button.Background = Brushes.Transparent; button.Foreground = new SolidColorBrush(Color.FromRgb(116, 130, 149)); }
         var selected = target switch { "recent" => RecentNav, "favorites" => FavoriteNav, "recommendations" => RecommendationsNav, "categories" => CategoriesNav, "folders" => FoldersNav, "status" => StatusNav, "scrape" => ScrapeNav, "online" => OnlineNav, "settings" => SettingsNav, _ => AllNav };
         selected.Background = new SolidColorBrush(Color.FromRgb(234, 240, 255)); selected.Foreground = new SolidColorBrush(Color.FromRgb(62, 99, 213));
-        Toolbar.Visibility = target is "settings" or "status" or "scrape" or "online" or "recommendations" ? Visibility.Collapsed : Visibility.Visible;
+        Toolbar.Visibility = target is "settings" or "status" or "scrape" or "online" or "recommendations" or "folders" ? Visibility.Collapsed : Visibility.Visible;
         LibraryScroll.Visibility = target == "online" ? Visibility.Collapsed : Visibility.Visible;
         AllListPanel.Visibility = Visibility.Collapsed;
         OnlinePanel.Visibility = target == "online" ? Visibility.Visible : Visibility.Collapsed;
@@ -1317,9 +1527,14 @@ public partial class MainWindow : Window
     void RenderCards()
     {
         if (Cards is null || SortBox is null) return;
+        categoryCardPopulationCompletion?.TrySetResult(false);
+        categoryCardRenderRequest++;
+        categoryCardItems = null;
+        categoryCardTargets = null;
+        categoryCardPopulationScheduled = false;
         UpdateTagFilterControls();
         var query = SearchBox?.Text.Trim() ?? "";
-        var inView = videos.Where(v => (activeTagFilter is null || v.Tags.Contains(activeTagFilter, StringComparer.CurrentCultureIgnoreCase)) && (view != "favorites" || v.Favorite) && (view != "categories" || selectedCategory == "全部" || v.CategoryList.Any(c => c.Equals(selectedCategory, StringComparison.CurrentCultureIgnoreCase) || c.StartsWith(selectedCategory + " / ", StringComparison.CurrentCultureIgnoreCase)) || v.Category.Equals(selectedCategory, StringComparison.CurrentCultureIgnoreCase)));
+        var inView = videos.Where(v => (activeTagFilter is null || v.Tags.Contains(activeTagFilter, StringComparer.CurrentCultureIgnoreCase)) && (view != "favorites" || v.Favorite) && (view != "categories" || selectedCategory == "全部" || v.CategoryList.Any(c => c.Equals(selectedCategory, StringComparison.OrdinalIgnoreCase) || c.StartsWith(selectedCategory + " / ", StringComparison.OrdinalIgnoreCase)) || v.Category.Equals(selectedCategory, StringComparison.OrdinalIgnoreCase)));
         IEnumerable<VideoItem> filtered;
         if (query.Length == 0)
         {
@@ -1365,19 +1580,63 @@ public partial class MainWindow : Window
         pageIndex = Math.Clamp(pageIndex, 0, pages - 1);
         var visible = list.Skip(pageIndex * pageSize).Take(pageSize).ToList();
         pageItems = visible;
-        Cards.ItemsSource = visible; CountText.Text = resultSummary;
+        if (view == "categories")
+        {
+            // Show the complete graph before realizing the card templates.
+            // Cards are still added in their original order and every item on
+            // the configured page remains available to selection and actions.
+            categoryCardTargets = visible;
+            categoryCardItems = new System.Collections.ObjectModel.ObservableCollection<VideoItem>();
+            categoryCardPopulationCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            Cards.ItemsSource = categoryCardItems;
+        }
+        else Cards.ItemsSource = visible;
+        CountText.Text = resultSummary;
         Pager.Visibility = pages > 1 ? Visibility.Visible : Visibility.Collapsed;
         PageIndicator.Text = $"第 {pageIndex + 1} / {pages} 页";
+        PageJumpBox.Text = (pageIndex + 1).ToString();
+        PageJumpBox.ToolTip = $"输入 1 到 {pages} 的页码，按 Enter 跳转";
         PreviousPage.IsEnabled = pageIndex > 0;
         NextPage.IsEnabled = pageIndex + 1 < pages;
         EmptyPanel.Visibility = list.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        EmptyTitle.Text = query.Length > 0 ? "没有找到匹配的视频" : view == "favorites" ? "还没有收藏的视频" : "视频库还是空的";
-        EmptyDescription.Text = query.Length > 0 ? "换个关键词试试。" : view == "favorites" ? "点视频右下角的星标，就能放到这里。" : "添加一个视频文件夹，马上开始浏览。";
+        EmptyTitle.Text = query.Length > 0 ? "没有找到匹配的视频"
+            : preservedMismatchedIndexCount > 0 && videos.Count == 0 ? "当前文件夹没有视频"
+            : view == "favorites" ? "还没有收藏的视频" : "视频库还是空的";
+        EmptyDescription.Text = query.Length > 0 ? "换个关键词试试。"
+            : preservedMismatchedIndexCount > 0 && videos.Count == 0
+                ? "文件夹与旧索引不同，旧索引已保留。请检查“视频文件夹”中的位置。"
+            : view == "favorites" ? "点视频右下角的星标，就能放到这里。" : "添加一个视频文件夹，马上开始浏览。";
         EmptyClearSearchButton.Visibility = query.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-        if (view == "categories") RenderCategories();
+        if (view == "categories") { RenderCategories(); StartCategoryCardPopulation(); }
         currentPosterStart = -1;
         ScheduleVisiblePosters();
         UpdateSelectionToolbar();
+    }
+
+    void StartCategoryCardPopulation(bool allowWithoutGraph = false)
+    {
+        if (categoryCardPopulationScheduled || view != "categories" || (!allowWithoutGraph && sphereMapSurface is null) ||
+            categoryCardItems is null || categoryCardTargets is null) return;
+        categoryCardPopulationScheduled = true;
+        var request = categoryCardRenderRequest;
+        var items = categoryCardItems;
+        var targets = categoryCardTargets;
+        var completion = categoryCardPopulationCompletion;
+        var next = 0;
+        void AddChunk()
+        {
+            if (isClosing || view != "categories" || request != categoryCardRenderRequest ||
+                !ReferenceEquals(Cards.ItemsSource, items))
+            {
+                completion?.TrySetResult(false);
+                return;
+            }
+            var end = Math.Min(targets.Count, next + 12);
+            while (next < end) items.Add(targets[next++]);
+            if (next == targets.Count) completion?.TrySetResult(true);
+            else Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(AddChunk));
+        }
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(AddChunk));
     }
 
     void UpdateSelectionToolbar()
@@ -1798,7 +2057,7 @@ public partial class MainWindow : Window
             replace ? "批量替换分类" : "批量添加分类",
             video => ApplyBatchCategoryValue(video, config, target, replace), undo =>
         {
-            if (target is not "未分类" and not "全部" && !config.CategoryNames.Contains(target, StringComparer.CurrentCultureIgnoreCase))
+            if (target is not "未分类" and not "全部" && !config.CategoryNames.Contains(target, StringComparer.OrdinalIgnoreCase))
             {
                 config.CategoryNames.Add(target);
                 undo.AddedCategoryName = target;
@@ -1951,58 +2210,12 @@ public partial class MainWindow : Window
 
     void RenderFolders()
     {
-        FoldersPanel.Children.Clear();
-        foreach (var folder in config.Folders.ToArray())
-        {
-            var row = new DockPanel { Background = Brushes.White, Margin = new Thickness(0, 0, 0, 10), LastChildFill = true };
-            row.PreviewMouseLeftButtonDown += (_, e) =>
-            {
-                // The remove button owns its click.  Do not turn a button
-                // press into a folder drag.
-                if (e.OriginalSource is DependencyObject source && FindParent<WpfButtonBase>(source) is not null)
-                {
-                    folderDragElement = null;
-                    return;
-                }
-                folderDragElement = row;
-                folderDragStart = e.GetPosition(row);
-            };
-            row.PreviewMouseLeftButtonUp += (_, _) =>
-            {
-                if (ReferenceEquals(folderDragElement, row)) folderDragElement = null;
-                HideDragHint();
-            };
-            row.PreviewMouseMove += (_, e) =>
-            {
-                if (e.LeftButton != System.Windows.Input.MouseButtonState.Pressed || !ReferenceEquals(folderDragElement, row)) return;
-                if (e.OriginalSource is DependencyObject source && FindParent<WpfButtonBase>(source) is not null) return;
-                var point = e.GetPosition(row);
-                if (Math.Abs(point.X - folderDragStart.X) < SystemParameters.MinimumHorizontalDragDistance && Math.Abs(point.Y - folderDragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
-                folderDragElement = null;
-                ShowDragHint("正在拖动文件夹 · 放到分类卡片即可归类");
-                try { System.Windows.DragDrop.DoDragDrop(row, folder, System.Windows.DragDropEffects.Move); }
-                catch (Exception ex) { Log("文件夹拖动失败：" + ex.Message); }
-                finally { HideDragHint(); }
-            };
-            row.PreviewMouseRightButtonDown += (_, e) =>
-            {
-                row.ContextMenu = BuildFolderContextMenu(folder);
-                row.ContextMenu.IsOpen = true;
-                e.Handled = true;
-            };
-            var remove = new Button { Content = "移除", Foreground = Brushes.IndianRed, Background = Brushes.Transparent, BorderThickness = new Thickness(0), Padding = new Thickness(14), Cursor = System.Windows.Input.Cursors.Hand };
-            remove.Click += (_, _) => { config.Folders.Remove(folder); config.FoldersClearedByUser = config.Folders.Count == 0; SaveConfig(); ConfigureFolderWatchers(); RenderFolders(); _ = RefreshAsync(); CountText.Text = $"{config.Folders.Count} 个位置"; };
-            DockPanel.SetDock(remove, Dock.Right); row.Children.Add(remove);
-            var text = new StackPanel { Margin = new Thickness(18, 13, 8, 13) };
-            text.Children.Add(new TextBlock { Text = System.IO.Path.GetFileName(folder.TrimEnd('\\', '/')), FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(38, 51, 71)) });
-            text.Children.Add(new TextBlock { Text = folder, Foreground = new SolidColorBrush(Color.FromRgb(131, 144, 163)), FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 4, 0, 0) });
-            row.Children.Add(text); FoldersPanel.Children.Add(row);
-        }
-        if (config.Folders.Count == 0) FoldersPanel.Children.Add(new TextBlock { Text = "还没有添加文件夹。点击右上角的“添加文件夹”开始。", Foreground = new SolidColorBrush(Color.FromRgb(131, 144, 163)), Margin = new Thickness(0, 22, 0, 0) });
+        _ = RenderFolderWorkspaceAsync();
     }
 
     void RenderCategories()
     {
+        var categoryRenderClock = System.Diagnostics.Stopwatch.StartNew();
         if (lastCategoryRenderVersion == categoryDataVersion && lastRenderedSelectedCategory == selectedCategory && CategoryPanel.Children.Count > 0)
         {
             if (sphereRotationEnabled && view == "categories") sphereGraphTimer.Start();
@@ -2015,9 +2228,32 @@ public partial class MainWindow : Window
         sphereCategoryChips.Clear();
         CategoryPanel.Children.Add(new TextBlock { Text = "分类工作台", FontSize = 19, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(38, 51, 71)), Margin = new Thickness(0, 0, 0, 4) });
         CategoryPanel.Children.Add(new TextBlock { Text = "点击节点筛选，拖动视频归类；按住鼠标中键移动图面，滚轮缩放，底边可调整高度。", Foreground = new SolidColorBrush(Color.FromRgb(131, 144, 163)), FontSize = 12, Margin = new Thickness(0, 0, 0, 14) });
+        CategoryPanel.Children.Add(BuildGraphMoveActions());
+        var graphIndex = GetSphereGraphIndexForUi();
+        if (graphIndex is null)
+        {
+            sphereGraphTimer.Stop();
+            sphereMapSurface = null;
+            sphereGraphViewport = null;
+            sphereGraphCanvas = null;
+            CategoryPanel.Children.Add(new Border
+            {
+                Padding = new Thickness(18),
+                Margin = new Thickness(0, 8, 0, 10),
+                Background = new SolidColorBrush(Color.FromRgb(247, 250, 255)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(216, 228, 248)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(12),
+                Child = new TextBlock { Text = $"正在后台建立 {videos.Count:N0} 部视频的完整分类与标签关系…", Foreground = new SolidColorBrush(Color.FromRgb(67, 91, 141)), FontSize = 13 }
+            });
+            lastCategoryRenderVersion = -1;
+            return;
+        }
         var chips = new WrapPanel();
-        var graphIndex = GetSphereGraphIndex();
         var categoryCounts = graphIndex.AllCategoryCounts;
+        var graphIndexMs = categoryRenderClock.Elapsed.TotalMilliseconds;
+        // Preserve the configured shortcuts; the complete set of nested
+        // categories below uses a searchable, recycled list.
         foreach (var name in new[] { "全部", "未分类" }.Concat(config.CategoryNames).Distinct())
         {
             var count = name == "全部" ? videos.Count : categoryCounts.GetValueOrDefault(name, 0);
@@ -2028,13 +2264,76 @@ public partial class MainWindow : Window
         }
         var add = new Button { Content = "＋ 新建分类", Padding = new Thickness(13, 8, 13, 8), Margin = new Thickness(0, 0, 9, 9), BorderBrush = new SolidColorBrush(Color.FromRgb(223, 230, 239)), Background = Brushes.White, Foreground = new SolidColorBrush(Color.FromRgb(75, 111, 225)), Cursor = System.Windows.Input.Cursors.Hand };
         add.Click += (_, _) => CreateCategory(); chips.Children.Add(add);
+        var addChild = new Button { Content = "＋ 在当前分类下新建子分类", Padding = new Thickness(13, 8, 13, 8), Margin = new Thickness(0, 0, 9, 9), BorderBrush = new SolidColorBrush(Color.FromRgb(223, 230, 239)), Background = Brushes.White, Foreground = new SolidColorBrush(Color.FromRgb(75, 111, 225)), Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "先选择父分类；新建的子分类会成为当前分类" };
+        addChild.Click += CreateChildCategoryFromWorkbench; chips.Children.Add(addChild);
         var smart = new Button { Content = "✦ 智能分类", Padding = new Thickness(13, 8, 13, 8), Margin = new Thickness(0, 0, 9, 9), BorderBrush = new SolidColorBrush(Color.FromRgb(190, 208, 248)), Background = new SolidColorBrush(Color.FromRgb(239, 245, 255)), Foreground = new SolidColorBrush(Color.FromRgb(55, 92, 190)), Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "根据文件夹和文件名离线推断分类" };
         smart.Click += SmartCategorize; chips.Children.Add(smart); CategoryPanel.Children.Add(chips);
         var ai = new Button { Content = "AI 建议", Padding = new Thickness(13, 8, 13, 8), Margin = new Thickness(0, 0, 9, 9), BorderBrush = new SolidColorBrush(Color.FromRgb(218, 198, 239)), Background = new SolidColorBrush(Color.FromRgb(250, 244, 255)), Foreground = new SolidColorBrush(Color.FromRgb(122, 70, 165)), Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "使用设置中的 OpenAI 兼容接口" };
         aiCategoryAction = ai;
         ai.Click += AiCategorize; chips.Children.Add(ai);
         categoryPaths = graphIndex.AllCategoryCounts.Keys.Where(x => x is not "未分类" and not "全部").OrderBy(x => x).ToList();
-        CategoryPanel.Children.Add(BuildSphereCategoryGraphV2());
+        var categoryItems = categoryPaths.Select(path => new SphereNavItem(path, path, categoryCounts.GetValueOrDefault(path))).ToList();
+        var categorySearch = new TextBox { Width = 280, Height = 30, Margin = new Thickness(0, 0, 12, 0), ToolTip = "搜索全部分类名称；下方列表可滚动选择" };
+        var categoryResult = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Foreground = new SolidColorBrush(Color.FromRgb(111, 130, 166)) };
+        var categorySearchBar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
+        categorySearchBar.Children.Add(new TextBlock { Text = "查找分类", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 9, 0), FontWeight = FontWeights.SemiBold });
+        categorySearchBar.Children.Add(categorySearch);
+        categorySearchBar.Children.Add(categoryResult);
+        var revealCategories = new Button { Content = "展开列表", Style = (Style)FindResource("Action"), Margin = new Thickness(12, 0, 0, 0), Padding = new Thickness(9, 0, 9, 0), ToolTip = "展开可滚动的完整分类列表" };
+        categorySearchBar.Children.Add(revealCategories);
+        CategoryPanel.Children.Add(categorySearchBar);
+        var categoryList = new System.Windows.Controls.ListBox { Height = 112, MaxWidth = 880, HorizontalAlignment = System.Windows.HorizontalAlignment.Left, BorderBrush = new SolidColorBrush(Color.FromRgb(216, 228, 248)), Margin = new Thickness(0, 0, 0, 12), Visibility = Visibility.Collapsed };
+        var categoryRow = new DataTemplate();
+        var categoryText = new FrameworkElementFactory(typeof(TextBlock));
+        categoryText.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(SphereNavItem.Display)));
+        categoryText.SetBinding(FrameworkElement.ToolTipProperty, new System.Windows.Data.Binding(nameof(SphereNavItem.Path)));
+        categoryText.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
+        categoryRow.VisualTree = categoryText;
+        categoryList.ItemTemplate = categoryRow;
+        VirtualizingStackPanel.SetIsVirtualizing(categoryList, true);
+        VirtualizingStackPanel.SetVirtualizationMode(categoryList, VirtualizationMode.Recycling);
+        ScrollViewer.SetCanContentScroll(categoryList, true);
+        ScrollViewer.SetVerticalScrollBarVisibility(categoryList, ScrollBarVisibility.Auto);
+        ScrollViewer.SetHorizontalScrollBarVisibility(categoryList, ScrollBarVisibility.Disabled);
+        sphereCategoryQuickList = categoryList;
+        var categoryListExpanded = false;
+        void SetCategoryListExpanded(bool expanded)
+        {
+            categoryListExpanded = expanded;
+            categoryList.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+            revealCategories.Content = expanded ? "收起列表" : "展开列表";
+        }
+        void UpdateCategoryList()
+        {
+            var query = categorySearch.Text.Trim();
+            var matching = query.Length == 0 ? categoryItems : categoryItems.Where(item => item.Path.Contains(query, StringComparison.CurrentCultureIgnoreCase)).ToList();
+            categoryList.ItemsSource = matching;
+            categoryResult.Text = $"{matching.Count:N0} / {categoryItems.Count:N0} 个分类 · 点击定位";
+            var selectedItem = matching.FirstOrDefault(item => item.Path.Equals(selectedCategory, StringComparison.OrdinalIgnoreCase));
+            sphereSyncingCategoryList = true;
+            try { categoryList.SelectedItem = selectedItem; }
+            finally { sphereSyncingCategoryList = false; }
+        }
+        revealCategories.Click += (_, _) => SetCategoryListExpanded(!categoryListExpanded);
+        categorySearch.TextChanged += (_, _) =>
+        {
+            if (!categoryListExpanded && !string.IsNullOrWhiteSpace(categorySearch.Text)) SetCategoryListExpanded(true);
+            UpdateCategoryList();
+        };
+        categoryList.SelectionChanged += (_, _) =>
+        {
+            if (!sphereSyncingCategoryList && categoryList.SelectedItem is SphereNavItem item)
+                SelectSphereCategory(item.Path);
+        };
+        UpdateCategoryList();
+        CategoryPanel.Children.Add(categoryList);
+        var controlsMs = categoryRenderClock.Elapsed.TotalMilliseconds - graphIndexMs;
+        CategoryPanel.Children.Add(BuildSphereCategoryGraphV2(graphIndex));
+        StartCategoryCardPopulation();
+        if (graphIndex.AllCategoryCounts.Count > 500)
+        {
+            categoryRenderProfile = $"索引/占位 {graphIndexMs:F1} ms，筛选控件 {controlsMs:F1} ms，球形图 {categoryRenderClock.Elapsed.TotalMilliseconds - graphIndexMs - controlsMs:F1} ms，总计 {categoryRenderClock.Elapsed.TotalMilliseconds:F1} ms";
+        }
     }
 
     void RotateSphereGraph()
@@ -2146,7 +2445,7 @@ public partial class MainWindow : Window
         // hides the shape of a large category hierarchy. Build a bounded graph
         // from the same paths so the overview stays useful even when a library
         // contains thousands of folders. The parent chain is always retained.
-        var paths = new HashSet<string>(categoryPaths, StringComparer.CurrentCultureIgnoreCase);
+        var paths = new HashSet<string>(categoryPaths, StringComparer.OrdinalIgnoreCase);
         foreach (var path in categoryPaths.ToArray())
         {
             var parts = path.Split(" / ", StringSplitOptions.RemoveEmptyEntries);
@@ -2155,9 +2454,9 @@ public partial class MainWindow : Window
 
         var exactCounts = videos.SelectMany(CategoriesOf)
             .Where(x => !string.IsNullOrWhiteSpace(x) && x is not "未分类" and not "全部")
-            .GroupBy(x => x, StringComparer.CurrentCultureIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.CurrentCultureIgnoreCase);
-        var countFor = new Dictionary<string, int>(StringComparer.CurrentCultureIgnoreCase);
+            .GroupBy(x => x, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+        var countFor = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         // Count each category and all of its ancestors in one pass.  The old
         // implementation scanned every category for every node, which became
         // noticeable in libraries with thousands of folders.
@@ -2178,7 +2477,7 @@ public partial class MainWindow : Window
         var ranked = paths.OrderByDescending(path => countFor.GetValueOrDefault(path))
             .ThenBy(path => path.Count(c => c == '/')).ThenBy(path => path, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
-        var selectedPaths = new HashSet<string>(StringComparer.CurrentCultureIgnoreCase);
+        var selectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var path in ranked.Take(160))
         {
             var parts = path.Split(" / ", StringSplitOptions.RemoveEmptyEntries);
@@ -2203,10 +2502,10 @@ public partial class MainWindow : Window
         const double nodeHeight = 116;
         const double graphWidth = 1000;
         const double graphHeight = 620;
-        var positions = new Dictionary<string, System.Windows.Point>(StringComparer.CurrentCultureIgnoreCase);
-        var forces = new Dictionary<string, (double X, double Y)>(StringComparer.CurrentCultureIgnoreCase);
-        var nodeIndex = ordered.Select((path, index) => (path, index)).ToDictionary(x => x.path, x => x.index, StringComparer.CurrentCultureIgnoreCase);
-        var depthOf = ordered.ToDictionary(path => path, path => path == rootKey ? -1 : path.Count(c => c == '/'), StringComparer.CurrentCultureIgnoreCase);
+        var positions = new Dictionary<string, System.Windows.Point>(StringComparer.OrdinalIgnoreCase);
+        var forces = new Dictionary<string, (double X, double Y)>(StringComparer.OrdinalIgnoreCase);
+        var nodeIndex = ordered.Select((path, index) => (path, index)).ToDictionary(x => x.path, x => x.index, StringComparer.OrdinalIgnoreCase);
+        var depthOf = ordered.ToDictionary(path => path, path => path == rootKey ? -1 : path.Count(c => c == '/'), StringComparer.OrdinalIgnoreCase);
         var edges = ordered.Where(path => path != rootKey).Select(path =>
         {
             var separator = path.LastIndexOf(" / ", StringComparison.Ordinal);
@@ -2365,7 +2664,7 @@ public partial class MainWindow : Window
     static IEnumerable<string> CategoriesOf(VideoItem video) => video.CategoryList.Count == 0 ? [video.Category] : video.CategoryList;
     IEnumerable<string> CategoryTargets()
     {
-        var paths = new HashSet<string>(StringComparer.CurrentCultureIgnoreCase);
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var path in videos.SelectMany(CategoriesOf).Concat(config.CategoryNames))
         {
             var parts = path.Split(" / ", StringSplitOptions.RemoveEmptyEntries);
@@ -2377,7 +2676,7 @@ public partial class MainWindow : Window
         }
         return paths.OrderBy(x => x.Count(c => c == '/')).ThenBy(x => x, StringComparer.CurrentCultureIgnoreCase);
     }
-    IEnumerable<string> categoryPathsForBoard() => CategoryTargets().Select(x => x.Split(" / ", StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.CurrentCultureIgnoreCase).OrderBy(x => x)!;
+    IEnumerable<string> categoryPathsForBoard() => CategoryTargets().Select(x => x.Split(" / ", StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x)!;
 
     void CategoryTileDrop(object sender, System.Windows.DragEventArgs e)
     {
@@ -2388,7 +2687,7 @@ public partial class MainWindow : Window
 
     TreeViewItem CreateCategoryNode(string label, string path)
     {
-        var count = videos.Count(v => v.CategoryList.Any(c => c.Equals(path, StringComparison.CurrentCultureIgnoreCase) || c.StartsWith(path + " / ", StringComparison.CurrentCultureIgnoreCase)) || v.Category.Equals(path, StringComparison.CurrentCultureIgnoreCase));
+        var count = videos.Count(v => v.CategoryList.Any(c => c.Equals(path, StringComparison.OrdinalIgnoreCase) || c.StartsWith(path + " / ", StringComparison.OrdinalIgnoreCase)) || v.Category.Equals(path, StringComparison.OrdinalIgnoreCase));
         var header = new StackPanel { Orientation = Orientation.Horizontal };
         header.Children.Add(new TextBlock { Text = "▰", Foreground = new SolidColorBrush(Color.FromRgb(79, 111, 215)), Margin = new Thickness(0, 0, 7, 0) });
         header.Children.Add(new TextBlock { Text = label, FontWeight = FontWeights.SemiBold });
@@ -2396,7 +2695,7 @@ public partial class MainWindow : Window
         var headerCard = new Border { Child = header, Background = new LinearGradientBrush(Color.FromRgb(249, 251, 255), Color.FromRgb(235, 242, 255), 0), BorderBrush = new SolidColorBrush(Color.FromRgb(220, 229, 247)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9), Padding = new Thickness(10, 6, 14, 6), Margin = new Thickness(2, 3, 8, 3) };
         var node = new TreeViewItem { Header = headerCard, Tag = path, AllowDrop = true, Padding = new Thickness(3, 2, 5, 2), Foreground = new SolidColorBrush(Color.FromRgb(55, 70, 95)) };
         node.Drop += CategoryTreeDrop; node.DragEnter += CategoryDragEnter; node.DragLeave += CategoryDragLeave; node.PreviewMouseLeftButtonDown += CategoryNodeMouseDown; node.PreviewMouseLeftButtonUp += CategoryNodeMouseUp; node.PreviewMouseMove += CategoryNodeMouseMove; node.Expanded += CategoryNodeExpanded;
-        var hasChildren = categoryPaths.Any(x => x.StartsWith(path + " / ", StringComparison.CurrentCultureIgnoreCase));
+        var hasChildren = categoryPaths.Any(x => x.StartsWith(path + " / ", StringComparison.OrdinalIgnoreCase));
         if (hasChildren) node.Items.Add(new TreeViewItem { Header = "展开下级…", Tag = "__placeholder__", IsEnabled = false });
         return node;
     }
@@ -2405,7 +2704,7 @@ public partial class MainWindow : Window
     {
         if (sender is not TreeViewItem node || node.Items.Count != 1 || (node.Items[0] as TreeViewItem)?.Tag as string != "__placeholder__") return;
         node.Items.Clear(); var prefix = (string)node.Tag;
-        foreach (var child in categoryPaths.Where(x => x.StartsWith(prefix + " / ", StringComparison.CurrentCultureIgnoreCase)).Select(x => x[(prefix.Length + 3)..].Split(" / ", StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.CurrentCultureIgnoreCase).OrderBy(x => x))
+        foreach (var child in categoryPaths.Where(x => x.StartsWith(prefix + " / ", StringComparison.OrdinalIgnoreCase)).Select(x => x[(prefix.Length + 3)..].Split(" / ", StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x))
             node.Items.Add(CreateCategoryNode(child!, prefix + " / " + child));
     }
 
@@ -2449,44 +2748,12 @@ public partial class MainWindow : Window
 
     void MoveVideoToCategory(VideoItem video, string target)
     {
-        video.Category = target; video.CategoryList.Clear(); video.CategoryList.Add(target); config.MultiCategories[video.Id] = [target]; config.Categories[video.Id] = target; if (!config.CategoryNames.Contains(target)) config.CategoryNames.Add(target); SaveConfig(); Log($"已将视频移动到分类：{target}"); RenderCategories(); RenderCards();
+        BeginGraphVideoMove(video, target);
     }
 
     void MoveSourceToCategory(string source, string target)
     {
-        if (Directory.Exists(source))
-        {
-            foreach (var item in videos.Where(v => v.Folder.Equals(source, StringComparison.OrdinalIgnoreCase) || v.Folder.StartsWith(source.TrimEnd('\\', '/') + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))) { item.Category = target; item.CategoryList.Clear(); item.CategoryList.Add(target); config.MultiCategories[item.Id] = [target]; config.Categories[item.Id] = target; }
-        }
-        else
-        {
-            if (source.Equals(target, StringComparison.CurrentCultureIgnoreCase) || target.StartsWith(source + " / ", StringComparison.CurrentCultureIgnoreCase)) return;
-            // Move only the dragged branch while preserving any other
-            // category assignments on the same video. This is what makes
-            // multi-category tagging useful instead of turning a tree move
-            // into a destructive single-category replacement.
-            foreach (var item in videos)
-            {
-                var categories = CategoriesOf(item).ToList();
-                var changed = false;
-                for (var i = 0; i < categories.Count; i++)
-                {
-                    var category = categories[i];
-                    if (!category.Equals(source, StringComparison.CurrentCultureIgnoreCase) && !category.StartsWith(source + " / ", StringComparison.CurrentCultureIgnoreCase)) continue;
-                    var suffix = category.Length == source.Length ? "" : category[source.Length..];
-                    categories[i] = target + suffix;
-                    changed = true;
-                }
-                if (!changed) continue;
-                categories = categories.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.CurrentCultureIgnoreCase).ToList();
-                item.CategoryList.Clear(); item.CategoryList.AddRange(categories);
-                item.Category = categories.FirstOrDefault() ?? "未分类";
-                config.MultiCategories[item.Id] = categories;
-                if (item.Category == "未分类") config.Categories.Remove(item.Id); else config.Categories[item.Id] = item.Category;
-            }
-        }
-        if (!config.CategoryNames.Contains(target, StringComparer.CurrentCultureIgnoreCase)) config.CategoryNames.Add(target);
-        SaveConfig(); RenderCategories(); RenderCards(); Log($"已移动到分类：{target}");
+        BeginGraphSourceMove(source, target);
     }
 
     void CategoryNodeMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e) { if (sender is TreeViewItem node) { categoryDragNode = node; categoryDragStart = e.GetPosition(node); } }
@@ -2598,9 +2865,19 @@ public partial class MainWindow : Window
         var tags = new MenuItem { Header = "🏷 编辑标签…" };
         tags.Click += (_, _) => EditTagsForVideo(video);
         menu.Items.Add(tags);
+        var title = new MenuItem { Header = "✎ 编辑显示名/番名…" };
+        title.Click += (_, _) => Dispatcher.BeginInvoke(() => EditVideoDisplayTitle(video));
+        menu.Items.Add(title);
+        var resetTitle = new MenuItem { Header = "恢复搜刮或文件名", IsEnabled = config.DisplayTitleOverrides.ContainsKey(video.Id) };
+        resetTitle.Click += (_, _) => Dispatcher.BeginInvoke(() => ClearVideoDisplayTitle(video));
+        menu.Items.Add(resetTitle);
         var information = new MenuItem { Header = "查看完整搜刮资料…", IsEnabled = metadata.ContainsKey(video.Id) || config.AiReviews.ContainsKey(video.Id) };
         information.Click += (_, _) => ShowMetadataDetailsForVideo(video);
         menu.Items.Add(information);
+        var personProfile = new MenuItem { Header = "人物 / 角色档案…" };
+        personProfile.Click += (_, _) => Dispatcher.BeginInvoke(() =>
+            OpenRoleProfiles(video, metadata.GetValueOrDefault(video.Id)));
+        menu.Items.Add(personProfile);
         var select = new MenuItem { Header = video.IsSelected ? "□ 取消选择" : "☑ 加入批量选择" };
         select.Click += (_, _) =>
         {
@@ -2638,7 +2915,7 @@ public partial class MainWindow : Window
         }, $"{video.DisplayTitle} · 可添加、替换或清除分类");
         if (picker.Dialog.ShowDialog() != true || chosen is null) return;
         ApplyBatchCategoryValue(video, config, chosen, replace);
-        if (chosen is not "未分类" and not "全部" && !config.CategoryNames.Contains(chosen, StringComparer.CurrentCultureIgnoreCase))
+        if (chosen is not "未分类" and not "全部" && !config.CategoryNames.Contains(chosen, StringComparer.OrdinalIgnoreCase))
             config.CategoryNames.Add(chosen);
         SaveConfig();
         Log($"已更新分类：{video.DisplayTitle}");
@@ -2759,16 +3036,23 @@ public partial class MainWindow : Window
 
     static int ParseAiConfidence(JsonElement node)
     {
-        if (node.TryGetInt32(out var integer)) return integer;
-        if (node.TryGetDouble(out var decimalValue)) return (int)Math.Round(decimalValue);
+        static int Rounded(double value) => double.IsFinite(value)
+            ? (int)Math.Clamp(Math.Round(value), int.MinValue, int.MaxValue) : 0;
+        if (node.ValueKind == JsonValueKind.Number)
+        {
+            if (node.TryGetInt32(out var number)) return number;
+            if (node.TryGetDouble(out var decimalNumber)) return Rounded(decimalNumber);
+        }
         if (node.ValueKind == JsonValueKind.String)
         {
             var raw = (node.GetString() ?? "").Trim();
             var slash = raw.IndexOf('/');
             if (slash > 0) raw = raw[..slash];
             raw = raw.TrimEnd('%').Trim();
-            if (int.TryParse(raw, out integer)) return integer;
-            if (double.TryParse(raw, out decimalValue)) return (int)Math.Round(decimalValue);
+            if (int.TryParse(raw, System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out var integer)) return integer;
+            if (double.TryParse(raw, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var decimalValue)) return Rounded(decimalValue);
         }
         return 0;
     }
@@ -2811,6 +3095,7 @@ public partial class MainWindow : Window
         TaskStatusText.Text = "空闲";
         Interlocked.Exchange(ref aiRequestRunning, 0);
         UpdateSelectionToolbar();
+        RefreshAiUsageStatus();
     }
 
     async void AiCategorize(object sender, RoutedEventArgs e)
@@ -2824,58 +3109,51 @@ public partial class MainWindow : Window
         {
             // Only send the title and the final folder name. The full local path can contain
             // usernames, drive names, and other private information that the model does not need.
-            var rows = string.Join("\n", candidates.Select((v, i) => $"{i}: 标题={v.DisplayTitle}; 文件夹={System.IO.Path.GetFileName(v.Folder)}"));
+            var inputs = candidates.Select(v => new
+            {
+                Title = v.DisplayTitle,
+                Context = System.IO.Path.GetFileName(v.Folder) ?? "",
+                Fingerprint = AiSuggestionAudit.CategoryFingerprint(config, v.Id)
+            }).ToArray();
+            var rows = string.Join("\n", inputs.Select((item, i) => $"{i}: 标题={item.Title}; 文件夹={item.Context}"));
             var allowedCategories = new[] { "电影", "剧集", "动漫", "其他" };
             var payload = new
             {
                 model = string.IsNullOrWhiteSpace(config.AiModel) ? "gpt-4o-mini" : config.AiModel,
                 messages = new[]
                 {
-                    new { role = "system", content = "你是本地视频分类助手。只根据标题和文件夹名称推断大类。只返回JSON对象，键是编号字符串，值必须是：电影、剧集、动漫、其他。不要输出路径、解释或Markdown。" },
+                    new { role = "system", content = "你是本地视频分类助手。只根据标题和文件夹名称推断大类。仅返回JSON对象，键是编号字符串，值为对象 {category,confidence,verdict,reason}。category 只能是电影、剧集、动漫、其他；confidence 是0到100整数；verdict 只能是suggest或reject，证据不足就reject；reason 用一句话说明标题依据。不要输出路径、解释或Markdown。" },
                     new { role = "user", content = rows }
                 },
                 temperature = 0.1,
                 max_tokens = config.AiMaxOutputTokens
             };
+            var requestBody = JsonSerializer.Serialize(payload);
+            var estimatedCost = AiRequestQueue.EstimateReservedUsd(config, requestBody);
+            var estimatedInput = AiRequestQueue.EstimateInputTokens(requestBody);
+            var estimatedOutput = AiRequestQueue.EstimateOutputLimitTokens(requestBody, config);
             using var doc = await AiRequestQueue.SendAsync(config, GetAiChatEndpoint(), payload, DataDir);
             var content = ExtractAiMessageContent(doc);
-            var map = JsonSerializer.Deserialize<Dictionary<string, string>>(ExtractAiJson(content, "AI 未返回有效 JSON。")) ?? [];
-            var updates = map
-                .Select(pair =>
-                {
-                    var validIndex = int.TryParse(pair.Key, out var index) && index >= 0 && index < candidates.Count;
-                    var category = pair.Value?.Trim() ?? "";
-                    return (validIndex, index, category);
-                })
-                .Where(item => item.validIndex && allowedCategories.Contains(item.category, StringComparer.Ordinal))
-                .GroupBy(item => item.index)
-                .Select(group => group.First())
-                .OrderBy(item => item.index)
-                .ToList();
-            if (updates.Count == 0) throw new InvalidOperationException("AI 没有返回可用的分类建议。");
-
-            var preview = new StringBuilder("AI 将只修改本机库中的分类，不会修改视频文件。\n");
-            preview.AppendLine("发送给 AI 的内容仅包含标题和文件夹名称，不包含完整路径。\n");
-            foreach (var update in updates)
-                preview.Append('·').Append(' ').Append(candidates[update.index].DisplayTitle)
-                    .Append("  →  ").AppendLine(update.category);
-            if (candidates.Count > updates.Count) preview.AppendLine($"\n其余 {candidates.Count - updates.Count} 部没有返回有效建议。");
-            preview.Append("\n是否应用这些分类？");
-            if (MessageBox.Show(this, preview.ToString(), "AI 分类 · 预览", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-
-            var changed = 0;
-            foreach (var update in updates)
+            using var result = JsonDocument.Parse(ExtractAiJson(content, "AI 未返回有效 JSON。"));
+            var offered = new List<AiSuggestionRecord>();
+            foreach (var property in result.RootElement.EnumerateObject())
             {
-                var video = candidates[update.index];
-                video.Category = update.category;
-                video.CategoryList.Clear();
-                video.CategoryList.Add(update.category);
-                config.MultiCategories[video.Id] = [update.category];
-                config.Categories[video.Id] = update.category;
-                changed++;
+                if (!int.TryParse(property.Name, out var index) || index < 0 || index >= candidates.Count) continue;
+                var video = candidates[index];
+                var suggestion = ReadAiSuggestion(property.Value, "category", video,
+                    inputs[index].Title, inputs[index].Context, inputs[index].Fingerprint, payload.model,
+                    estimatedCost / Math.Max(1, candidates.Count),
+                    estimatedInput / Math.Max(1, candidates.Count),
+                    estimatedOutput / Math.Max(1, candidates.Count));
+                if (allowedCategories.Contains(suggestion.SuggestedCategory, StringComparer.Ordinal) ||
+                    suggestion.Verdict == "reject") offered.Add(suggestion);
             }
-            SaveConfig(); RenderCategories(); RenderCards(); Log($"AI 分类完成：{changed} 部");
-            MessageBox.Show(this, $"AI 已给出 {changed} 部分类建议。", "AI 分类", MessageBoxButton.OK, MessageBoxImage.Information);
+            if (offered.Count == 0) throw new InvalidOperationException("AI 没有返回可用的分类建议或否决记录。");
+            SaveAiSuggestions(offered);
+            Log($"AI 分类建议已进入人工审核：{offered.Count} 条");
+            MessageBox.Show(this, $"已保存 {offered.Count} 条分类建议/AI 否决，尚未修改视频分类。请在审核窗口逐项或批量处理。",
+                "AI 分类 · 待人工审核", MessageBoxButton.OK, MessageBoxImage.Information);
+            ShowAiSuggestionReview();
         }
         catch (TaskCanceledException)
         {
@@ -2902,61 +3180,50 @@ public partial class MainWindow : Window
 
         try
         {
-            var rows = string.Join("\n", selected.Select((video, index) =>
-                $"{index}: 标题={video.DisplayTitle}; 当前分类={string.Join("、", CategoriesOf(video).Where(x => x is not "全部" and not "未分类"))}"));
+            var inputs = selected.Select(video => new
+            {
+                Title = video.DisplayTitle,
+                Context = string.Join("、", CategoriesOf(video).Where(name => name is not "全部" and not "未分类")),
+                Fingerprint = AiSuggestionAudit.Fingerprint(AiSuggestionAudit.TagsOf(config, video.Id))
+            }).ToArray();
+            var rows = string.Join("\n", inputs.Select((item, index) =>
+                $"{index}: 标题={item.Title}; 当前分类={item.Context}"));
             var payload = new
             {
                 model = string.IsNullOrWhiteSpace(config.AiModel) ? "gpt-4o-mini" : config.AiModel,
                 messages = new[]
                 {
-                    new { role = "system", content = "你是本地视频库的标签助手。仅根据用户提供的标题和已有分类，给每个编号建议2到5个简短标签。标签可描述主题、类型、语言、画质或来源，不要猜测个人身份，不要输出文件路径或隐私。只返回JSON对象，键为编号字符串，值为标签字符串数组，不要Markdown和解释。" },
+                    new { role = "system", content = "你是本地视频库的标签助手。仅根据标题和已有分类，为每个编号给出2到5个简短标签。仅返回JSON对象，键为编号字符串，值为 {tags,confidence,verdict,reason}。tags 是字符串数组；confidence 是0到100整数；verdict 只能是suggest或reject，证据不足就reject；reason 简述标题依据。不要猜测个人身份、输出路径、隐私、Markdown或其他解释。" },
                     new { role = "user", content = rows }
                 },
                 temperature = 0.2,
                 max_tokens = config.AiMaxOutputTokens
             };
+            var requestBody = JsonSerializer.Serialize(payload);
+            var estimatedCost = AiRequestQueue.EstimateReservedUsd(config, requestBody);
+            var estimatedInput = AiRequestQueue.EstimateInputTokens(requestBody);
+            var estimatedOutput = AiRequestQueue.EstimateOutputLimitTokens(requestBody, config);
             using var doc = await AiRequestQueue.SendAsync(config, GetAiChatEndpoint(), payload, DataDir);
             var content = ExtractAiMessageContent(doc);
             using var suggestionDoc = JsonDocument.Parse(ExtractAiJson(content, "AI 未返回有效的标签 JSON。"));
-            var suggestions = new Dictionary<int, List<string>>();
+            var suggestions = new List<AiSuggestionRecord>();
             foreach (var property in suggestionDoc.RootElement.EnumerateObject())
             {
                 if (!int.TryParse(property.Name, out var index) || index < 0 || index >= selected.Count) continue;
-                var tags = property.Value.ValueKind == JsonValueKind.Array
-                    ? property.Value.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString() ?? "")
-                    : property.Value.ValueKind == JsonValueKind.String
-                        ? (property.Value.GetString() ?? "").Split([',', '，', ';', '；'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                        : [];
-                var clean = tags.Select(tag => tag.Trim().TrimStart('#').Replace("\r", "").Replace("\n", ""))
-                    .Where(tag => tag.Length is > 0 and <= 24 && !tag.Any(char.IsControl))
-                    .Distinct(StringComparer.CurrentCultureIgnoreCase).Take(5).ToList();
-                if (clean.Count > 0) suggestions[index] = clean;
+                var video = selected[index];
+                var suggestion = ReadAiSuggestion(property.Value, "tags", video,
+                    inputs[index].Title, inputs[index].Context, inputs[index].Fingerprint, payload.model,
+                    estimatedCost / Math.Max(1, selected.Count),
+                    estimatedInput / Math.Max(1, selected.Count),
+                    estimatedOutput / Math.Max(1, selected.Count));
+                if (suggestion.SuggestedTags.Count > 0 || suggestion.Verdict == "reject") suggestions.Add(suggestion);
             }
-            if (suggestions.Count == 0) throw new InvalidOperationException("AI 没有返回可用标签。");
-
-            var preview = new StringBuilder("以下建议只会写入本机库的标签，不会修改视频文件：\n\n");
-            foreach (var pair in suggestions.OrderBy(pair => pair.Key))
-            {
-                preview.Append('·').Append(' ').Append(selected[pair.Key].DisplayTitle).Append("\n  ");
-                preview.AppendLine(string.Join("  ", pair.Value.Select(tag => "#" + tag)));
-            }
-            if (selected.Count > suggestions.Count) preview.AppendLine($"\n其余 {selected.Count - suggestions.Count} 部没有返回建议。");
-            preview.Append("\n是否应用这些标签？");
-            if (MessageBox.Show(this, preview.ToString(), "AI 标签建议 · 预览", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-
-            var changed = 0;
-            foreach (var pair in suggestions)
-            {
-                var video = selected[pair.Key];
-                foreach (var tag in pair.Value)
-                    if (!video.Tags.Contains(tag, StringComparer.CurrentCultureIgnoreCase)) video.Tags.Add(tag);
-                if (video.Tags.Count > 0) config.Tags[video.Id] = video.Tags.ToList();
-                changed++;
-            }
-            SaveConfig();
-            RenderCards();
-            Log($"AI 标签建议已应用：{changed} 部");
-            MessageBox.Show(this, $"已为 {changed} 部视频添加 AI 标签。", "AI 标签建议", MessageBoxButton.OK, MessageBoxImage.Information);
+            if (suggestions.Count == 0) throw new InvalidOperationException("AI 没有返回可用标签或否决记录。");
+            SaveAiSuggestions(suggestions);
+            Log($"AI 标签建议已进入人工审核：{suggestions.Count} 条");
+            MessageBox.Show(this, $"已保存 {suggestions.Count} 条标签建议/AI 否决，尚未修改视频标签。请在审核窗口逐项或批量处理。",
+                "AI 标签建议 · 待人工审核", MessageBoxButton.OK, MessageBoxImage.Information);
+            ShowAiSuggestionReview();
         }
         catch (TaskCanceledException)
         {
@@ -2979,6 +3246,7 @@ public partial class MainWindow : Window
             if (ext == ".webp") ext = ".jpg";
             var destination = System.IO.Path.Combine(ThumbDir, video.Id + "-custom" + ext);
             File.Copy(dialog.FileName, destination, true);
+            VideoItem.InvalidatePoster(destination);
             config.CustomPosters[video.Id] = destination; video.Poster = destination; SaveConfig();
             Log("已设置图片封面：" + video.DisplayTitle); RenderCards();
         }
@@ -2987,6 +3255,7 @@ public partial class MainWindow : Window
 
     void ClearPoster(VideoItem video)
     {
+        if (config.CustomPosters.TryGetValue(video.Id, out var oldPoster)) VideoItem.InvalidatePoster(oldPoster);
         if (config.CustomPosters.Remove(video.Id, out var path)) try { if (File.Exists(path)) File.Delete(path); } catch { }
         video.Poster = null; SaveConfig(); RenderCards();
     }
@@ -3001,8 +3270,8 @@ public partial class MainWindow : Window
     {
         var name = PromptText("新建分类", "分类名称：", "", owner)?.Trim();
         if (string.IsNullOrEmpty(name)) return null;
-        if (name.Length > 20 || name is "全部" or "未分类" || name.Any(char.IsControl)) { MessageBox.Show(owner ?? this, "分类名称需在 20 个字符以内，且不能使用“全部”或“未分类”。", "名称无效", MessageBoxButton.OK, MessageBoxImage.Information); return null; }
-        if (!config.CategoryNames.Contains(name)) { config.CategoryNames.Add(name); SaveConfig(); Log("新建分类：" + name); }
+        if (name.Length > 20 || name is "全部" or "未分类" || name.Contains('/') || name.Contains('\\') || name.Any(char.IsControl)) { MessageBox.Show(owner ?? this, "分类名称需在 20 个字符以内，不能包含斜杠、控制字符或保留名称。", "名称无效", MessageBoxButton.OK, MessageBoxImage.Information); return null; }
+        if (!config.CategoryNames.Contains(name, StringComparer.OrdinalIgnoreCase)) { config.CategoryNames.Add(name); SaveConfig(); Log("新建分类：" + name); }
         RenderCategories(); return name;
     }
 
@@ -3220,9 +3489,13 @@ public partial class MainWindow : Window
         using var dialog = new Forms.FolderBrowserDialog { Description = "选择存放视频的文件夹", UseDescriptionForTitle = true };
         if (dialog.ShowDialog() != Forms.DialogResult.OK) return;
         if (!config.Folders.Contains(dialog.SelectedPath, StringComparer.OrdinalIgnoreCase)) { config.Folders.Add(dialog.SelectedPath); config.FoldersClearedByUser = false; SaveConfig(); }
+        folderCurrentRoot = NormalizeRoot(dialog.SelectedPath);
+        folderCurrentPath = folderCurrentRoot;
+        folderDirectoryPage = 0;
+        folderVideoPage = 0;
         ConfigureFolderWatchers();
         _ = RefreshAsync();
-        ShowView("all");
+        ShowView("folders");
     }
     void PlayVideo(object sender, RoutedEventArgs e)
     {
@@ -3320,10 +3593,10 @@ public partial class MainWindow : Window
             MessageBox.Show(this, "无法打开文件位置：" + ex.Message, "打开失败", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
-    static void ApplyMetadata(VideoItem item, MovieMetadata record)
+    void ApplyMetadata(VideoItem item, MovieMetadata record)
     {
         item.Code = record.Code;
-        item.DisplayTitle = record.Title;
+        item.DisplayTitle = config.DisplayTitleOverrides.GetValueOrDefault(item.Id, record.Title);
         if (record.Poster is not null && File.Exists(record.Poster)) item.Poster = record.Poster;
     }
     string? PromptText(string title, string label, string? guess, Window? owner = null)
@@ -3404,13 +3677,21 @@ public partial class MainWindow : Window
         using var document = await AiRequestQueue.SendAsync(config, GetAiChatEndpoint(), payload, DataDir);
         var content = ExtractAiMessageContent(document);
         using var result = JsonDocument.Parse(ExtractAiJson(content, "AI 未返回有效审核 JSON。"));
-        var root = result.RootElement;
+        var assessment = ParseScrapeAiAssessment(result.RootElement);
+        return (assessment.Confidence, assessment.Verdict, assessment.Reason,
+            string.IsNullOrWhiteSpace(config.AiModel) ? "gpt-4o-mini" : config.AiModel.Trim());
+    }
+
+    internal static (int Confidence, string Verdict, string Reason) ParseScrapeAiAssessment(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+            throw new InvalidDataException("AI 审核响应不是 JSON 对象。");
         var confidence = 0;
         if (root.TryGetProperty("confidence", out var confidenceNode))
             confidence = ParseAiConfidence(confidenceNode);
         var verdict = root.TryGetProperty("verdict", out var verdictNode) ? ReadAiText(verdictNode) : "review";
         var reason = root.TryGetProperty("reason", out var reasonNode) ? ReadAiText(reasonNode) : "AI 未提供依据";
-        return (Math.Clamp(confidence, 0, 100), verdict, reason.Trim(), string.IsNullOrWhiteSpace(config.AiModel) ? "gpt-4o-mini" : config.AiModel.Trim());
+        return (Math.Clamp(confidence, 0, 100), verdict, reason.Trim());
     }
 
     async Task<AiReviewRecord> BuildScrapeReviewAsync(VideoItem video, MovieMetadata candidate, bool forcePending = false)
@@ -3476,121 +3757,45 @@ public partial class MainWindow : Window
     async Task<string> StoreScrapeReviewAsync(VideoItem video, MovieMetadata candidate,
         bool forcePending = false, CancellationToken cancellationToken = default)
     {
-        var reviewBefore = config.AiReviews.TryGetValue(video.Id, out var oldReview)
-            ? new Dictionary<string, AiReviewRecord> { [video.Id] = CloneReview(oldReview) }
-            : new Dictionary<string, AiReviewRecord>();
-        var metadataBefore = new Dictionary<string, MovieMetadata?> { [video.Id] = metadata.TryGetValue(video.Id, out var oldMetadata) ? oldMetadata : null };
         var review = await BuildScrapeReviewAsync(video, candidate, forcePending);
         cancellationToken.ThrowIfCancellationRequested();
-        if (forcePending)
-        {
-            review.Status = "pending";
-            review.Reason += "；候选身份需人工核对";
-        }
-        config.AiReviews[video.Id] = review;
-        if (review.Status == "approved")
-        {
-            var previous = metadata.TryGetValue(video.Id, out var previousMetadata) ? previousMetadata : null;
-            var accepted = review.ToMetadata();
-            metadata[video.Id] = accepted;
-            ApplyMetadata(video, accepted);
-            try
-            {
-                MetadataStore.Save(DataDir, metadata);
-            }
-            catch (Exception ex)
-            {
-                // Do not leave an apparently approved candidate only in
-                // memory.  Keep it in the review queue so the user can retry
-                // after fixing the data directory or file permissions.
-                if (previous is null) metadata.Remove(video.Id);
-                else { metadata[video.Id] = previous; ApplyMetadata(video, previous); }
-                review.Status = "pending";
-                review.ReviewedAt = null;
-                review.Reason = $"自动通过，但元数据写入失败：{ex.Message}";
-                review.Model = review.Model + " · 写入失败";
-                Log("搜刮审核已保存为待审核，元数据写入失败：" + ex.Message);
-            }
-        }
-        ApplyReviewBadge(video);
-        SetAutomaticAmateurTag(video, candidate.DetailFetched && !metadata.ContainsKey(video.Id) &&
-            (review.Status is "pending" or "rejected") && review.Confidence < ReviewManualThreshold);
-        SaveConfig();
-        RecordReviewAction(review.Status == "approved" ? "auto-approved" : "candidate", reviewBefore, metadataBefore);
-        return review.Status;
-    }
-
-    void ApplyReviewDecision(string videoId, bool approved, bool manual = true)
-    {
-        if (!config.AiReviews.TryGetValue(videoId, out var review)) return;
-        review.Status = approved ? "approved" : "rejected";
-        review.ReviewedAt = DateTime.Now;
-        if (manual) review.DecisionSource = "manual";
-        if (approved)
-        {
-            var forTag = videos.FirstOrDefault(item => item.Id.Equals(videoId, StringComparison.OrdinalIgnoreCase));
-            if (forTag is not null) SetAutomaticAmateurTag(forTag, false);
-            var record = review.ToMetadata();
-            metadata[videoId] = record;
-            var video = videos.FirstOrDefault(item => item.Id.Equals(videoId, StringComparison.OrdinalIgnoreCase));
-            if (video is not null) ApplyMetadata(video, record);
-        }
-        var current = videos.FirstOrDefault(item => item.Id.Equals(videoId, StringComparison.OrdinalIgnoreCase));
-        if (current is not null) ApplyReviewBadge(current);
-    }
-
-    bool TryCommitReviewDecisions(IReadOnlyList<string> ids, bool approved, out string error)
-    {
-        error = "";
-        var reviewSnapshots = ids
-            .Where(id => config.AiReviews.ContainsKey(id))
-            .ToDictionary(id => id, id =>
-            {
-                var review = config.AiReviews[id];
-                return (review.Status, review.ReviewedAt, review.DecisionSource);
-            }, StringComparer.OrdinalIgnoreCase);
-        var metadataSnapshots = ids.ToDictionary(id => id, id => metadata.TryGetValue(id, out var record) ? record : null, StringComparer.OrdinalIgnoreCase);
-        var fullReviewSnapshots = reviewSnapshots.Keys.ToDictionary(id => id, id => CloneReview(config.AiReviews[id]), StringComparer.OrdinalIgnoreCase);
-        var tagSnapshots = reviewSnapshots.Keys.ToDictionary(id => id, id => config.Tags.TryGetValue(id, out var tags) ? tags.ToList() : new List<string>(), StringComparer.OrdinalIgnoreCase);
-        var autoTagSnapshots = reviewSnapshots.Keys.ToDictionary(id => id, id => config.AutoAmateurTags.Contains(id, StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase);
+        var locked = false;
         try
         {
-            foreach (var id in reviewSnapshots.Keys) ApplyReviewDecision(id, approved);
-            SaveConfig();
-            if (approved) MetadataStore.Save(DataDir, metadata);
-            RecordReviewAction(approved ? "approve" : "reject", fullReviewSnapshots, metadataSnapshots, tagSnapshots, autoTagSnapshots);
-            return true;
+            try { ConfigWriteMutex.WaitOne(); locked = true; }
+            catch (AbandonedMutexException) { locked = true; }
+            cancellationToken.ThrowIfCancellationRequested();
+            // Capture after the network await: another window may have edited
+            // this item's accepted metadata while the source was responding.
+            var before = CaptureReviewState(video.Id);
+            var aggregationNeedsReview = NativeMetadataAggregation.RequiresManualReview(candidate, before.Review);
+            var refreshNeedsReview = MetadataRefreshPolicy.RequiresReview(before.Metadata, candidate);
+            if (forcePending || aggregationNeedsReview || refreshNeedsReview)
+            {
+                review.Status = "pending";
+                review.Reason += forcePending ? "；候选身份需人工核对" :
+                    candidate.SourceConflictFields?.Count > 0
+                        ? $"；{candidate.SourceConflictFields.Count} 项来源字段冲突，原值保留待人工核对"
+                        : refreshNeedsReview
+                            ? "；新旧资料字段不同，已保留原值并等待逐字段审批"
+                            : "；此前已经人工审核，原值保留待人工核对";
+            }
+            var after = before.Clone();
+            after.Review = review;
+            if (review.Status == "approved")
+                after.Metadata = MetadataRefreshPolicy.AcceptedValue(before.Metadata, review.ToMetadata());
+            after = WithAutomaticAmateurTag(video, after,
+                candidate.DetailFetched && after.Metadata is null &&
+                (review.Status is "pending" or "rejected") && review.Confidence < ReviewManualThreshold);
+            var transaction = ReviewTransactionStore.Create(review.Status == "approved" ? "auto-approved" : "candidate",
+                new Dictionary<string, ReviewItemSnapshot> { [video.Id] = before },
+                new Dictionary<string, ReviewItemSnapshot> { [video.Id] = after });
+            if (!TryCommitJournaledReview(transaction, out var error))
+                throw new IOException("搜刮审核记录无法完整保存：" + error);
+            ApplyReviewBadge(video);
+            return review.Status;
         }
-        catch (Exception ex)
-        {
-            foreach (var snapshot in reviewSnapshots)
-            {
-                var review = config.AiReviews[snapshot.Key];
-                review.Status = snapshot.Value.Status;
-                review.ReviewedAt = snapshot.Value.ReviewedAt;
-                review.DecisionSource = snapshot.Value.DecisionSource;
-            }
-            foreach (var snapshot in metadataSnapshots)
-            {
-                if (snapshot.Value is null) metadata.Remove(snapshot.Key);
-                else metadata[snapshot.Key] = snapshot.Value;
-            }
-            foreach (var snapshot in tagSnapshots)
-            {
-                if (snapshot.Value.Count == 0) config.Tags.Remove(snapshot.Key);
-                else config.Tags[snapshot.Key] = snapshot.Value.ToList();
-            }
-            foreach (var snapshot in autoTagSnapshots)
-            {
-                config.AutoAmateurTags.RemoveAll(item => item.Equals(snapshot.Key, StringComparison.OrdinalIgnoreCase));
-                if (snapshot.Value) config.AutoAmateurTags.Add(snapshot.Key);
-            }
-            foreach (var video in videos.Where(video => metadataSnapshots.ContainsKey(video.Id))) { video.DisplayTitle = video.Title; video.Code = null; }
-            ApplySavedFields(videos.Where(video => metadataSnapshots.ContainsKey(video.Id)).ToList());
-            try { SaveConfig(); if (approved) MetadataStore.Save(DataDir, metadata); } catch { }
-            error = ex.Message;
-            return false;
-        }
+        finally { if (locked) ConfigWriteMutex.ReleaseMutex(); }
     }
 
     void RefreshReviewQueue(object? sender = null, RoutedEventArgs? e = null)
@@ -3664,13 +3869,12 @@ public partial class MainWindow : Window
             information.Click += (_, _) => ShowMetadataDetails(review.ToMetadata(), review.Confidence, review.Status);
             var approve = new Button { Content = "通过", Style = (Style)FindResource("Action"), Padding = new Thickness(10, 0, 10, 0) }; approve.Click += (_, _) =>
             {
-                if (!TryCommitReviewDecisions([review.VideoId], true, out var error)) { MessageBox.Show(this, "通过失败，已恢复待审核状态：" + error, "审核保存失败", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+                if (!TryCommitReviewDecisionsWithPreview([review.VideoId], true, out var error)) { if (error.Length > 0) MessageBox.Show(this, "通过操作未完成：" + error + (ReviewTransactionStore.HasPending(DataDir) ? "；待恢复记录会在下次启动检查。" : ""), "审核保存失败", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
                 RefreshReviewQueue(); RenderCards(); Log($"人工通过搜刮匹配：{review.CandidateCode}");
             };
             var reject = new Button { Content = "否决", Style = (Style)FindResource("Action"), Padding = new Thickness(10, 0, 10, 0) }; reject.Click += (_, _) =>
             {
-                if (MessageBox.Show(this, "确定否决这条搜刮匹配吗？当前视频信息不会被这条候选覆盖。", "确认否决", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-                if (!TryCommitReviewDecisions([review.VideoId], false, out var error)) { MessageBox.Show(this, "否决保存失败：" + error, "审核保存失败", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+                if (!TryCommitReviewDecisionsWithPreview([review.VideoId], false, out var error)) { if (error.Length > 0) MessageBox.Show(this, "否决操作未完成：" + error + (ReviewTransactionStore.HasPending(DataDir) ? "；待恢复记录会在下次启动检查。" : ""), "审核保存失败", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
                 RefreshReviewQueue(); RenderCards(); Log($"人工否决搜刮匹配：{review.CandidateCode}");
             };
             approve.IsEnabled = review.Status is "pending" or "rejected";
@@ -3685,12 +3889,8 @@ public partial class MainWindow : Window
 
     void SelectAllReviews(object sender, RoutedEventArgs e)
     {
-        var ids = config.AiReviews.Values
-            .Where(ReviewMatchesFilter)
-            .Where(review => review.Status is "pending" or "rejected")
-            .Select(review => review.VideoId)
-            .Where(id => videos.Any(video => video.Id.Equals(id, StringComparison.OrdinalIgnoreCase)))
-            .ToList();
+        var ids = CollectReviewIdsForSelection(config.AiReviews.Values, videos.Select(video => video.Id),
+            ReviewMatchesFilter, lowConfidenceOnly: false, manualThreshold: ReviewManualThreshold);
         reviewSelection.Clear();
         foreach (var id in ids) reviewSelection.Add(id);
         RefreshReviewQueue();
@@ -3699,13 +3899,8 @@ public partial class MainWindow : Window
 
     void SelectLowConfidenceReviews(object sender, RoutedEventArgs e)
     {
-        var ids = config.AiReviews.Values
-            .Where(ReviewMatchesFilter)
-            .Where(review => review.Status is "pending" or "rejected")
-            .Where(review => review.Confidence < ReviewManualThreshold)
-            .Select(review => review.VideoId)
-            .Where(id => videos.Any(video => video.Id.Equals(id, StringComparison.OrdinalIgnoreCase)))
-            .ToList();
+        var ids = CollectReviewIdsForSelection(config.AiReviews.Values, videos.Select(video => video.Id),
+            ReviewMatchesFilter, lowConfidenceOnly: true, manualThreshold: ReviewManualThreshold);
         reviewSelection.Clear();
         foreach (var id in ids) reviewSelection.Add(id);
         RefreshReviewQueue();
@@ -3726,11 +3921,9 @@ public partial class MainWindow : Window
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         if (ids.Count == 0) return;
-        var preview = string.Join("\n", ids.Take(12).Select(id => { var item = config.AiReviews[id]; return $"{item.Confidence}% · {item.CandidateSource} · {item.CandidateTitle}"; }));
-        if (MessageBox.Show(this, $"准备{(approved ? "通过" : "否决")} {ids.Count} 条候选：\n\n{preview}" + (ids.Count > 12 ? $"\n…另有 {ids.Count - 12} 条" : "") + "\n\n确认继续？", "批量审核预览", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-        if (!TryCommitReviewDecisions(ids, approved, out var error))
+        if (!TryCommitReviewDecisionsWithPreview(ids, approved, out var error))
         {
-            MessageBox.Show(this, $"批量操作保存失败，已恢复原状态：{error}", "审核保存失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            if (error.Length > 0) MessageBox.Show(this, "批量操作未完成：" + error + (ReviewTransactionStore.HasPending(DataDir) ? "；待恢复记录会在下次启动检查。" : ""), "审核保存失败", MessageBoxButton.OK, MessageBoxImage.Warning);
             RefreshReviewQueue(); RenderCards();
             return;
         }
@@ -3750,34 +3943,86 @@ public partial class MainWindow : Window
         var available = videos.ToDictionary(video => video.Id, StringComparer.OrdinalIgnoreCase);
         var records = config.AiReviews.Values
             .Where(review => available.ContainsKey(review.VideoId) && (review.Status is "pending" or "rejected") && !string.Equals(review.DecisionSource, "manual", StringComparison.OrdinalIgnoreCase))
-            .Where(review => reviewSelection.Count == 0 || reviewSelection.Contains(review.VideoId))
+            .Where(review => reviewSelection.Count == 0 ? ReviewMatchesFilter(review) : reviewSelection.Contains(review.VideoId))
             .OrderBy(review => review.Confidence)
             .ThenByDescending(review => review.CreatedAt)
             .Take(10)
             .ToList();
         if (records.Count == 0) { MessageBox.Show(this, "没有可供 AI 重新评估的待审核匹配。", "AI 可信度审核", MessageBoxButton.OK, MessageBoxImage.Information); return; }
-        var beforeReview = records.ToDictionary(item => item.VideoId, CloneReview, StringComparer.OrdinalIgnoreCase);
-        var beforeMetadata = records.ToDictionary(item => item.VideoId, item => metadata.TryGetValue(item.VideoId, out var saved) ? saved : null, StringComparer.OrdinalIgnoreCase);
+        var priorStates = CaptureReviewStates(records.Select(item => item.VideoId));
+        var proposals = new Dictionary<string, ReviewItemSnapshot>(StringComparer.OrdinalIgnoreCase);
         ReviewEvaluateButton.IsEnabled = false;
         TaskStatusText.Text = $"AI 评估审核队列 · 0/{records.Count}";
         try
         {
             for (var i = 0; i < records.Count; i++)
             {
-                var review = records[i];
-                var video = videos.FirstOrDefault(item => item.Id.Equals(review.VideoId, StringComparison.OrdinalIgnoreCase));
-                if (video is null) continue;
+                var id = records[i].VideoId;
+                if (!available.TryGetValue(id, out var video) ||
+                    !priorStates.TryGetValue(id, out var original) || original.Review is null) continue;
                 try
                 {
-                    var result = await RequestScrapeAiAssessmentAsync(video, review.ToMetadata());
-                    var identity = ScrapeIdentityPolicy.Apply(video.Title, review.ToMetadata(), result.confidence, result.verdict, result.reason);
-                    review.Confidence = identity.Confidence; review.Status = ReviewStatusFor(identity.Confidence, identity.Verdict); review.Reason = identity.Reason; review.Model = result.model; review.DecisionSource = "ai"; review.ReviewedAt = null;
-                    if (review.Status == "approved") ApplyReviewDecision(review.VideoId, true, manual: false);
+                    var candidate = original.Review.ToMetadata();
+                    var result = await RequestScrapeAiAssessmentAsync(video, candidate);
+                    var identity = ScrapeIdentityPolicy.Apply(video.Title, candidate,
+                        result.confidence, result.verdict, result.reason);
+                    var proposal = original.Clone();
+                    var review = proposal.Review!;
+                    review.Confidence = identity.Confidence;
+                    review.Status = ReviewStatusFor(identity.Confidence, identity.Verdict);
+                    review.Reason = identity.Reason;
+                    review.Model = result.model;
+                    review.DecisionSource = "ai";
+                    review.ReviewedAt = null;
+                    if (review.Status == "approved")
+                    {
+                        if (!candidate.DetailFetched ||
+                            NativeMetadataAggregation.RequiresManualReview(candidate, original.Review) ||
+                            MetadataRefreshPolicy.RequiresReview(original.Metadata, candidate))
+                        {
+                            review.Status = "pending";
+                            review.Reason += "；资料不完整、来源冲突或与已保存资料不同，需人工逐字段审核";
+                        }
+                        else
+                        {
+                            review.ReviewedAt = DateTime.Now;
+                            proposal.Metadata = MetadataRefreshPolicy.AcceptedValue(original.Metadata, review.ToMetadata());
+                            proposal = WithAutomaticAmateurTag(video, proposal, false);
+                        }
+                    }
+                    proposals[id] = proposal;
                 }
                 catch (Exception ex) { Log("AI 审核失败：" + ex.Message); }
                 TaskStatusText.Text = $"AI 评估审核队列 · {i + 1}/{records.Count}";
             }
-            reviewSelection.Clear(); SaveConfig(); MetadataStore.Save(DataDir, metadata); RecordReviewAction("ai-evaluate", beforeReview, beforeMetadata); RefreshReviewQueue(); RenderCards();
+            var changed = proposals.Where(pair =>
+                !ReviewTransactionStore.Equal(priorStates[pair.Key], pair.Value))
+                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+            if (changed.Count > 0)
+            {
+                var locked = false;
+                try
+                {
+                    try { ConfigWriteMutex.WaitOne(); locked = true; }
+                    catch (AbandonedMutexException) { locked = true; }
+                    var before = changed.Keys.ToDictionary(id => id, id => priorStates[id], StringComparer.OrdinalIgnoreCase);
+                    if (before.Any(pair => !ReviewTransactionStore.Equal(CaptureReviewState(pair.Key), pair.Value)) ||
+                        !PersistedReviewStatesMatch(before))
+                        throw new InvalidOperationException("AI 评估期间审核项已修改，未覆盖新的人工或搜刮结果。请刷新后重试。");
+                    var transaction = ReviewTransactionStore.Create("ai-evaluate", before, changed);
+                    if (!TryCommitJournaledReview(transaction, out var error))
+                        throw new IOException("AI 审核记录无法完整保存：" + error);
+                }
+                finally { if (locked) ConfigWriteMutex.ReleaseMutex(); }
+            }
+            reviewSelection.Clear();
+            RefreshReviewQueue(); RenderCards();
+        }
+        catch (Exception ex)
+        {
+            Log("AI 审核未提交：" + ex.Message);
+            MessageBox.Show(this, ex.Message, "AI 可信度审核", MessageBoxButton.OK, MessageBoxImage.Warning);
+            RefreshReviewQueue(); RenderCards();
         }
         finally { ReviewEvaluateButton.IsEnabled = true; TaskStatusText.Text = "空闲"; }
     }
@@ -3818,13 +4063,36 @@ public partial class MainWindow : Window
         var suggestedTitle = AdditionalScrapers.CleanTitle(video.Title);
         if (config.UseFolderPersonHint && ScrapeSearchHints.IsWeakTitle(suggestedTitle))
             suggestedTitle = ScrapeSearchHints.FindWorkTitleHint(video.Path, config.Folders) ?? suggestedTitle;
-        var title = PromptText("完整资料搜刮", "输入作品标题或关键词：", suggestedTitle);
+        var source = ScrapeSourceBox?.SelectedIndex ?? 0;
+        JavinfoSearchEvidence? javinfoEvidence = null;
+        string? title;
+        if (source == 8)
+        {
+            javinfoEvidence = PromptJavinfoEvidence(video);
+            if (javinfoEvidence is null) return;
+            title = javinfoEvidence.Code;
+        }
+        else title = PromptText("完整资料搜刮", "输入作品标题或关键词：", suggestedTitle);
         if (string.IsNullOrWhiteSpace(title)) return;
         try
         {
+            if (source == 0)
+            {
+                var tmdbScope = TmdbUsagePolicy.Evaluate(video, metadata.GetValueOrDefault(video.Id), title);
+                if (!tmdbScope.Allowed)
+                    throw new InvalidOperationException("TMDB 只用于明确的普通电影或剧集：" + tmdbScope.Reason + "。请先核对分类，或选择其他来源。");
+                if (MessageBox.Show(this,
+                        $"即将把标题「{title}」发送给 TMDB 查询普通电影或剧集。请确认本地视频不是成人内容，并且分类正确。",
+                        "确认 TMDB 查询范围", MessageBoxButton.YesNo,
+                        MessageBoxImage.Question) != MessageBoxResult.Yes)
+                {
+                    TaskStatusText.Text = "已取消 TMDB 查询";
+                    return;
+                }
+            }
             TaskStatusText.Text = "正在搜索并读取完整资料…";
-            var source = ScrapeSourceBox?.SelectedIndex ?? 0;
-            var firstCandidates = await SearchCandidatesAsync(title, source);
+            var firstCandidates = await SearchCandidatesAsync(title, source,
+                javinfoEvidence: javinfoEvidence, video: video);
             var results = await SearchWithFolderPersonHintAsync(video, title, source, firstCandidates);
             var ranked = results.Select(candidate => (candidate, score: Math.Clamp(LocalScrapeConfidence(video, candidate, out _) + SourceTrust(candidate.Source), 0, 100)))
                 .OrderByDescending(item => item.score).ThenBy(item => item.candidate.Title).Take(12).ToList();
@@ -3837,13 +4105,14 @@ public partial class MainWindow : Window
                     MessageBox.Show(this, "没有找到新的候选；已有的视频信息和标签保持不变。", "完整资料搜刮");
                     return;
                 }
-                if (source == 8)
+                if (source is 8 or 10 or 11 or 12 or 13)
                 {
-                    TaskStatusText.Text = "Javinfo 没有找到候选 · 视频状态未改变";
-                    MessageBox.Show(this, "Javinfo 没有找到候选。视频状态和标签未改变；可换用其他来源继续搜索。", "完整资料搜刮");
+                    var manualSource = source switch { 8 => "Javinfo", 10 => "OMDb", 12 => "Tenrai", 13 => "Trakt", _ => "Kitsu" };
+                    TaskStatusText.Text = manualSource + " 没有找到候选 · 视频状态未改变";
+                    MessageBox.Show(this, manualSource + " 没有找到候选。视频状态和标签未改变；可换用其他来源继续搜索。", "完整资料搜刮");
                     return;
                 }
-                StoreUnmatchedScrape(video, source switch { 1 => "Pornhub", 2 => "TVmaze", 3 => "全部来源", 4 => "Bangumi", 5 => "JavDB 标题", 6 => "AniList", 7 => "JAVDatabase 标题", 8 => "Javinfo", _ => "TMDB" }, "已查询来源，没有找到候选结果。");
+                StoreUnmatchedScrape(video, source switch { 1 => "Pornhub", 2 => "TVmaze", 3 => "全部来源", 4 => "Bangumi", 5 => "JavDB 标题", 6 => "AniList", 7 => "JAVDatabase 标题", 8 => "Javinfo", 9 => "Wikidata", 11 => "Kitsu", 12 => "Tenrai", 13 => "Trakt", _ => "TMDB" }, "已查询来源，没有找到候选结果。");
                 TaskStatusText.Text = "完整资料搜刮完成 · 未找到匹配，已标记素人";
                 RenderCards();
                 return;
@@ -3854,11 +4123,28 @@ public partial class MainWindow : Window
                 if (record is null) { TaskStatusText.Text = "已取消搜刮"; return; }
             }
             var chosen = record;
+            if (chosen.Source.StartsWith("TMDB", StringComparison.OrdinalIgnoreCase) &&
+                (!TmdbUsagePolicy.Evaluate(video, metadata.GetValueOrDefault(video.Id), title).Allowed ||
+                 chosen.IsAdultContent || TmdbUsagePolicy.HasAdultCue(chosen.Title)))
+                throw new InvalidOperationException("该视频或候选不属于已确认的普通电影/剧集，未请求 TMDB 详情。");
             record = (await ScrapeCandidateCache.GetOrFetchAsync(DataDir, chosen.Source + " 详情", chosen.SourceUrl,
-                async () => [await AdditionalScrapers.FetchFullDetailsAsync(chosen, config.TmdbToken, config.JavinfoKey, DataDir, config.JavinfoDailyRequestLimit)])).FirstOrDefault()
-                ?? throw new InvalidOperationException("来源未返回候选详情，请稍后重试。");
+                async () => [await AdditionalScrapers.FetchFullDetailsAsync(chosen, config.TmdbToken, config.JavinfoKey, DataDir, config.JavinfoDailyRequestLimit, javinfoEvidence)]))
+                .FirstOrDefault(item => ScrapeCandidateCache.DetailMatchesCandidate(chosen, item))
+                ?? throw new InvalidOperationException("来源详情与选中的作品身份不一致，请重新搜索并核对。");
+            if (record.Source.StartsWith("TMDB", StringComparison.OrdinalIgnoreCase) &&
+                (record.IsAdultContent || TmdbUsagePolicy.HasAdultCue(record.Title) ||
+                 TmdbUsagePolicy.HasAdultCue(record.Summary)))
+                throw new InvalidDataException("TMDB 详情属于成人内容；资料和海报均未采用。");
+            if (source == 8 && (javinfoEvidence is null ||
+                !record.Code.Equals(javinfoEvidence.Code, StringComparison.OrdinalIgnoreCase) ||
+                !record.DetailIdentityVerified || !javinfoEvidence.MatchesTitleJa(record.OriginalTitle)))
+                throw new InvalidDataException("Javinfo 详情与已核对的番号或日文原名不一致；没有写入视频资料。请人工核对来源。");
+            var (aggregatedRecord, nativeForcePending) = await AggregateNativeTitleCandidateAsync(record, video.Id);
+            record = aggregatedRecord;
             await AdditionalScrapers.DownloadPosterAsync(record, video.Id, DataDir);
-            var status = await StoreScrapeReviewAsync(video, record);
+            var status = await StoreScrapeReviewAsync(video, record, forcePending: nativeForcePending || source is 10 or 13 ||
+                record.Source.Equals("Kitsu", StringComparison.OrdinalIgnoreCase) ||
+                record.Source.Equals("Tenrai", StringComparison.OrdinalIgnoreCase));
             RenderCards();
             TaskStatusText.Text = status == "approved" ? "完整资料搜刮完成 · 已自动通过" : status == "rejected" ? "完整资料搜刮完成 · AI 否决" : "完整资料搜刮完成 · 待人工审核";
             Log($"完整资料搜刮成功：{record.Source} · {record.Title} · 可信度审核={status}");
@@ -3890,15 +4176,19 @@ public partial class MainWindow : Window
     }
     void AutoStartChanged(object sender, RoutedEventArgs e)
     {
-        if (!IsLoaded) return;
-        config.AutoStart = AutoStartBox.IsChecked == true;
-        try
+        if (!IsLoaded || startupOptionsUpdating) return;
+        var enabled = AutoStartBox.IsChecked == true;
+        if (!StartupRegistration.TrySetEnabled(enabled, out var error))
         {
-            using var key = Registry.CurrentUser.CreateSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
-            if (config.AutoStart) key?.SetValue("YinggeVideoLibrary", Environment.ProcessPath ?? ""); else key?.DeleteValue("YinggeVideoLibrary", false);
-            SaveConfig();
+            startupOptionsUpdating = true;
+            AutoStartBox.IsChecked = config.AutoStart;
+            startupOptionsUpdating = false;
+            RefreshStartupStatus("开机自启设置失败：" + error);
+            return;
         }
-        catch (Exception ex) { BackupInfo.Text = "开机自启设置失败：" + ex.Message; }
+        config.AutoStart = enabled;
+        SaveConfig();
+        RefreshStartupStatus();
     }
     void GpuChanged(object sender, RoutedEventArgs e) { if (!IsLoaded) return; config.GpuThumbnails = GpuBox.IsChecked == true; SaveConfig(); }
     void DisplayModeChanged(object sender, RoutedEventArgs e) { if (!IsLoaded) return; config.ShowAll = ShowAllBox.IsChecked == true; SaveConfig(); if (view is "all" or "recent" or "favorites" or "categories") ShowView(view); }
@@ -3919,14 +4209,13 @@ public partial class MainWindow : Window
         try { var secret = AiKeyBox.Password.Trim(); WindowsCredentialStore.Write("AiKey", secret); config.AiEndpoint = AiEndpointBox.Text.Trim(); config.AiModel = AiModelBox.Text.Trim(); config.AiKey = secret; ReadAiQueueSettings(); SaveConfig(); MessageBox.Show(this, "AI 设置已保存；密钥存于 Windows 凭据管理器。", "映格视频库"); }
         catch (Exception ex) { MessageBox.Show(this, "保存 AI 设置失败：" + ex.Message, "映格视频库", MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
-    async void BackupLibrary(object sender, RoutedEventArgs e)
+    void BackupLibrary(object sender, RoutedEventArgs e)
     {
         try
         {
-            BackupInfo.Text = "正在创建并校验备份…";
-            var folder = await Task.Run(() => LibraryBackupService.Create(DataDir));
-            BackupInfo.Text = "备份文件校验通过；运行中创建的备份不保证跨文件同一时间点：" + folder;
-            Log("已备份库数据和搜刮队列");
+            LibraryBackupService.StageOfflineBackup(DataDir);
+            BackupInfo.Text = "一致性备份已排定。关闭所有映格窗口并重新打开后，会在载入资料前创建并校验备份。";
+            RefreshOfflineBackupStatus();
         }
         catch (Exception ex) { BackupInfo.Text = "备份失败：" + ex.Message; }
     }
@@ -3937,12 +4226,11 @@ public partial class MainWindow : Window
         {
             var latest = LibraryBackupService.LatestBackup(DataDir);
             if (latest is null) { BackupInfo.Text = "没有找到备份。"; return; }
-            BackupInfo.Text = "正在校验备份…";
-            var check = await Task.Run(() => LibraryBackupService.Verify(latest));
-            if (!check.IsValid) { BackupInfo.Text = "备份已拒绝：" + check.Message; return; }
-            if (MessageBox.Show(this, $"已校验 {check.FileCount} 个文件的完整性。运行中创建的备份可能包含不同时间点的数据。确认在下次启动时恢复？\n{latest}\n请先关闭其他映格窗口。", "恢复备份", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            BackupInfo.Text = "正在校验备份并比较当前资料…";
+            var preview = await Task.Run(() => LibraryBackupService.CreateRestorePreview(DataDir, latest));
+            if (MessageBox.Show(this, preview.ConfirmationText, "恢复备份预览", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
             { BackupInfo.Text = "已取消恢复，当前数据未修改。"; return; }
-            await Task.Run(() => LibraryBackupService.StageRestore(DataDir, latest));
+            await Task.Run(() => LibraryBackupService.StageRestore(DataDir, preview));
             BackupInfo.Text = "恢复已排定。关闭所有映格窗口后重新启动，启动前会再校验备份。";
         }
         catch (Exception ex) { BackupInfo.Text = "恢复失败：" + ex.Message; }

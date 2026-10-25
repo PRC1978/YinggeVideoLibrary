@@ -56,6 +56,7 @@ public partial class MainWindow
         Add("library", GpuBox);
         var duplicates = FindButton("查找重复视频");
         if (duplicates >= 0) Add("library", original[duplicates]);
+        Add("library", Named("SiteListImportActions"));
         Add("library", Named("SettingsLibraryOptions"));
 
         AddRange("scrape", IndexOf(TmdbTokenBox) - 1, FindButton("保存 TMDB 凭据"));
@@ -63,6 +64,7 @@ public partial class MainWindow
         AddRange("ai", FindText("AI 分类接口"), FindButton("保存 AI 设置"));
         AddRange("online", FindText("在线站点与扩展"), IndexOf(ExtensionInfo));
         Add("startup", AutoStartBox);
+        Add("startup", Named("SettingsStartupOptions"));
         Add("updates", Named("SettingsUpdateOptions"));
         AddRange("data", IndexOf(BackupInfo) - 1, IndexOf(BackupInfo));
 
@@ -91,7 +93,7 @@ public partial class MainWindow
         AddSection(panel, "ai", "AI 接口与费用", "本地或兼容接口、限速和预算", "✦", "#F2ECFC", "#8660BD", buckets["ai"]);
         AddSection(panel, "playback", "播放与封面", "播放器位置和缩略图生成状态", "▶", "#EBF5FD", "#3987B6", buckets["playback"]);
         AddSection(panel, "online", "在线与扩展", "内嵌浏览器的扩展设置", "◎", "#EEF2FB", "#5879BA", buckets["online"]);
-        AddSection(panel, "startup", "启动与后台", "登录后运行", "↗", "#ECF7F0", "#4A9E67", buckets["startup"]);
+        AddSection(panel, "startup", "启动", "开机自启、最小化与启动页", "↗", "#ECF7F0", "#4A9E67", buckets["startup"]);
         AddSection(panel, "updates", "软件更新", "检查新版本并在应用内更新、重启", "↻", "#EAF2FF", "#4D7BCB", buckets["updates"]);
         AddSection(panel, "data", "数据与备份", "本地备份、恢复和数据目录", "▤", "#F9F0EC", "#B6785A", buckets["data"]);
     }
@@ -151,12 +153,18 @@ public partial class MainWindow
             open.Click += (_, _) => ShowView("scrape");
             body.Children.Add(open);
         }
-        if (key == "data") body.Children.Add(new TextBlock
+        if (key == "data")
         {
-            Text = "接口密钥保存在 Windows 凭据管理器；视频资料与备份保存在固定的用户数据目录。",
-            FontSize = 11, Foreground = Tint("#8290A5"), TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 12, 0, 0)
-        });
+            body.Children.Add(BuildLibraryRelocationSettingsEntry());
+            body.Children.Add(BuildLicenseSettingsEntry());
+            body.Children.Add(BuildCreditsSettingsEntry());
+            body.Children.Add(new TextBlock
+            {
+                Text = "接口密钥保存在 Windows 凭据管理器；视频资料与备份保存在固定的用户数据目录。",
+                FontSize = 11, Foreground = Tint("#8290A5"), TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 12, 0, 0)
+            });
+        }
         var header = new Grid { MinHeight = 42 };
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(58) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -184,13 +192,15 @@ public partial class MainWindow
         var section = new Expander
         {
             Style = (Style)FindResource("SettingsCard"), Header = header, Content = body,
-            Tag = title + " " + detail + " " + string.Join(" ", controls.Select(SettingSearchText)),
+            Tag = title + " " + detail + " " + string.Join(" ", controls.Select(SettingSearchText))
+                + (key == "data" ? " 开源许可 MIT 关于 来源 致谢 TMDB" : ""),
             IsExpanded = expanded
         };
         section.Expanded += (_, _) =>
         {
             chevron.Text = "⌃";
             body.BeginAnimation(OpacityProperty, new DoubleAnimation(0.15, 1, TimeSpan.FromMilliseconds(160)));
+            if (key == "ai") _ = RefreshAiJobsAsync();
         };
         section.Collapsed += (_, _) => chevron.Text = "⌄";
         settingsSections[key] = section;
@@ -202,6 +212,7 @@ public partial class MainWindow
         if (control is TextBlock label) return label.Text;
         if (control is CheckBox check) return check.Content?.ToString() ?? string.Empty;
         if (control is Button button) return button.Content?.ToString() ?? string.Empty;
+        if (control is Border border && border.Child is UIElement child) return SettingSearchText(child);
         if (control is Panel panel) return string.Join(" ", panel.Children.Cast<UIElement>().Select(SettingSearchText));
         return string.Empty;
     }
@@ -212,11 +223,22 @@ public partial class MainWindow
     {
         var expected = new[] { "appearance", "library", "scrape", "ai", "playback", "online", "startup", "updates", "data" };
         var missing = expected.Where(key => !settingsSections.ContainsKey(key)).ToArray();
-        var options = new[] { "SettingsAppearanceOptions", "SettingsScrapeOptions", "SettingsLibraryOptions", "SettingsUpdateOptions" };
+        var options = new[] { "SettingsAppearanceOptions", "SettingsScrapeOptions", "SettingsLibraryOptions", "SettingsStartupOptions", "SettingsUpdateOptions" };
         var unfound = options.Where(name => !settingsSections.Values.SelectMany(section => ((StackPanel)section.Content).Children.Cast<UIElement>())
             .OfType<FrameworkElement>().Any(element => element.Name == name)).ToArray();
+        var relocation = VerifyLibraryRelocationUiForDiagnostics();
+        var licenseReadable = ReadEmbeddedLicense().Contains("Copyright (c) 2026 PRC1978", StringComparison.Ordinal)
+            && ReadEmbeddedWebView2License().Length > 100
+            && ReadEmbeddedWebView2Notice().Length > 100
+            && ReadEmbeddedDotNetCoreRuntimeLicense().Length > 100
+            && ReadEmbeddedDotNetCoreRuntimeNotices().Length > 100
+            && ReadEmbeddedWindowsDesktopRuntimeLicense().Length > 100;
+        var credits = VerifyCreditsResources()
+            && settingsSections.TryGetValue("data", out var dataSection)
+            && dataSection.Content is StackPanel dataBody
+            && dataBody.Children.OfType<Button>().Any(button => Equals(button.Content, "关于软件与资料来源"));
         var valid = missing.Length == 0 && unfound.Length == 0 && settingsSections.Values.All(section =>
-            section.Content is StackPanel stack && stack.Children.Count > 0);
-        return (valid, $"主题 {settingsSections.Count}；缺少主题 [{string.Join(", ", missing)}]；缺少选项 [{string.Join(", ", unfound)}]");
+            section.Content is StackPanel stack && stack.Children.Count > 0) && relocation && licenseReadable && credits;
+        return (valid, $"主题 {settingsSections.Count}；缺少主题 [{string.Join(", ", missing)}]；缺少选项 [{string.Join(", ", unfound)}]；迁移向导 {(relocation ? "可用" : "不可用")}；内嵌许可 {(licenseReadable ? "可读" : "缺失")}；来源致谢 {(credits ? "可用" : "缺失")}");
     }
 }

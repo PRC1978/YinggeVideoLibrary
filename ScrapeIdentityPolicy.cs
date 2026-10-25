@@ -30,7 +30,7 @@ internal static class ScrapeIdentityPolicy
         {
             if (string.IsNullOrWhiteSpace(localCode))
                 return Pending(confidence, verdict, reason, "文件名没有可核对的番号，标题候选须人工确认");
-            if (!CodeKey(localCode).Equals(CodeKey(candidate.Code), StringComparison.Ordinal))
+            if (!ScrapeCodeIdentity.Same(localCode, candidate.Code))
                 return Pending(confidence, verdict, reason, $"番号冲突：文件名 {localCode}，候选 {candidate.Code}");
             return new(Math.Clamp(confidence, 0, 100), verdict, reason);
         }
@@ -83,14 +83,6 @@ internal static class ScrapeIdentityPolicy
         foreach (Match match in ExplicitYear.Matches(text))
             if (int.TryParse(match.Groups["year"].Value, out var year)) years.Add(year);
         return years;
-    }
-
-    static string CodeKey(string value)
-    {
-        var result = new StringBuilder(value.Length);
-        foreach (var c in value)
-            if (char.IsLetterOrDigit(c)) result.Append(char.ToUpperInvariant(c));
-        return result.ToString();
     }
 
     static bool ExactTitle(string local, string? candidate)

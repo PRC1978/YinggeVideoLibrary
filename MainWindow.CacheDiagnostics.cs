@@ -134,12 +134,22 @@ public partial class MainWindow
         }
     }
 
-    public async Task<int> WriteHiddenStartupDiagnosticAsync(string destination, bool verifyGraph = false, bool verifyScrape = false, bool verifySettings = false, bool verifySelection = false)
+    public async Task<int> WriteHiddenStartupDiagnosticAsync(string destination, bool verifyGraph = false, bool verifyScrape = false, bool verifySettings = false, bool verifySelection = false, bool verifyFolders = false, bool verifyRecommendations = false, bool verifyRoles = false, int scrollSeconds = 0)
     {
         for (var attempt = 0; attempt < 120 && cacheStartupDiagnostic.Stage is not ("refresh finished" or "index error" or "ui startup exception"); attempt++)
             await Task.Delay(250);
         try
         {
+            var expectedStartupView = NormalizeStartupPage(config.StartPage);
+            if (view != expectedStartupView)
+                throw new InvalidOperationException($"启动页没有按设置显示：预期 {expectedStartupView}，实际 {view}");
+            RecordCacheDiagnostic("startup page verified", expectedStartupView);
+            if (verifyFolders)
+                RecordCacheDiagnostic("folder ui verified", await VerifyFolderWorkspaceOffscreenAsync());
+            if (verifyRecommendations)
+                RecordCacheDiagnostic("recommendations verified", await VerifyRecommendationsOffscreenAsync());
+            if (verifyRoles)
+                RecordCacheDiagnostic("role profiles ui verified", VerifyRoleProfilesOffscreen());
             if (verifySelection)
             {
                 ShowView("all");
@@ -204,6 +214,17 @@ public partial class MainWindow
                     {
                         if (Cards.ItemsSource is null || pageItems.Count == 0)
                             throw new InvalidOperationException("分页列表没有视频卡片");
+                        var diagnosticPageSize = config.CardPageSize is 30 or 60 or 90 ? config.CardPageSize : 60;
+                        if (ordered.Count > diagnosticPageSize * 2)
+                        {
+                            PageJumpBox.Text = "3";
+                            JumpToPage();
+                            if (pageIndex != 2 || pageItems.Count == 0 || pageItems[0].Id != ordered[diagnosticPageSize * 2].Id)
+                                throw new InvalidOperationException("页码跳转没有定位到正确的视频");
+                            PageJumpBox.Text = "1";
+                            JumpToPage();
+                            if (pageIndex != 0) throw new InvalidOperationException("页码跳转无法返回第一页");
+                        }
                         var endIndex = Math.Min(ordered.Count - 1, Math.Max(5, config.CardPageSize + 2));
                         ToggleCardSelection(ordered[1]);
                         if (endIndex >= pageItems.Count)
@@ -251,15 +272,135 @@ public partial class MainWindow
                 RecordCacheDiagnostic("batch picker verified", await VerifyBatchCategoryPickerOffscreenAsync());
                 RecordCacheDiagnostic("batch operation verified", await VerifyLargeBatchOffscreenAsync());
             }
+            if (scrollSeconds > 0)
+            {
+                var originalShowAll = config.ShowAll;
+                RecycledCardRow.BeginScrollDiagnostic();
+                try
+                {
+                    config.ShowAll = true;
+                    ShowView("all");
+                    await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
+                    var scroller = FindVisualDescendant<System.Windows.Controls.ScrollViewer>(VirtualCards)
+                        ?? throw new InvalidOperationException("完整列表的虚拟滚动器未创建");
+                    if (virtualRows.Count < 10 || scroller.ScrollableHeight < 5)
+                        throw new InvalidOperationException("无法在真实列表上执行连续滚动检查");
+                    var times = new List<double>();
+                    var offsetTimes = new List<double>();
+                    var layoutTimes = new List<double>();
+                    var overall = System.Diagnostics.Stopwatch.StartNew();
+                    long peakWorkingSet = 0;
+                    var startingWorkingSet = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64;
+                    var step = 0;
+                    while (overall.Elapsed < TimeSpan.FromSeconds(scrollSeconds))
+                    {
+                        var measured = System.Diagnostics.Stopwatch.StartNew();
+                        var maxOffset = Math.Max(1d, scroller.ScrollableHeight);
+                        scroller.ScrollToVerticalOffset((step * 3d) % maxOffset);
+                        offsetTimes.Add(measured.Elapsed.TotalMilliseconds);
+                        var layoutStarted = System.Diagnostics.Stopwatch.StartNew();
+                        await Dispatcher.InvokeAsync(scroller.UpdateLayout,
+                            System.Windows.Threading.DispatcherPriority.Render);
+                        layoutTimes.Add(layoutStarted.Elapsed.TotalMilliseconds);
+                        measured.Stop();
+                        times.Add(measured.Elapsed.TotalMilliseconds);
+                        peakWorkingSet = Math.Max(peakWorkingSet,
+                            System.Diagnostics.Process.GetCurrentProcess().WorkingSet64);
+                        step++;
+                        await Task.Delay(80);
+                    }
+                    var over100Ms = times.Count(value => value > 100);
+                    var longestOver100MsRun = 0;
+                    var currentOver100MsRun = 0;
+                    foreach (var value in times)
+                    {
+                        currentOver100MsRun = value > 100 ? currentOver100MsRun + 1 : 0;
+                        longestOver100MsRun = Math.Max(longestOver100MsRun, currentOver100MsRun);
+                    }
+                    var endingWorkingSet = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64;
+                    times.Sort();
+                    offsetTimes.Sort();
+                    layoutTimes.Sort();
+                    var p95 = times[Math.Min(times.Count - 1, (int)Math.Ceiling(times.Count * .95) - 1)];
+                    var p99 = times[Math.Min(times.Count - 1, (int)Math.Ceiling(times.Count * .99) - 1)];
+                    var offsetP95 = offsetTimes[Math.Min(offsetTimes.Count - 1, (int)Math.Ceiling(offsetTimes.Count * .95) - 1)];
+                    var layoutP95 = layoutTimes[Math.Min(layoutTimes.Count - 1, (int)Math.Ceiling(layoutTimes.Count * .95) - 1)];
+                    var cache = VideoItem.PosterCacheStats();
+                    var rowStats = RecycledCardRow.EndScrollDiagnostic();
+                    RecordCacheDiagnostic("scroll performance verified",
+                        $"离屏连续滚动 {scrollSeconds} 秒，{times.Count} 次；UI 片段 P95 {p95:F1} ms、P99 {p99:F1} ms、最慢 {times[^1]:F1} ms；滚动调用 P95 {offsetP95:F1} ms、布局绘制等待 P95 {layoutP95:F1} ms；"
+                        + $"超过 100 ms {over100Ms} 次、最长连续 {longestOver100MsRun} 次；工作集起点/终点/峰值 {startingWorkingSet / 1048576d:F1}/{endingWorkingSet / 1048576d:F1}/{peakWorkingSet / 1048576d:F1} MiB，海报解码缓存 {cache.Bytes / 1048576d:F1} MiB / {(cache.LimitBytes == 0 ? "无限制" : $"{cache.LimitBytes / 1048576d:F0} MiB")}，淘汰 {cache.Evictions}；{rowStats}");
+                }
+                finally
+                {
+                    RecycledCardRow.EndScrollDiagnostic();
+                    config.ShowAll = originalShowAll;
+                    ShowView("all");
+                }
+            }
             if (verifyGraph)
             {
                 var graphStarted = System.Diagnostics.Stopwatch.StartNew();
                 ShowView("categories");
-                await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
+                var graphShowMs = graphStarted.Elapsed.TotalMilliseconds;
+                await WaitForSphereGraphBuildAsync().WaitAsync(TimeSpan.FromSeconds(30));
+                var graphWaitMs = graphStarted.Elapsed.TotalMilliseconds - graphShowMs;
+                var graphLayoutQueuedAt = graphStarted.Elapsed.TotalMilliseconds;
+                var graphLayoutStartedAt = 0d;
+                var graphLayoutExecutedMs = 0d;
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    graphLayoutStartedAt = graphStarted.Elapsed.TotalMilliseconds;
+                    var layoutClock = System.Diagnostics.Stopwatch.StartNew();
+                    UpdateLayout();
+                    graphLayoutExecutedMs = layoutClock.Elapsed.TotalMilliseconds;
+                }, System.Windows.Threading.DispatcherPriority.Render);
+                var graphLayoutMs = graphStarted.Elapsed.TotalMilliseconds - graphShowMs - graphWaitMs;
                 var graphBuildMs = graphStarted.ElapsedMilliseconds;
                 var viewport = sphereGraphViewport ?? throw new InvalidOperationException("分类图视口未创建");
                 var sphere = sphereMapSurface ?? throw new InvalidOperationException("分类图绘制层未创建");
+                var cardInputLatencies = new List<double>();
+                while (categoryCardPopulationCompletion is { Task.IsCompleted: false } &&
+                       graphStarted.Elapsed < TimeSpan.FromSeconds(15))
+                {
+                    var inputClock = System.Diagnostics.Stopwatch.StartNew();
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        sphere.Rotation += .015;
+                        sphere.InvalidateVisual();
+                        _ = sphere.HitPath(new System.Windows.Point(660, 280));
+                    }, System.Windows.Threading.DispatcherPriority.Input);
+                    cardInputLatencies.Add(inputClock.Elapsed.TotalMilliseconds);
+                    await Task.Delay(32);
+                }
+                sphere.Rotation = 0;
+                sphere.InvalidateVisual();
+                if (categoryCardPopulationCompletion is { } cardCompletion &&
+                    !await cardCompletion.Task.WaitAsync(TimeSpan.FromSeconds(15)))
+                    throw new InvalidOperationException("分类页卡片分批加载被意外取消");
+                await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
+                var cardReadyMs = graphStarted.ElapsedMilliseconds;
+                var generatedCardContainers = Enumerable.Range(0, Cards.Items.Count)
+                    .Count(position => Cards.ItemContainerGenerator.ContainerFromIndex(position) is not null);
+                if (Cards.Items.Count != pageItems.Count || generatedCardContainers != pageItems.Count)
+                    throw new InvalidOperationException($"分类页卡片未全部实现：数据 {Cards.Items.Count}、视觉容器 {generatedCardContainers}/{pageItems.Count}");
                 var graphIndex = GetSphereGraphIndex();
+                // Derive the expected paths from the source library, not from
+                // the graph's dictionaries: a linguistic key comparer can
+                // otherwise merge two Unicode paths and still pass all the
+                // graph-versus-navigator count checks below.
+                var expectedCategoryPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var path in config.CategoryNames)
+                    foreach (var ancestor in CategoryAncestors(path)) expectedCategoryPaths.Add(ancestor);
+                foreach (var video in videos)
+                    foreach (var path in CategoriesOf(video))
+                        foreach (var ancestor in CategoryAncestors(path)) expectedCategoryPaths.Add(ancestor);
+                if (!expectedCategoryPaths.SetEquals(graphIndex.AllCategoryCounts.Keys))
+                {
+                    var missing = expectedCategoryPaths.Except(graphIndex.AllCategoryCounts.Keys, StringComparer.OrdinalIgnoreCase).Count();
+                    var unexpected = graphIndex.AllCategoryCounts.Keys.Except(expectedCategoryPaths, StringComparer.OrdinalIgnoreCase).Count();
+                    throw new InvalidOperationException($"分类源数据与图索引不一致：源数据 {expectedCategoryPaths.Count} 个、图索引 {graphIndex.AllCategoryCounts.Count} 个，缺失 {missing}、多出 {unexpected}");
+                }
                 if (sphere.NodeCount == 0 || viewport.ActualWidth < 100 || viewport.ActualHeight < 100)
                     throw new InvalidOperationException("分类图节点或可视区域未完成布局");
                 if (sphere.NodeCount != graphIndex.AllCategoryCounts.Count + graphIndex.TagCounts.Count ||
@@ -285,6 +426,7 @@ public partial class MainWindow
                 {
                     var started = System.Diagnostics.Stopwatch.StartNew();
                     NavigateSphereNode("\u0001" + firstTag);
+                    await WaitForSphereGraphBuildAsync().WaitAsync(TimeSpan.FromSeconds(30));
                     await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
                     tagSwitchMs = started.ElapsedMilliseconds;
                     sphere = sphereMapSurface ?? throw new InvalidOperationException("标签切换后绘制层未创建");
@@ -329,7 +471,9 @@ public partial class MainWindow
                     ?? throw new InvalidOperationException("分类节点下一页按钮未创建");
                 var navList = navPanel.Children[1] as System.Windows.Controls.ListBox
                     ?? throw new InvalidOperationException("分类节点列表未创建");
-                var seenPaths = new HashSet<string>(StringComparer.CurrentCultureIgnoreCase);
+                // Category identity is ordinal, matching the graph's node
+                // dictionary. Linguistic comparison can merge distinct paths.
+                var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 var navigationPages = 0;
                 while (true)
                 {
@@ -339,8 +483,10 @@ public partial class MainWindow
                     if (navigationPages > sphere.NodeCount) throw new InvalidOperationException("分类节点分页未能结束");
                     nextPage.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
                 }
-                if (seenPaths.Count != sphere.NodeCount)
-                    throw new InvalidOperationException($"分类图有 {sphere.NodeCount} 个节点，但分页导航仅能访问 {seenPaths.Count} 个");
+                var expectedNavigationPaths = new HashSet<string>(graphIndex.AllCategoryCounts.Keys, StringComparer.OrdinalIgnoreCase);
+                foreach (var tag in graphIndex.TagCounts.Keys) expectedNavigationPaths.Add("\u0001" + tag);
+                if (seenPaths.Count != sphere.NodeCount || !seenPaths.SetEquals(expectedNavigationPaths))
+                    throw new InvalidOperationException($"分类图有 {sphere.NodeCount} 个节点，但分页导航仅能访问 {seenPaths.Count} 个；图索引期望 {expectedNavigationPaths.Count} 个不同路径");
                 ZoomSphereGraph(1.2);
                 if (sphereZoom <= 1) throw new InvalidOperationException("分类图放大操作失败");
                 ResetSphereGraphView();
@@ -392,7 +538,9 @@ public partial class MainWindow
                 var previewStarted = System.Diagnostics.Stopwatch.StartNew();
                 SaveSpherePreview(sphere, Path.ChangeExtension(destination, ".png"));
                 var previewMs = previewStarted.ElapsedMilliseconds;
-                RecordCacheDiagnostic("graph verified", $"全部相关节点 {sphere.NodeCount}，选中标签关联节点 {tagNodes}，该标签实际共现连线 {selectedTagRelations}，全部节点经 {navigationPages} 页可访问；视口 {viewport.ActualWidth:F0}×{viewport.ActualHeight:F0}；首次构建 {graphBuildMs} ms，标签切换 {tagSwitchMs} ms，12 帧离屏旋转平均 {frameTimes.Average():F1} ms、最慢 {frameTimes.Max():F1} ms，最密标签 {mostConnectedTag.Value?.Count ?? 0} 条关联聚焦平均 {(focusedFrameTimes.Count == 0 ? 0 : focusedFrameTimes.Average()):F1} ms，离屏 PNG 保存 {previewMs} ms；缩放、平移、调高正常");
+                var frameP95 = frameTimes.OrderBy(value => value).ElementAt(Math.Min(frameTimes.Count - 1, (int)Math.Ceiling(frameTimes.Count * .95) - 1));
+                var cardInputP95 = cardInputLatencies.Count == 0 ? 0 : cardInputLatencies.OrderBy(value => value).ElementAt(Math.Min(cardInputLatencies.Count - 1, (int)Math.Ceiling(cardInputLatencies.Count * .95) - 1));
+                RecordCacheDiagnostic("graph verified", $"全部相关节点 {sphere.NodeCount}，选中标签关联节点 {tagNodes}，该标签实际共现连线 {selectedTagRelations}，全部节点经 {navigationPages} 页可访问；视口 {viewport.ActualWidth:F0}×{viewport.ActualHeight:F0}；首次构建 {graphBuildMs} ms（切页 {graphShowMs:F1}、等待后台 {graphWaitMs:F1}、布局 {graphLayoutMs:F1} ms [调度 {graphLayoutStartedAt - graphLayoutQueuedAt:F1}、执行 {graphLayoutExecutedMs:F1}]），{pageItems.Count} 张本页卡片及 {generatedCardContainers} 个视觉容器全部到位 {cardReadyMs} ms，加载期间 {cardInputLatencies.Count} 次输入/旋转反馈平均 {(cardInputLatencies.Count == 0 ? 0 : cardInputLatencies.Average()):F1} ms、P95 {cardInputP95:F1} ms，标签切换 {tagSwitchMs} ms，12 帧离屏旋转平均 {frameTimes.Average():F1} ms、P95 {frameP95:F1} ms、最慢 {frameTimes.Max():F1} ms，最密标签 {mostConnectedTag.Value?.Count ?? 0} 条关联聚焦平均 {(focusedFrameTimes.Count == 0 ? 0 : focusedFrameTimes.Average()):F1} ms，离屏 PNG 保存 {previewMs} ms；索引预热 {sphereIndexWarmProfile}；分段：{categoryRenderProfile}；{sphereGraphBuildProfile}；缩放、平移、调高正常");
             }
             if (verifyScrape)
             {
@@ -435,6 +583,24 @@ public partial class MainWindow
                     throw new InvalidOperationException($"设置页分组未正确显示：{sections} 组");
                 var grouping = VerifySettingsLayout();
                 if (!grouping.Valid) throw new InvalidOperationException("设置项分组异常：" + grouping.Detail);
+                if (!VerifyAiJobsUiForDiagnostics())
+                    throw new InvalidOperationException("AI 作业状态与人工重试入口未显示");
+                if (!VerifyBackupImportUiForDiagnostics())
+                    throw new InvalidOperationException("选择性备份导入、范围及取消入口未显示");
+                if (!VerifyLibraryRelocationUiForDiagnostics())
+                    throw new InvalidOperationException("视频库迁移预览、人工选择或取消入口未显示");
+                if (posterCacheLimitChoices is null ||
+                    !posterCacheLimitChoices.Items.OfType<System.Windows.Controls.ComboBoxItem>()
+                        .Any(item => item.Tag is int limit && limit == 0))
+                    throw new InvalidOperationException("海报缓存的无限制选项未显示");
+                var currentPosterLimit = config.PosterCacheLimitMb;
+                try
+                {
+                    VideoItem.ConfigurePosterCache(0);
+                    if (VideoItem.PosterCacheStats().LimitBytes != 0)
+                        throw new InvalidOperationException("海报无限制设置未生效");
+                }
+                finally { VideoItem.ConfigurePosterCache(currentPosterLimit); }
                 var librarySection = settingsSections["library"];
                 librarySection.IsExpanded = true;
                 await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
@@ -442,22 +608,51 @@ public partial class MainWindow
                 librarySection.IsExpanded = false;
                 await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
                 if (GpuBox.IsVisible) throw new InvalidOperationException("收起卡片后仍显示视频库设置");
+                var startupSection = settingsSections["startup"];
+                startupSection.IsExpanded = true;
+                await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
+                if (!AutoStartBox.IsVisible || startupUseCurrentButton is null)
+                    throw new InvalidOperationException("启动选项或开机自启入口未显示");
+                const string quotedStartupPath = @"C:\Program Files\映格视频库\映格视频库.exe";
+                if (StartupRegistration.ParseExecutable('"' + quotedStartupPath + '"' + " --auto-start") != quotedStartupPath
+                    || StartupRegistration.ParseExecutable(quotedStartupPath) != quotedStartupPath
+                    || StartupRegistration.ParseExecutable("invalid command") is not null)
+                    throw new InvalidOperationException("开机自启路径解析未兼容旧值或新命令");
+                if (!PublishedExecutable.IsThisApplication(Environment.ProcessPath)
+                    || PublishedExecutable.IsThisApplication(Path.Combine(Environment.SystemDirectory, "cmd.exe")))
+                    throw new InvalidOperationException("启动项或更新程序未验证当前发布版身份");
+                if (!ShouldStartMinimized(true, true, true)
+                    || ShouldStartMinimized(false, true, true)
+                    || ShouldStartMinimized(true, false, true)
+                    || ShouldStartMinimized(true, true, false))
+                    throw new InvalidOperationException("手动启动或关闭自启时仍被错误地最小化");
+                startupSection.IsExpanded = false;
+                await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
                 if (SettingsPanel.ActualWidth < 500 || PlayerPathBox.Parent is null || TmdbTokenBox.Parent is null)
                     throw new InvalidOperationException("设置页尺寸或已有设置控件异常");
                 var optionProbe = new LibraryConfig
                 {
                     UpdateAutoCheck = false, UpdateCheckIntervalHours = 24,
                     ScrapeRequestIntervalSeconds = 5, ScrapeRefreshIncompleteMetadata = true,
-                    CardPageSize = 30
+                    CardPageSize = 30, PosterCacheLimitMb = 0, MinimizeToTray = true, StartMinimized = true,
+                    StartPage = "categories"
                 };
                 var optionClone = CloneLibraryConfig(optionProbe);
                 if (optionClone.UpdateAutoCheck || optionClone.UpdateCheckIntervalHours != 24
                     || optionClone.ScrapeRequestIntervalSeconds != 5 || !optionClone.ScrapeRefreshIncompleteMetadata
-                    || optionClone.CardPageSize != 30)
+                    || optionClone.CardPageSize != 30 || optionClone.PosterCacheLimitMb != 0 || !optionClone.MinimizeToTray
+                    || !optionClone.StartMinimized || optionClone.StartPage != "categories")
                     throw new InvalidOperationException("设置选项在配置快照中丢失");
                 RecordCacheDiagnostic("settings ui verified", $"分组 {sections} 个，宽度 {SettingsPanel.ActualWidth:F0}");
             }
-            RecordCacheDiagnostic("hidden startup probe", $"完成后的阶段：{cacheStartupDiagnostic.Stage}");
+            var completedStage = cacheStartupDiagnostic.Stage;
+            var posterCache = VideoItem.PosterCacheStats();
+            if (posterCache.LimitBytes > 0 && posterCache.Bytes > posterCache.LimitBytes)
+                throw new InvalidOperationException("海报缓存超出用户设置的解码图像预算");
+            var workingSet = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64;
+            RecordCacheDiagnostic("hidden startup probe",
+                $"完成后的阶段：{completedStage}；海报缓存 {posterCache.Bytes / 1048576d:F1} MiB / {(posterCache.LimitBytes == 0 ? "无限制" : $"{posterCache.LimitBytes / 1048576d:F0} MiB")}，瞬时峰值 {posterCache.PeakBytes / 1048576d:F1} MiB，"
+                + $"命中 {posterCache.Hits}、未命中 {posterCache.Misses}、淘汰 {posterCache.Evictions}；进程工作集 {workingSet / 1048576d:F1} MiB");
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(destination))!);
             File.WriteAllText(destination, JsonSerializer.Serialize(cacheStartupDiagnostic, new JsonSerializerOptions { WriteIndented = true }));
             return 0;
@@ -500,5 +695,16 @@ public partial class MainWindow
             count += CountVisualDescendants<T>(child);
         }
         return count;
+    }
+    static T? FindVisualDescendant<T>(System.Windows.DependencyObject root) where T : System.Windows.DependencyObject
+    {
+        for (var i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is T match) return match;
+            var nested = FindVisualDescendant<T>(child);
+            if (nested is not null) return nested;
+        }
+        return null;
     }
 }

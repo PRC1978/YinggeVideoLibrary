@@ -91,6 +91,7 @@ public partial class MainWindow
             case BatchChangeKind.Tags:
                 video.Tags.Clear();
                 video.Tags.AddRange(entry.Tags!);
+                video.RefreshTags();
                 if (entry.SavedTags is null) state.Tags.Remove(video.Id);
                 else state.Tags[video.Id] = entry.SavedTags.ToList();
                 if (entry.SavedAutoAmateur) autoAmateur!.Add(video.Id);
@@ -115,8 +116,8 @@ public partial class MainWindow
         if (!replace)
             foreach (var category in CategoriesOf(video))
                 if (!string.IsNullOrWhiteSpace(category) && category is not "未分类" and not "全部" &&
-                    !categories.Contains(category, StringComparer.CurrentCultureIgnoreCase)) categories.Add(category);
-        if (target is not "未分类" and not "全部" && !categories.Contains(target, StringComparer.CurrentCultureIgnoreCase)) categories.Add(target);
+                    !categories.Contains(category, StringComparer.OrdinalIgnoreCase)) categories.Add(category);
+        if (target is not "未分类" and not "全部" && !categories.Contains(target, StringComparer.OrdinalIgnoreCase)) categories.Add(target);
         video.CategoryList.Clear();
         video.CategoryList.AddRange(categories);
         video.Category = categories.FirstOrDefault() ?? "未分类";
@@ -135,6 +136,7 @@ public partial class MainWindow
                 if (!video.Tags.Contains(tag, StringComparer.CurrentCultureIgnoreCase)) video.Tags.Add(tag);
         }
         if (!video.Tags.Contains("素人", StringComparer.CurrentCultureIgnoreCase)) autoAmateur.Remove(video.Id);
+        video.RefreshTags();
         if (video.Tags.Count == 0) state.Tags.Remove(video.Id); else state.Tags[video.Id] = video.Tags.ToList();
     }
 
@@ -190,10 +192,13 @@ public partial class MainWindow
         return longestChunkMs;
     }
 
-    async Task SaveBatchConfigAsync()
+    async Task SaveBatchConfigAsync(BatchChangeKind kind)
     {
-        categoryDataVersion++;
-        var version = categoryDataVersion;
+        // A batch can yield while its write runs. Track every overlapping
+        // config save without treating status/favorite edits as graph edits.
+        var version = ++configSaveVersion;
+        var graphDataAlreadyChanged = kind is BatchChangeKind.Category or BatchChangeKind.Tags;
+        if (graphDataAlreadyChanged) categoryDataVersion++;
         var savedCurrent = CloneLibraryConfig(config);
         var savedBaseline = CloneLibraryConfig(configBaseline);
         var scrubCredentials = credentialStoreReady;
@@ -201,12 +206,14 @@ public partial class MainWindow
         var result = await Task.Run(() =>
         {
             var merged = WriteConfigSnapshot(savedBaseline, savedCurrent, ConfigPath, scrubCredentials, scrubJavinfo);
-            return (Merged: merged, Baseline: CloneLibraryConfig(merged));
+            return (Merged: merged, Baseline: CloneLibraryConfig(merged),
+                GraphChanged: !GraphRelevantConfigEquals(savedBaseline, merged));
         });
         // Normal case: no other setting changed during the disk write. The
         // expensive merge and deep copy have already completed off the UI thread.
-        if (version == categoryDataVersion)
+        if (version == configSaveVersion)
         {
+            if (!graphDataAlreadyChanged && result.GraphChanged) categoryDataVersion++;
             result.Merged.TmdbToken = config.TmdbToken;
             result.Merged.AiKey = config.AiKey;
             result.Merged.JavinfoKey = config.JavinfoKey;
@@ -220,7 +227,7 @@ public partial class MainWindow
             // when the other writer finished *after* our background write.
             for (var attempt = 0; attempt < 4; attempt++)
             {
-                var observedVersion = categoryDataVersion;
+                var observedVersion = configSaveVersion;
                 var current = CloneLibraryConfig(config);
                 var updated = await Task.Run(() =>
                 {
@@ -233,9 +240,11 @@ public partial class MainWindow
                     latest.TmdbToken = current.TmdbToken;
                     latest.AiKey = current.AiKey;
                     latest.JavinfoKey = current.JavinfoKey;
-                    return (Reconciled: reconciled, Baseline: CloneLibraryConfig(latest));
+                    return (Reconciled: reconciled, Baseline: CloneLibraryConfig(latest),
+                        GraphChanged: !GraphRelevantConfigEquals(current, reconciled));
                 });
-                if (observedVersion != categoryDataVersion) continue;
+                if (observedVersion != configSaveVersion) continue;
+                if (!graphDataAlreadyChanged && updated.GraphChanged) categoryDataVersion++;
                 config = updated.Reconciled;
                 configBaseline = updated.Baseline;
                 break;
@@ -265,7 +274,7 @@ public partial class MainWindow
             batchProgressText = $"正在保存 {selected.Count:N0} 部视频…";
             SelectionSummary.Text = batchProgressText;
             await Dispatcher.Yield(DispatcherPriority.Render);
-            await SaveBatchConfigAsync();
+            await SaveBatchConfigAsync(kind);
             if (view is "all" or "recent" or "favorites" or "categories") RenderCards();
             Log($"{label}完成：{selected.Count:N0} 部；最长处理片段 {longest} ms");
         }
@@ -301,12 +310,12 @@ public partial class MainWindow
                 config.Favorites = RebuildMembershipList(config.Favorites, favorites, undo.Entries.Select(entry => entry.Video.Id));
             if (autoAmateur is not null)
                 config.AutoAmateurTags = RebuildMembershipList(config.AutoAmateurTags, autoAmateur, undo.Entries.Select(entry => entry.Video.Id));
-            if (undo.AddedCategoryName is { } name && !videos.Any(video => video.CategoryList.Contains(name, StringComparer.CurrentCultureIgnoreCase)))
-                config.CategoryNames.RemoveAll(value => value.Equals(name, StringComparison.CurrentCultureIgnoreCase));
+            if (undo.AddedCategoryName is { } name && !videos.Any(video => video.CategoryList.Contains(name, StringComparer.OrdinalIgnoreCase)))
+                config.CategoryNames.RemoveAll(value => value.Equals(name, StringComparison.OrdinalIgnoreCase));
             batchProgressText = "正在保存撤销结果…";
             SelectionSummary.Text = batchProgressText;
             await Dispatcher.Yield(DispatcherPriority.Render);
-            await SaveBatchConfigAsync();
+            await SaveBatchConfigAsync(undo.Kind);
             lastBatchUndo = null;
             if (view is "all" or "recent" or "favorites" or "categories") RenderCards();
             Log($"已撤销“{undo.Label}”：{undo.Entries.Count:N0} 部视频");
@@ -381,15 +390,22 @@ public partial class MainWindow
 
             var sampleVideo = items[0];
             var tagUndo = CaptureBatchState(sampleVideo, scratch, BatchChangeKind.Tags, autoAmateur: autoAmateur);
+            var tagTextRefreshes = 0;
+            System.ComponentModel.PropertyChangedEventHandler onTagTextChanged = (_, args) =>
+            {
+                if (args.PropertyName == nameof(VideoItem.TagsPreviewText)) tagTextRefreshes++;
+            };
+            sampleVideo.PropertyChanged += onTagTextChanged;
             ApplyBatchTagValue(sampleVideo, scratch, [], new HashSet<string>(), autoAmateur, false, true, true);
             RestoreBatchState(tagUndo, scratch, BatchChangeKind.Tags, autoAmateur: autoAmateur);
+            sampleVideo.PropertyChanged -= onTagTextChanged;
             var statusUndo = CaptureBatchState(sampleVideo, scratch, BatchChangeKind.Status);
             ApplyBatchStatusValue(sampleVideo, scratch, "未看");
             RestoreBatchState(statusUndo, scratch, BatchChangeKind.Status);
             var favoriteUndo = CaptureBatchState(sampleVideo, scratch, BatchChangeKind.Favorite, favorites: favorites);
             ApplyBatchFavoriteValue(sampleVideo, favorites, true);
             RestoreBatchState(favoriteUndo, scratch, BatchChangeKind.Favorite, favorites: favorites);
-            if (sampleVideo.Tags.Count != 1 || sampleVideo.Tags[0] != "probe-tag" ||
+            if (tagTextRefreshes < 2 || sampleVideo.Tags.Count != 1 || sampleVideo.Tags[0] != "probe-tag" ||
                 sampleVideo.WatchStatus != "已看" || sampleVideo.Favorite || favorites.Contains(sampleVideo.Id))
                 throw new InvalidOperationException("标签、状态或收藏撤销未恢复原状态");
 

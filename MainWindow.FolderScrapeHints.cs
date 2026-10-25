@@ -36,7 +36,7 @@ public partial class MainWindow
     {
         cancellationToken.ThrowIfCancellationRequested();
         var originals = firstCandidates.ToList();
-        if (selectedSource == 8) return originals; // Never make an implicit second paid Javinfo request.
+        if (selectedSource is 8 or 10 or 13) return originals; // Manual key-backed sources get no implicit second request.
         if (!config.UseFolderPersonHint) return originals;
         if (originals.Count > 0 && originals.Max(candidate => LocalScrapeConfidence(video, candidate, out _)) >= 65)
             return originals;
@@ -54,7 +54,8 @@ public partial class MainWindow
 
         try
         {
-            var extra = await SearchCandidatesAsync(query, selectedSource, bulk).WaitAsync(cancellationToken);
+            var extra = await SearchCandidatesAsync(query, selectedSource, bulk, cancellationToken,
+                video: video);
             cancellationToken.ThrowIfCancellationRequested();
             return originals.Concat(extra)
                 .GroupBy(item => item.Source + "|" + item.SourceUrl + "|" + item.Title,

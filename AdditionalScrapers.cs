@@ -57,34 +57,53 @@ public static class AdditionalScrapers
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             using var response = await Client.SendAsync(request);
-            if (response.StatusCode == HttpStatusCode.Unauthorized) throw new InvalidOperationException("TMDB 凭据无效，请到设置中检查。");
-            response.EnsureSuccessStatusCode();
+            EnsureSourceSuccess(response, "TMDB");
             using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-            foreach (var entry in document.RootElement.GetProperty("results").EnumerateArray().Take(8))
-            {
-                var titleName = type == "movie" ? "title" : "name";
-                var title = entry.TryGetProperty(titleName, out var titleValue) ? titleValue.GetString() ?? "" : "";
-                if (title.Length == 0) continue;
-                var id = entry.GetProperty("id").GetInt32();
-                var dateName = type == "movie" ? "release_date" : "first_air_date";
-                var year = entry.TryGetProperty(dateName, out var date) ? (date.GetString() ?? "") : "";
-                if (year.Length >= 4) year = year[..4];
-                var posterPath = entry.TryGetProperty("poster_path", out var poster) && poster.ValueKind == JsonValueKind.String ? poster.GetString() : null;
-                var result = new MovieMetadata {
-                    Title = year.Length == 4 ? $"{title} ({year})" : title, Code = "",
-                    Source = type == "movie" ? "TMDB 电影" : "TMDB 剧集",
-                    SourceUrl = $"https://www.themoviedb.org/{type}/{id}",
-                    PosterUrl = posterPath is null ? null : "https://image.tmdb.org/t/p/w500" + posterPath,
-                    OriginalTitle = Text(entry, type == "movie" ? "original_title" : "original_name"),
-                    ReleaseDate = Text(entry, dateName), Summary = Text(entry, "overview"),
-                    Rating = Rating(entry, "vote_average", "vote_count"),
-                    Language = Text(entry, "original_language"),
-                    DetailNote = "搜索摘要；选择后将读取完整详情"
-                };
-                result.StampAvailableFields("搜索结果");
-                results.Add(result);
-            }
+            results.AddRange(ParseTmdbSearchResults(document.RootElement, type));
         }
+        return results;
+    }
+
+    internal static List<MovieMetadata> ParseTmdbSearchResults(JsonElement root, string type)
+    {
+        if (type is not ("movie" or "tv") || root.ValueKind != JsonValueKind.Object ||
+            !root.TryGetProperty("results", out var entries) || entries.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("TMDB 搜索响应缺少作品列表，不能判定为无匹配。");
+        var results = new List<MovieMetadata>();
+        var adultEntries = 0;
+        foreach (var entry in entries.EnumerateArray().Take(8))
+        {
+            if (entry.ValueKind != JsonValueKind.Object) continue;
+            if (entry.TryGetProperty("adult", out var searchAdult) && searchAdult.ValueKind == JsonValueKind.True)
+            { adultEntries++; continue; }
+            var titleName = type == "movie" ? "title" : "name";
+            var title = Text(entry, titleName);
+            var id = PositiveInt(entry, "id");
+            if (string.IsNullOrWhiteSpace(title) || id is null) continue;
+            if (TmdbUsagePolicy.HasAdultCue(title) ||
+                TmdbUsagePolicy.HasAdultCue(Text(entry, "overview")))
+            { adultEntries++; continue; }
+            var dateName = type == "movie" ? "release_date" : "first_air_date";
+            var releaseDate = Text(entry, dateName);
+            var year = releaseDate is { Length: >= 4 } ? releaseDate[..4] : "";
+            var posterPath = Text(entry, "poster_path");
+            var result = new MovieMetadata {
+                Title = year.Length == 4 ? $"{title} ({year})" : title, Code = "",
+                Source = type == "movie" ? "TMDB 电影" : "TMDB 剧集",
+                SourceUrl = $"https://www.themoviedb.org/{type}/{id}",
+                PosterUrl = posterPath is not null && posterPath.StartsWith('/')
+                    ? "https://image.tmdb.org/t/p/w500" + posterPath : null,
+                OriginalTitle = Text(entry, type == "movie" ? "original_title" : "original_name"),
+                ReleaseDate = releaseDate, Summary = Text(entry, "overview"),
+                Rating = Rating(entry, "vote_average", "vote_count"),
+                Language = Text(entry, "original_language"),
+                DetailNote = "搜索摘要；选择后将读取完整详情"
+            };
+            result.StampAvailableFields("搜索结果");
+            results.Add(result);
+        }
+        if (Math.Min(8, entries.GetArrayLength()) > adultEntries && results.Count == 0)
+            throw new InvalidDataException("TMDB 搜索条目缺少可核对的作品标题或 ID，不能判定为无匹配。");
         return results;
     }
 
@@ -137,16 +156,25 @@ public static class AdditionalScrapers
     public static async Task<List<MovieMetadata>> SearchTvMazeAsync(string query)
     {
         using var response = await Client.GetAsync("https://api.tvmaze.com/search/shows?q=" + Uri.EscapeDataString(query));
-        response.EnsureSuccessStatusCode();
+        EnsureSourceSuccess(response, "TVmaze");
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return ParseTvMazeSearchResults(document.RootElement);
+    }
+
+    internal static List<MovieMetadata> ParseTvMazeSearchResults(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("TVmaze 搜索响应缺少剧集列表，不能判定为无匹配。");
         var results = new List<MovieMetadata>();
-        foreach (var entry in document.RootElement.EnumerateArray().Take(10))
+        foreach (var entry in root.EnumerateArray().Take(10))
         {
-            if (!entry.TryGetProperty("show", out var show)) continue;
-            var title = show.TryGetProperty("name", out var name) ? name.GetString() ?? "" : "";
-            var id = show.TryGetProperty("id", out var idValue) ? idValue.GetInt32() : 0;
-            var image = show.TryGetProperty("image", out var imageNode) && imageNode.ValueKind == JsonValueKind.Object && imageNode.TryGetProperty("original", out var imageUrl) ? imageUrl.GetString() : null;
-            if (title.Length == 0 || id == 0) continue;
+            if (entry.ValueKind != JsonValueKind.Object || !entry.TryGetProperty("show", out var show) ||
+                show.ValueKind != JsonValueKind.Object) continue;
+            var title = Text(show, "name");
+            var id = PositiveInt(show, "id");
+            var image = show.TryGetProperty("image", out var imageNode) && imageNode.ValueKind == JsonValueKind.Object
+                ? Text(imageNode, "original") : null;
+            if (string.IsNullOrWhiteSpace(title) || id is null) continue;
             var result = new MovieMetadata {
                 Title = title, Source = "TVmaze", SourceUrl = $"https://www.tvmaze.com/shows/{id}", PosterUrl = image,
                 ReleaseDate = Text(show, "premiered"), Genres = NamedArray(show, "genres"),
@@ -156,7 +184,21 @@ public static class AdditionalScrapers
             result.StampAvailableFields("搜索结果");
             results.Add(result);
         }
+        if (root.GetArrayLength() > 0 && results.Count == 0)
+            throw new InvalidDataException("TVmaze 搜索条目缺少可核对的剧集标题或 ID，不能判定为无匹配。");
         return results;
+    }
+
+    internal static void EnsureSourceSuccess(HttpResponseMessage response, string source)
+    {
+        if (response.IsSuccessStatusCode) return;
+        if (source == "TMDB" && response.StatusCode == HttpStatusCode.Unauthorized)
+            throw new InvalidOperationException("TMDB 凭据无效，请到搜刮页检查。");
+        var header = response.Headers.RetryAfter;
+        var retry = header?.Delta ?? (header?.Date is DateTimeOffset date ? date - DateTimeOffset.UtcNow : null);
+        if (retry <= TimeSpan.Zero) retry = null;
+        throw new ScrapeHttpException($"{source} 返回 HTTP {(int)response.StatusCode}，请检查来源状态。",
+            response.StatusCode, retry);
     }
 
     static int? ParseDurationMinutes(string? duration)
@@ -181,12 +223,23 @@ public static class AdditionalScrapers
     // Search responses are intentionally small. Enrich only the chosen match to
     // avoid 10–20 extra network requests and UI stalls for each search.
     public static async Task<MovieMetadata> FetchFullDetailsAsync(MovieMetadata candidate, string tmdbToken,
-        string javinfoKey = "", string javinfoDataDir = "", int javinfoDailyLimit = JavinfoScraper.DefaultDailyRequestLimit)
+        string javinfoKey = "", string javinfoDataDir = "", int javinfoDailyLimit = JavinfoScraper.DefaultDailyRequestLimit,
+        JavinfoSearchEvidence? javinfoEvidence = null)
     {
         if (candidate.Source.StartsWith("TMDB", StringComparison.OrdinalIgnoreCase))
             return await FetchTmdbDetailsAsync(candidate, tmdbToken);
         if (candidate.Source.Equals("TVmaze", StringComparison.OrdinalIgnoreCase))
             return await FetchTvMazeDetailsAsync(candidate);
+        if (candidate.Source.Equals("Wikidata", StringComparison.OrdinalIgnoreCase))
+            return await WikidataScraper.FetchFullDetailsAsync(candidate);
+        if (candidate.Source.Equals("Kitsu", StringComparison.OrdinalIgnoreCase))
+            return await KitsuScraper.FetchFullDetailsAsync(candidate);
+        if (candidate.Source.Equals("Tenrai", StringComparison.OrdinalIgnoreCase))
+            return await TenraiScraper.FetchFullDetailsAsync(candidate);
+        if (candidate.Source.Equals("OMDb", StringComparison.OrdinalIgnoreCase))
+            return await OmdbScraper.FetchFullDetailsAsync(candidate);
+        if (candidate.Source.Equals("Trakt", StringComparison.OrdinalIgnoreCase))
+            return await TraktScraper.FetchFullDetailsAsync(candidate);
         if (candidate.Source.Equals("Bangumi", StringComparison.OrdinalIgnoreCase))
             return await BangumiScraper.FetchFullDetailsAsync(candidate);
         if (candidate.Source.Equals("AniList", StringComparison.OrdinalIgnoreCase))
@@ -196,7 +249,8 @@ public static class AdditionalScrapers
         if (candidate.Source.Equals("JAVDatabase", StringComparison.OrdinalIgnoreCase))
             return await JavDatabaseScraper.FetchCandidateDetailsAsync(candidate);
         if (candidate.Source.StartsWith("Javinfo", StringComparison.OrdinalIgnoreCase))
-            return await JavinfoScraper.FetchCandidateDetailsAsync(candidate, javinfoKey, javinfoDataDir, javinfoDailyLimit);
+            return await JavinfoScraper.FetchCandidateDetailsAsync(candidate, javinfoKey, javinfoDataDir,
+                javinfoEvidence, javinfoDailyLimit);
         return candidate.Clone();
     }
 
@@ -210,8 +264,7 @@ public static class AdditionalScrapers
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         using var response = await Client.SendAsync(request);
-        if (response.StatusCode == HttpStatusCode.Unauthorized) throw new InvalidOperationException("TMDB 凭据无效，请到搜刮页检查。");
-        response.EnsureSuccessStatusCode();
+        EnsureSourceSuccess(response, "TMDB");
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         return ParseTmdbDetails(candidate, document.RootElement, type);
     }
@@ -225,7 +278,14 @@ public static class AdditionalScrapers
             idNode.ValueKind != JsonValueKind.Number ||
             !idNode.TryGetInt32(out var returnedId) || requestedId != returnedId)
             throw new InvalidDataException("TMDB 详情 ID 与选中的候选不一致；资料未采用。");
+        if (detail.TryGetProperty("adult", out var adultFlag) && adultFlag.ValueKind == JsonValueKind.True)
+            throw new InvalidDataException("TMDB 返回成人作品；资料和海报均未采用。");
+        if (TmdbUsagePolicy.HasAdultCue(Text(detail, type == "movie" ? "title" : "name")) ||
+            TmdbUsagePolicy.HasAdultCue(Text(detail, "overview")))
+            throw new InvalidDataException("TMDB 详情包含成人内容标识；资料和海报均未采用。");
         var record = candidate.Clone();
+        record.IsAdultContent = detail.TryGetProperty("adult", out var adultNode) &&
+            adultNode.ValueKind == JsonValueKind.True;
         var title = Text(detail, type == "movie" ? "title" : "name");
         record.ReleaseDate = Text(detail, type == "movie" ? "release_date" : "first_air_date") ?? record.ReleaseDate;
         if (!string.IsNullOrWhiteSpace(title))
@@ -251,6 +311,22 @@ public static class AdditionalScrapers
         if (detail.TryGetProperty("credits", out var credits) && credits.ValueKind == JsonValueKind.Object)
         {
             record.Actors = NamedArray(credits, "cast", limit: 100);
+            record.PersonCredits = !record.IsAdultContent && credits.TryGetProperty("cast", out var cast) &&
+                cast.ValueKind == JsonValueKind.Array
+                ? cast.EnumerateArray().Select(item =>
+                {
+                    var id = PositiveInt(item, "id");
+                    var name = Text(item, "name");
+                    return id is > 0 && !string.IsNullOrWhiteSpace(name)
+                        ? new VerifiedPersonCredit
+                        {
+                            Provider = "TMDB", PersonId = id.Value.ToString(),
+                            PersonUrl = $"https://www.themoviedb.org/person/{id.Value}",
+                            Name = name, CharacterName = Text(item, "character") ?? "",
+                            VerifiedFromWorkUrl = record.SourceUrl
+                        } : null;
+                }).Where(item => item is not null).Select(item => item!).DistinctBy(item => item.PersonId)
+                    .ToList() : [];
             if (credits.TryGetProperty("crew", out var crew) && crew.ValueKind == JsonValueKind.Array)
                 record.Director = Joined(crew.EnumerateArray().Where(item => string.Equals(Text(item, "job"), "Director", StringComparison.OrdinalIgnoreCase))
                     .Select(item => Text(item, "name") ?? ""));
@@ -276,7 +352,7 @@ public static class AdditionalScrapers
         if (!match.Success) throw new InvalidOperationException("TVmaze 候选缺少有效的详情链接。");
         var url = $"https://api.tvmaze.com/shows/{match.Groups["id"].Value}?embed[]=cast&embed[]=crew";
         using var response = await Client.GetAsync(url);
-        response.EnsureSuccessStatusCode();
+        EnsureSourceSuccess(response, "TVmaze");
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         return ParseTvMazeDetails(candidate, document.RootElement);
     }
@@ -311,9 +387,28 @@ public static class AdditionalScrapers
         if (detail.TryGetProperty("_embedded", out var embedded) && embedded.ValueKind == JsonValueKind.Object)
         {
             if (embedded.TryGetProperty("cast", out var cast) && cast.ValueKind == JsonValueKind.Array)
+            {
                 record.Actors = cast.EnumerateArray().Where(item => item.TryGetProperty("person", out _))
                     .Select(item => Text(item.GetProperty("person"), "name")).Where(name => !string.IsNullOrWhiteSpace(name))
                     .Select(name => name!).Distinct(StringComparer.OrdinalIgnoreCase).Take(100).ToList();
+                record.PersonCredits = cast.EnumerateArray().Select(item =>
+                {
+                    if (!item.TryGetProperty("person", out var person) || person.ValueKind != JsonValueKind.Object)
+                        return null;
+                    var id = PositiveInt(person, "id");
+                    var name = Text(person, "name");
+                    if (id is not > 0 || string.IsNullOrWhiteSpace(name)) return null;
+                    var character = item.TryGetProperty("character", out var role) &&
+                        role.ValueKind == JsonValueKind.Object ? Text(role, "name") : null;
+                    return new VerifiedPersonCredit
+                    {
+                        Provider = "TVmaze", PersonId = id.Value.ToString(),
+                        PersonUrl = $"https://www.tvmaze.com/people/{id.Value}",
+                        Name = name, CharacterName = character ?? "", VerifiedFromWorkUrl = record.SourceUrl
+                    };
+                }).Where(item => item is not null).Select(item => item!).DistinctBy(item => item.PersonId)
+                    .ToList();
+            }
             if (embedded.TryGetProperty("crew", out var crew) && crew.ValueKind == JsonValueKind.Array)
                 record.Director = Joined(crew.EnumerateArray().Where(item => string.Equals(Text(item, "type"), "Director", StringComparison.OrdinalIgnoreCase))
                     .Where(item => item.TryGetProperty("person", out _)).Select(item => Text(item.GetProperty("person"), "name") ?? ""));
@@ -327,7 +422,8 @@ public static class AdditionalScrapers
         return record;
     }
 
-    public static async Task DownloadPosterAsync(MovieMetadata record, string videoId, string dataDir)
+    public static async Task DownloadPosterAsync(MovieMetadata record, string videoId, string dataDir,
+        CancellationToken cancellationToken = default)
     {
         if (!Uri.TryCreate(record.PosterUrl, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps || uri.Port != 443 || uri.UserInfo.Length != 0) return;
         var allowed = record.Source.StartsWith("TMDB", StringComparison.OrdinalIgnoreCase)
@@ -338,6 +434,11 @@ public static class AdditionalScrapers
                     ? uri.Host.Equals("lain.bgm.tv", StringComparison.OrdinalIgnoreCase)
                     : record.Source.Equals("AniList", StringComparison.OrdinalIgnoreCase)
                         ? uri.Host.EndsWith(".anilist.co", StringComparison.OrdinalIgnoreCase)
+                    : record.Source.Equals("Kitsu", StringComparison.OrdinalIgnoreCase)
+                        ? uri.Host.Equals("media.kitsu.app", StringComparison.OrdinalIgnoreCase)
+                          || uri.Host.Equals("media.kitsu.io", StringComparison.OrdinalIgnoreCase)
+                    : record.Source.Equals("Tenrai", StringComparison.OrdinalIgnoreCase)
+                        ? uri.Host.Equals("cdn.myanimelist.net", StringComparison.OrdinalIgnoreCase)
                     : record.Source.Equals("JavDB", StringComparison.OrdinalIgnoreCase)
                         ? uri.Host.Equals("jdbstatic.com", StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith(".jdbstatic.com", StringComparison.OrdinalIgnoreCase)
                         : record.Source.Equals("JAVDatabase", StringComparison.OrdinalIgnoreCase)
@@ -353,15 +454,13 @@ public static class AdditionalScrapers
         if (!allowed) return;
         try
         {
-            using var response = await PosterClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
+            using var response = await PosterClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             response.EnsureSuccessStatusCode();
-            var bytes = await ReadBoundedPosterAsync(response);
+            var bytes = await ReadBoundedPosterAsync(response, cancellationToken);
             if (bytes is null) return;
-            var folder = Path.Combine(dataDir, "posters"); Directory.CreateDirectory(folder);
-            var destination = Path.Combine(folder, videoId + ".jpg");
-            await File.WriteAllBytesAsync(destination, bytes);
-            record.Poster = destination;
+            record.Poster = await CandidatePosterStore.StoreAsync(dataDir, videoId, bytes, cancellationToken);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch { /* The title remains useful if cover retrieval fails. */ }
     }
 

@@ -145,13 +145,10 @@ public partial class MainWindow
         RefreshSources();
         async Task SaveConfirmedRatingsAsync(IEnumerable<PlatformRating> confirmed)
         {
-            var updated = record.Clone();
-            foreach (var item in confirmed) RatingAggregation.AddOrUpdate(updated, item);
-            var snapshot = new Dictionary<string, MovieMetadata>(metadata, StringComparer.OrdinalIgnoreCase)
-            {
-                [video!.Id] = updated
-            };
-            await Task.Run(() => MetadataStore.Save(DataDir, snapshot));
+            var ratings = confirmed.Select(item => item.Clone()).ToArray();
+            var expectedWork = record.Clone();
+            var updated = await Task.Run(() => MetadataStore.AddRatingsForSameWork(
+                DataDir, video!.Id, expectedWork, ratings));
             metadata[video!.Id] = updated;
             record.PlatformRatings = updated.PlatformRatings;
             RefreshSources();
@@ -163,10 +160,10 @@ public partial class MainWindow
                 Margin = new Thickness(0, 10, 0, 0), Style = (Style)FindResource("Action") };
             otherSources.Click += async (_, _) =>
             {
-                var confirmed = ChooseOtherPlatformRating(dialog, record, video);
-                if (confirmed is null) return;
+                var confirmed = ChooseOtherPlatformRatings(dialog, record, video);
+                if (confirmed.Count == 0) return;
                 otherSources.IsEnabled = false;
-                try { await SaveConfirmedRatingsAsync([confirmed]); }
+                try { await SaveConfirmedRatingsAsync(confirmed); }
                 catch (Exception ex) { MessageBox.Show(dialog, "评分保存失败，已有资料未改变：" + ex.Message,
                     "作品评分", MessageBoxButton.OK, MessageBoxImage.Warning); }
                 finally { otherSources.IsEnabled = true; }
@@ -235,10 +232,11 @@ public partial class MainWindow
         try
         {
             var candidates = await JavDbScraper.SearchTitleAsync(code);
-            var exact = candidates.FirstOrDefault(item => item.Code.Equals(code, StringComparison.OrdinalIgnoreCase));
+            var exact = candidates.FirstOrDefault(item => ScrapeCodeIdentity.Same(item.Code, code));
             if (exact is null) return new("JavDB", null, null, "没有完全匹配的番号");
             var details = await JavDbScraper.FetchCandidateDetailsAsync(exact);
-            if (!details.DetailFetched || !details.Code.Equals(code, StringComparison.OrdinalIgnoreCase))
+            if (!details.DetailFetched || !details.DetailIdentityVerified ||
+                !ScrapeCodeIdentity.Same(details.Code, code))
                 return new("JavDB", null, null, "详情未能核对番号");
             var rating = RatingAggregation.DistinctValidRatings(details.PlatformRatings)
                 .FirstOrDefault(item => RatingAggregation.CanonicalPlatform(item.Platform) == "JavDB")
@@ -250,7 +248,42 @@ public partial class MainWindow
         catch (Exception ex) { return new("JavDB", null, null, ex.Message); }
     }
 
-    PlatformRating? ChooseOtherPlatformRating(Window owner, MovieMetadata savedRecord, VideoItem video)
+    internal sealed record RatingSourceChoice(string Name, bool Enabled, string DisabledReason);
+
+    internal static IReadOnlyList<RatingSourceChoice> PlanRatingSourceChoices(LibraryConfig settings,
+        bool omdbCredentialReady, bool traktCredentialReady = false)
+        =>
+        [
+            new("Bangumi", settings.EnableBangumi, "请先在搜刮页启用 Bangumi。"),
+            new("AniList", settings.EnableAniList, "请先在搜刮页启用 AniList。"),
+            new("TMDB", settings.EnableTmdb && !string.IsNullOrWhiteSpace(settings.TmdbToken),
+                "请先在搜刮页启用 TMDB 并保存凭据。"),
+            new("TVmaze", settings.EnableTvMaze, "请先在搜刮页启用 TVmaze。"),
+            new("Kitsu", settings.EnableKitsu, "请先在搜刮页启用 Kitsu。"),
+            new("Tenrai", settings.EnableTenrai, "请先在搜刮页启用 Tenrai。"),
+            new("OMDb", settings.EnableOmdb && omdbCredentialReady,
+                "请先在搜刮页启用 OMDb 并保存当前 Windows 用户的 API Key。"),
+            new("Trakt", settings.EnableTrakt && traktCredentialReady,
+                "请先在搜刮页启用 Trakt 并保存当前 Windows 用户的 Client ID。")
+        ];
+
+    // The selected card must have a separately verified detail. OMDb relays
+    // independent platform scores; never synthesize a second "OMDb" score.
+    internal static List<PlatformRating> RatingsFromVerifiedDetail(MovieMetadata details)
+    {
+        if (!details.DetailFetched || !details.DetailIdentityVerified) return [];
+        var ratings = RatingAggregation.DistinctValidRatings(details.PlatformRatings);
+        if (details.Source.Equals("OMDb", StringComparison.OrdinalIgnoreCase))
+            return ratings.Where(rating => rating.Platform is "IMDb" or "Rotten Tomatoes" or "Metacritic")
+                .ToList();
+        var source = RatingAggregation.CanonicalPlatform(details.Source);
+        var rating = ratings.FirstOrDefault(item =>
+            RatingAggregation.CanonicalPlatform(item.Platform).Equals(source, StringComparison.OrdinalIgnoreCase))
+            ?? RatingAggregation.FromMetadata(details, "人工选择同一作品");
+        return rating is null ? [] : [rating];
+    }
+
+    List<PlatformRating> ChooseOtherPlatformRatings(Window owner, MovieMetadata savedRecord, VideoItem video)
     {
         var picker = new Window
         {
@@ -270,10 +303,18 @@ public partial class MainWindow
         controls.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         controls.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var sourceBox = new System.Windows.Controls.ComboBox { Height = 34 };
-        foreach (var name in new[] { "Bangumi", "AniList" }) sourceBox.Items.Add(new ComboBoxItem { Content = name, Tag = name });
+        var choices = PlanRatingSourceChoices(config, OmdbScraper.CredentialReady(), TraktScraper.CredentialReady());
+        var tmdbScope = TmdbUsagePolicy.Evaluate(video, savedRecord,
+            savedRecord.OriginalTitle ?? savedRecord.Title);
+        foreach (var choice in choices)
+        {
+            var enabled = choice.Enabled && (choice.Name != "TMDB" || tmdbScope.Allowed);
+            sourceBox.Items.Add(new ComboBoxItem { Content = choice.Name, Tag = choice.Name,
+                IsEnabled = enabled, ToolTip = enabled ? null : choice.Name == "TMDB" && choice.Enabled
+                    ? "仅普通电影/剧集可用：" + tmdbScope.Reason : choice.DisabledReason });
+        }
         var tmdbToken = config.TmdbToken;
-        if (!string.IsNullOrWhiteSpace(tmdbToken)) sourceBox.Items.Add(new ComboBoxItem { Content = "TMDB", Tag = "TMDB" });
-        sourceBox.SelectedIndex = 0;
+        sourceBox.SelectedItem = sourceBox.Items.Cast<ComboBoxItem>().FirstOrDefault(item => item.IsEnabled);
         controls.Children.Add(sourceBox);
         var query = new System.Windows.Controls.TextBox { Height = 34, Text = savedRecord.OriginalTitle ?? savedRecord.Title,
             Margin = new Thickness(8, 0, 8, 0), VerticalContentAlignment = VerticalAlignment.Center };
@@ -281,7 +322,10 @@ public partial class MainWindow
         var search = new Button { Content = "搜索", Width = 78, Style = (Style)FindResource("Action") };
         Grid.SetColumn(search, 2); controls.Children.Add(search);
         top.Children.Add(controls);
-        var guidance = new TextBlock { Text = "请选择站点并搜索标题；列表结果不会自动认作同一作品。",
+        search.IsEnabled = sourceBox.SelectedItem is not null;
+        var guidance = new TextBlock { Text = sourceBox.SelectedItem is null
+            ? "没有已启用的评分来源。请先到搜刮页启用来源并设置所需凭据。"
+            : "请选择站点并搜索标题；列表结果不会自动认作同一作品。",
             Margin = new Thickness(0, 0, 0, 8), TextWrapping = TextWrapping.Wrap,
             Foreground = new SolidColorBrush(Color.FromRgb(105, 124, 157)) };
         top.Children.Add(guidance);
@@ -308,6 +352,20 @@ public partial class MainWindow
             }
             if (title.Length > 160) title = title[..160];
             var source = (sourceBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "Bangumi";
+            if (!choices.Any(choice => choice.Name == source && choice.Enabled))
+            {
+                guidance.Text = "该来源尚未启用或缺少凭据，请先在搜刮页设置。";
+                return;
+            }
+            if (source == "TMDB")
+            {
+                var scope = TmdbUsagePolicy.Evaluate(video, savedRecord, title);
+                if (!scope.Allowed) { guidance.Text = "TMDB 仅用于普通电影/剧集：" + scope.Reason; return; }
+                if (MessageBox.Show(picker,
+                        $"即将向 TMDB 查询「{title}」。请确认本地视频属于普通电影或剧集，不是成人内容。",
+                        "确认 TMDB 查询范围", MessageBoxButton.YesNo,
+                        MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            }
             search.IsEnabled = false; choose.IsEnabled = false; candidates.Items.Clear();
             guidance.Text = $"正在查询 {source}…";
             try
@@ -316,10 +374,17 @@ public partial class MainWindow
                 {
                     "AniList" => AniListScraper.SearchAsync(title),
                     "TMDB" => AdditionalScrapers.SearchTmdbAsync(title, tmdbToken),
+                    "TVmaze" => AdditionalScrapers.SearchTvMazeAsync(title),
+                    "Kitsu" => KitsuScraper.SearchAsync(title),
+                    "Tenrai" => TenraiScraper.SearchAsync(title),
+                    "OMDb" => OmdbScraper.SearchAsync(title),
+                    "Trakt" => TraktScraper.SearchAsync(title),
                     _ => BangumiScraper.SearchAsync(title)
                 });
                 if (!picker.IsVisible) return;
-                foreach (var item in found.Take(15))
+                foreach (var item in found.Where(item => source != "TMDB" ||
+                             !item.IsAdultContent && !TmdbUsagePolicy.HasAdultCue(item.Title) &&
+                             !TmdbUsagePolicy.HasAdultCue(item.Summary)).Take(15))
                 {
                     var row = new StackPanel { Margin = new Thickness(6, 4, 6, 5) };
                     row.Children.Add(new TextBlock { Text = item.Title, FontWeight = FontWeights.SemiBold,
@@ -328,6 +393,10 @@ public partial class MainWindow
                             .Where(value => !string.IsNullOrWhiteSpace(value))), FontSize = 11,
                         TextTrimming = TextTrimming.CharacterEllipsis,
                         Foreground = new SolidColorBrush(Color.FromRgb(110, 126, 151)) });
+                    if (item.Source == "Trakt")
+                        row.Children.Add(new TextBlock { Text = item.DetailNote, FontSize = 11,
+                            TextTrimming = TextTrimming.CharacterEllipsis,
+                            Foreground = new SolidColorBrush(Color.FromRgb(110, 126, 151)) });
                     candidates.Items.Add(new ListBoxItem { Content = row, Tag = item });
                 }
                 guidance.Text = found.Count == 0 ? $"{source} 没有返回候选，尝试换一个关键词或来源。"
@@ -336,37 +405,55 @@ public partial class MainWindow
             catch (Exception ex) { if (picker.IsVisible) guidance.Text = $"{source} 查询失败：{ex.Message}"; }
             finally { search.IsEnabled = true; }
         };
-        PlatformRating? confirmedRating = null;
+        List<PlatformRating> confirmedRatings = [];
         choose.Click += async (_, _) =>
         {
             if ((candidates.SelectedItem as ListBoxItem)?.Tag is not MovieMetadata selected) return;
+            if (selected.Source.StartsWith("TMDB", StringComparison.OrdinalIgnoreCase) &&
+                (!TmdbUsagePolicy.Evaluate(video, savedRecord, query.Text).Allowed ||
+                 selected.IsAdultContent || TmdbUsagePolicy.HasAdultCue(selected.Title)))
+            { guidance.Text = "TMDB 候选不属于已确认的普通电影/剧集。"; return; }
             choose.IsEnabled = false; search.IsEnabled = false;
             guidance.Text = "正在读取选中作品的来源详情…";
             try
             {
                 var details = await Task.Run(() => AdditionalScrapers.FetchFullDetailsAsync(selected, tmdbToken));
                 if (!picker.IsVisible) return;
-                if (!details.DetailFetched) throw new InvalidDataException("来源没有返回可核对的完整详情。");
-                var rating = RatingAggregation.DistinctValidRatings(details.PlatformRatings).FirstOrDefault(item =>
-                    RatingAggregation.CanonicalPlatform(item.Platform).Equals(
-                        RatingAggregation.CanonicalPlatform(details.Source), StringComparison.OrdinalIgnoreCase))
-                    ?? RatingAggregation.FromMetadata(details, "人工选择同一作品");
-                if (rating is null) throw new InvalidDataException("来源没有提供明确分制的评分，未保存。原始评分：" + (details.Rating ?? "无"));
+                if (selected.Source.StartsWith("TMDB", StringComparison.OrdinalIgnoreCase) &&
+                    (details.IsAdultContent || TmdbUsagePolicy.HasAdultCue(details.Title) ||
+                     TmdbUsagePolicy.HasAdultCue(details.Summary)))
+                    throw new InvalidDataException("TMDB 详情属于成人内容，评分未采用。");
+                if (!details.DetailFetched || !details.DetailIdentityVerified)
+                    throw new InvalidDataException("来源没有返回身份已核对的完整详情。");
+                var ratings = RatingsFromVerifiedDetail(details);
+                if (ratings.Count == 0)
+                    throw new InvalidDataException("来源没有提供明确分制的评分，未保存。原始评分：" + (details.Rating ?? "无"));
+                var existing = RatingAggregation.DistinctValidRatings(savedRecord.PlatformRatings)
+                    .Select(item => RatingAggregation.CanonicalPlatform(item.Platform))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var scoreLines = string.Join("\n", ratings.Select(rating =>
+                    $"{rating.Platform}：{rating.Value:0.##}/{rating.Maximum:0.##}" +
+                    (existing.Contains(RatingAggregation.CanonicalPlatform(rating.Platform)) ? "（将更新已有评分）" : "")));
                 var confirmation = $"请核对是不是同一部作品：\n\n本地视频：{video.Title}\n已保存作品：{savedRecord.Title}" +
                     (string.IsNullOrWhiteSpace(savedRecord.Code) ? "" : $"\n番号：{savedRecord.Code}") +
                     $"\n\n新来源：{details.Source}\n作品：{details.Title}\n日期：{details.ReleaseDate ?? "未知"}" +
-                    $"\n评分：{rating.Value:0.##}/{rating.Maximum:0.##}\n链接：{details.SourceUrl}\n\n确认是同一作品并加入评分吗？";
+                    $"\n评分：\n{scoreLines}\n链接：{details.SourceUrl}\n\n确认是同一作品并加入评分吗？";
                 if (MessageBox.Show(picker, confirmation, "确认作品身份", MessageBoxButton.YesNo,
                         MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-                rating.MatchEvidence = "人工选择候选并确认同一作品";
-                confirmedRating = rating;
+                foreach (var rating in ratings)
+                {
+                    rating.MatchEvidence = details.Source.Equals("OMDb", StringComparison.OrdinalIgnoreCase)
+                        ? "人工确认同一作品 · OMDb 按 IMDb ID 返回的平台评分"
+                        : "人工选择候选并确认同一作品";
+                    confirmedRatings.Add(rating);
+                }
                 picker.DialogResult = true;
             }
             catch (Exception ex) { if (picker.IsVisible) guidance.Text = "详情读取失败：" + ex.Message; }
             finally { choose.IsEnabled = candidates.SelectedItem is ListBoxItem; search.IsEnabled = true; }
         };
         picker.ShowDialog();
-        return confirmedRating;
+        return confirmedRatings;
     }
 
     static async Task<RatingProbe> ProbeJavDatabaseRatingAsync(string code)
@@ -386,7 +473,7 @@ public partial class MainWindow
         catch (Exception ex) { return new("JAVDatabase", null, null, ex.Message); }
     }
 
-    static bool TryRatingSourceUrl(string sourceUrl, out Uri uri)
+    internal static bool TryRatingSourceUrl(string sourceUrl, out Uri uri)
     {
         uri = null!;
         if (!Uri.TryCreate(sourceUrl, UriKind.Absolute, out var value) || value.Scheme != Uri.UriSchemeHttps ||
@@ -394,6 +481,7 @@ public partial class MainWindow
         var host = value.Host.ToLowerInvariant();
         if (host is not ("javdb.com" or "www.javdb.com" or "javdatabase.com" or "www.javdatabase.com" or
             "www.themoviedb.org" or "themoviedb.org" or "bgm.tv" or "anilist.co" or "www.tvmaze.com" or
+            "kitsu.io" or "www.imdb.com" or "myanimelist.net" or "trakt.tv" or
             "tvmaze.com" or "www.pornhub.com" or "pornhub.com")) return false;
         uri = value;
         return true;

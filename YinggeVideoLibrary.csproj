@@ -8,11 +8,24 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>映格视频库</AssemblyName>
-    <Version>1.5.0</Version>
-    <FileVersion>1.5.0.0</FileVersion>
+    <Version>1.5.1</Version>
+    <FileVersion>1.5.1.0</FileVersion>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Copyright>Copyright (c) 2026 PRC1978</Copyright>
     <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>
-  <ItemGroup><Resource Include="app.ico" /></ItemGroup>
+  <ItemGroup>
+    <Resource Include="app.ico" />
+    <Resource Include="third-party\TMDB\tmdb-primary-short-blue.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="LICENSE" LogicalName="YinggeVideoLibrary.LICENSE" />
+    <EmbeddedResource Include="third-party\Microsoft.Web.WebView2\1.0.3595.46\LICENSE.txt" LogicalName="YinggeVideoLibrary.ThirdParty.WebView2.LICENSE" />
+    <EmbeddedResource Include="third-party\Microsoft.Web.WebView2\1.0.3595.46\NOTICE.txt" LogicalName="YinggeVideoLibrary.ThirdParty.WebView2.NOTICE" />
+    <EmbeddedResource Include="third-party\Microsoft.NETCore.App.Runtime.win-x64\9.0.17\LICENSE.TXT" LogicalName="YinggeVideoLibrary.ThirdParty.NETCoreRuntime.LICENSE" />
+    <EmbeddedResource Include="third-party\Microsoft.NETCore.App.Runtime.win-x64\9.0.17\THIRD-PARTY-NOTICES.TXT" LogicalName="YinggeVideoLibrary.ThirdParty.NETCoreRuntime.NOTICES" />
+    <EmbeddedResource Include="third-party\Microsoft.WindowsDesktop.App.Runtime.win-x64\9.0.17\LICENSE" LogicalName="YinggeVideoLibrary.ThirdParty.WindowsDesktopRuntime.LICENSE" />
+  </ItemGroup>
   <ItemGroup><PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3595.46" /></ItemGroup>
 
 </Project>

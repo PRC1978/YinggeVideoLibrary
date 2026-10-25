@@ -15,6 +15,91 @@ public partial class MainWindow
     const int MaxScrapeAttempts = 4;
     TimeSpan ScrapeRequestSpacing => TimeSpan.FromSeconds(double.IsFinite(config.ScrapeRequestIntervalSeconds)
         ? Math.Clamp(config.ScrapeRequestIntervalSeconds, 2.5, 30) : 2.5);
+    ScrapeSourcePolicy PolicyForSource(string source) => ScrapeSourcePolicy.Normalize(
+        config.ScrapeSourcePolicies.GetValueOrDefault(source),
+        ScrapeSourcePolicy.DefaultIntervalFor(source, config.ScrapeRequestIntervalSeconds));
+    string[] EnabledQueueCodeSources()
+    {
+        return PlanQueueCodeSources(JavDbEnabledBox.IsChecked == true,
+            javDatabaseEnabledBox?.IsChecked == true);
+    }
+
+    string[] EnabledQueueTitleSources()
+    {
+        return PlanQueueTitleSources(TmdbEnabledBox.IsChecked == true && !string.IsNullOrWhiteSpace(config.TmdbToken),
+            PornhubEnabledBox.IsChecked == true, tvMazeEnabledBox?.IsChecked == true,
+            bangumiEnabledBox?.IsChecked == true, javDbTitleEnabledBox?.IsChecked == true,
+            javDatabaseEnabledBox?.IsChecked == true, wikidataEnabledBox?.IsChecked == true,
+            kitsuEnabledBox?.IsChecked == true, tenraiEnabledBox?.IsChecked == true);
+    }
+
+    internal static string[] PlanQueueCodeSources(bool javDb, bool javDatabase)
+    {
+        var sources = new List<string>(2);
+        if (javDb) sources.Add("JavDB");
+        if (javDatabase) sources.Add("JAVDatabase");
+        return [.. sources];
+    }
+
+    internal static string[] PlanQueueTitleSources(bool tmdb, bool pornHub, bool tvMaze,
+        bool bangumi, bool javDb, bool javDatabase, bool wikidata = false, bool kitsu = false,
+        bool tenrai = false)
+    {
+        var sources = new List<string>(7);
+        if (tmdb) sources.Add("TMDB");
+        if (pornHub) sources.Add("Pornhub");
+        if (tvMaze) sources.Add("TVmaze");
+        if (bangumi) sources.Add("Bangumi");
+        if (javDb) sources.Add("JavDB");
+        if (javDatabase) sources.Add("JAVDatabase");
+        if (wikidata) sources.Add("Wikidata");
+        if (kitsu) sources.Add("Kitsu");
+        if (tenrai) sources.Add("Tenrai");
+        // Javinfo is paid/manual; AniList disallows mass collection.
+        return [.. sources];
+    }
+
+    async Task<T> RunQueueSourceAsync<T>(string source, Func<Task<T>> request, CancellationToken cancellationToken)
+    {
+        var policy = PolicyForSource(source);
+        while (true)
+        {
+            var readyAt = await Task.Run(() => ScrapeQueueStore.ReserveSourceRequest(DataDir, source,
+                TimeSpan.FromSeconds(policy.IntervalSeconds)), cancellationToken);
+            var now = DateTimeOffset.UtcNow;
+            if (readyAt <= now) break;
+            // Search and detail may legitimately query the same source twice
+            // within one item. Wait for the pacing slot, but leave a genuinely
+            // failing/429 source for another source or the next polling pass.
+            var cooldownAt = await Task.Run(() => ScrapeQueueStore.GetSourceCooldownAt(DataDir, source),
+                cancellationToken);
+            if (cooldownAt > now)
+                throw new ScrapeSourceUnavailableException($"{source} 来源限速冷却中。", cooldownAt);
+            await Task.Delay(readyAt - now, cancellationToken);
+        }
+        try
+        {
+            var result = await request().WaitAsync(cancellationToken);
+            await Task.Run(() => ScrapeQueueStore.ReportSourceSuccess(DataDir, source), cancellationToken);
+            return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (ScrapeNotFoundException)
+        {
+            await Task.Run(() => ScrapeQueueStore.ReportSourceSuccess(DataDir, source), cancellationToken);
+            throw;
+        }
+        catch (Exception ex) when (IsTemporaryScrapeFailure(ex))
+        {
+            var limited = ex is ScrapeHttpException { StatusCode: HttpStatusCode.TooManyRequests }
+                || ex is HttpRequestException { StatusCode: HttpStatusCode.TooManyRequests };
+            var retryAfter = ex is ScrapeHttpException rateLimit ? rateLimit.RetryAfter : null;
+            var retryAt = await Task.Run(() => ScrapeQueueStore.RecordSourceFailure(
+                DataDir, source, ex.Message, limited, retryAfter,
+                policy.ConsecutiveFailureLimit), cancellationToken);
+            throw new ScrapeSourceUnavailableException($"{source} 暂时不可用：{ex.Message}", retryAt);
+        }
+    }
     CancellationTokenSource? scrapeQueueCancellation;
     Task? scrapeQueueTask;
     bool scrapeQueuePaused = true;
@@ -85,7 +170,9 @@ public partial class MainWindow
     {
         var revision = Interlocked.Increment(ref scrapeQueueStatusRevision);
         (int PendingCount, int FailedCount, DateTimeOffset? NextAttemptAt, List<(string Query, string Error)> FailedExamples) status;
-        try { status = await Task.Run(() => ScrapeQueueStore.GetStatus(DataDir)); }
+        var codeSources = EnabledQueueCodeSources();
+        var titleSources = EnabledQueueTitleSources();
+        try { status = await Task.Run(() => ScrapeQueueStore.GetStatus(DataDir, codeSources, titleSources)); }
         catch (Exception ex)
         {
             if (!isClosing) Log("读取搜刮队列状态失败：" + ex.Message);
@@ -172,22 +259,32 @@ public partial class MainWindow
         }
     }
 
-    readonly record struct PlannedScrapeItem(VideoItem Video, ScrapeQueueItem? Item, bool UsedFolderTitle, bool NeedsManualTitle);
+    internal readonly record struct PlannedScrapeItem(VideoItem Video, ScrapeQueueItem? Item,
+        bool UsedFolderTitle, bool NeedsManualTitle);
 
     // Only the immutable identity, title and path of VideoItem are read here.
     // Capture UI settings first, then plan large batches away from the UI thread.
-    static PlannedScrapeItem PlanScrapeQueueItem(VideoItem video, bool hasCodeSource, bool useFolderHint, string[] libraryFolders)
+    internal static PlannedScrapeItem PlanScrapeQueueItem(VideoItem video, bool hasCodeSource, bool useFolderHint,
+        string[] libraryFolders, bool refreshExisting = false, string? acceptedCode = null, string? acceptedTitle = null)
     {
-        var code = hasCodeSource ? JavDbScraper.GuessCode(video.Title) : null;
+        var fileCode = hasCodeSource ? JavDbScraper.GuessCode(video.Title) : null;
+        var savedCode = refreshExisting && hasCodeSource ? JavDbScraper.GuessCode(acceptedCode ?? "") : null;
+        var conflictingCodes = fileCode is not null && savedCode is not null &&
+            !ScrapeCodeIdentity.Same(fileCode, savedCode);
+        var code = conflictingCodes ? null : savedCode ?? fileCode;
         if (!string.IsNullOrWhiteSpace(code))
-            return new(video, new ScrapeQueueItem { VideoId = video.Id, Kind = "code", Code = code }, false, false);
-        var title = AdditionalScrapers.CleanTitle(video.Title).Trim();
+            return new(video, new ScrapeQueueItem { VideoId = video.Id, Kind = "code", Code = code,
+                RefreshExisting = refreshExisting }, false, false);
+        var title = refreshExisting && !string.IsNullOrWhiteSpace(acceptedTitle)
+            ? AdditionalScrapers.CleanTitle(acceptedTitle).Trim()
+            : AdditionalScrapers.CleanTitle(video.Title).Trim();
         var folderTitle = useFolderHint && ScrapeSearchHints.IsWeakTitle(title)
             ? ScrapeSearchHints.FindWorkTitleHint(video.Path, libraryFolders) : null;
         if (folderTitle is not null) title = folderTitle;
         if (title.Length == 0) title = video.Title.Trim();
-        return new(video, title.Length == 0 ? null : new ScrapeQueueItem { VideoId = video.Id, Kind = "title", SearchTitle = title },
-            folderTitle is not null, ScrapeSearchHints.IsWeakTitle(title));
+        return new(video, title.Length == 0 ? null : new ScrapeQueueItem { VideoId = video.Id, Kind = "title",
+            SearchTitle = title, RefreshExisting = refreshExisting },
+            folderTitle is not null, conflictingCodes || ScrapeSearchHints.IsWeakTitle(title));
     }
 
     async Task EnqueueScrapeBatchAsync()
@@ -200,15 +297,23 @@ public partial class MainWindow
             if (!ReadScrapeFilterSettings()) return;
             var queued = await Task.Run(() => ScrapeQueueStore.Load(DataDir));
             var known = queued.Select(x => x.VideoId).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var candidates = videos.Where(v => CanQueueForFullMetadata(v) && !known.Contains(v.Id))
+            var refreshExisting = scrapeRefreshExistingBox?.IsChecked == true;
+            var candidates = videos.Where(v => CanQueueForFullMetadata(v, refreshExisting) && !known.Contains(v.Id))
                 .Where(v => scrapeOnlySelectedBox?.IsChecked != true || selectedVideoIds.Contains(v.Id))
                 .Where(v => ScrapeSkipReason(v) is null).ToArray();
             var hasCodeSource = HasEnabledCodeSource;
             var useFolderHint = config.UseFolderPersonHint;
             var libraryFolders = config.Folders.ToArray();
             TaskStatusText.Text = $"正在准备 {candidates.Length} 项搜刮任务…";
-            var plans = await Task.Run(() => candidates.Select(video =>
-                PlanScrapeQueueItem(video, hasCodeSource, useFolderHint, libraryFolders)).ToList());
+            var inputs = candidates.Select(video =>
+            {
+                var accepted = metadata.GetValueOrDefault(video.Id);
+                return (video, refresh: refreshExisting && accepted is not null,
+                    code: accepted?.Code, title: accepted?.Title);
+            }).ToArray();
+            var plans = await Task.Run(() => inputs.Select(input =>
+                PlanScrapeQueueItem(input.video, hasCodeSource, useFolderHint, libraryFolders,
+                    input.refresh, input.code, input.title)).ToList());
             var pending = plans.Select(plan => plan.Item).OfType<ScrapeQueueItem>().ToList();
             if (pending.Count == 0 && queued.All(x => x.Failed))
             {
@@ -221,12 +326,14 @@ public partial class MainWindow
             }
             if (pending.Count > 0)
             {
-                if (pending.Count > 100 && MessageBox.Show(this,
-                        $"本次将一次加入全部 {pending.Count} 项符合条件的视频（番号 {pending.Count(item => item.Kind == "code")} 项，标题 {pending.Count(item => item.Kind == "title")} 项）。\n后台会把番号或标题发送到已启用的公开资料来源，逐项限速联网。按当前间隔至少约 {FormatScrapeMinimumDuration(pending.Count)}，实际还包含网络耗时。\n\n可随时暂停或取消待处理队列。是否继续？",
+                var refreshCount = pending.Count(item => item.RefreshExisting);
+                if ((pending.Count > 100 || refreshCount > 0) && MessageBox.Show(this,
+                        $"本次将加入全部 {pending.Count} 项符合条件的视频（番号 {pending.Count(item => item.Kind == "code")} 项，标题 {pending.Count(item => item.Kind == "title")} 项；其中已存资料补全 {refreshCount} 项）。\n后台会把番号或标题发送到已启用的公开资料来源，逐项限速联网。按当前间隔至少约 {FormatScrapeMinimumDuration(pending.Count)}，实际还包含网络耗时。\n\n补全结果进入人工审核；确认前不会覆盖已保存字段。可随时暂停或取消待处理队列。是否继续？",
                         "确认批量搜刮", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
                 TaskStatusText.Text = $"正在保存 {pending.Count} 项搜刮任务…";
                 var added = await Task.Run(() => ScrapeQueueStore.Add(DataDir, pending));
                 Log($"已向搜刮队列加入全部 {added} 项符合条件的视频（番号/标题），按间隔逐项联网。");
+                if (added > 0 && scrapeRefreshExistingBox is not null) scrapeRefreshExistingBox.IsChecked = false;
             }
             await ResumeScrapePollingAsync();
         }
@@ -281,15 +388,16 @@ public partial class MainWindow
             while (!isClosing && !scrapeQueuePaused)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var hasEnabledCodeSource = HasEnabledCodeSource;
+                var codeSources = EnabledQueueCodeSources();
+                var titleSources = EnabledQueueTitleSources();
                 var (item, pendingCount, hasBlocked) = await Task.Run(
-                    () => ScrapeQueueStore.PeekNext(DataDir, hasEnabledCodeSource), cancellationToken);
+                    () => ScrapeQueueStore.PeekNextFair(DataDir, codeSources, titleSources), cancellationToken);
                 if (item is null)
                 {
                     if (hasBlocked)
                     {
                         scrapeQueuePaused = true;
-                        TaskStatusText.Text = "剩余番号任务需启用 JavDB 或 JAVDatabase；队列已暂停，任务已保留";
+                        TaskStatusText.Text = "剩余任务没有可用来源；请在搜刮页启用相应来源后继续，任务已保留";
                     }
                     break;
                 }
@@ -308,7 +416,7 @@ public partial class MainWindow
                         if (!string.IsNullOrWhiteSpace(indexedVideo.Id)) videoById.TryAdd(indexedVideo.Id, indexedVideo);
                 }
                 videoById.TryGetValue(item.VideoId, out var video);
-                if (video is not null && !CanQueueForFullMetadata(video))
+                if (video is not null && !CanQueueForFullMetadata(video, item.RefreshExisting))
                 {
                     await Task.Run(() => ScrapeQueueStore.Remove(DataDir, item.VideoId));
                     UpdateScrapeQueueStatus();
@@ -342,7 +450,7 @@ public partial class MainWindow
                     }
                     else
                     {
-                        var candidate = await ScrapeCodeFromEnabledSourcesAsync(item.Code, item.VideoId, cancellationToken);
+                        var candidate = await ScrapeCodeFromEnabledSourcesAsync(item.Code, item.VideoId, cancellationToken, queue: true);
                         cancellationToken.ThrowIfCancellationRequested();
                         if (!await Task.Run(() => ScrapeQueueStore.HasPending(DataDir, item.VideoId)))
                         {
@@ -351,7 +459,8 @@ public partial class MainWindow
                         }
                         if (metadata.ContainsKey(video.Id) && !candidate.DetailFetched)
                             throw new InvalidDataException("旧资料保留；新详情暂不可读：" + candidate.DetailNote);
-                        status = await StoreScrapeReviewAsync(video, candidate, cancellationToken: cancellationToken);
+                        status = await StoreScrapeReviewAsync(video, candidate,
+                            forcePending: item.RefreshExisting, cancellationToken: cancellationToken);
                     }
                     await Task.Run(() => ScrapeQueueStore.Remove(DataDir, item.VideoId));
                     if (status == "approved") approved++;
@@ -427,17 +536,20 @@ public partial class MainWindow
 
     async Task<bool> HandleScrapeItemFailureAsync(ScrapeQueueItem item, Exception ex)
     {
-        var retry = IsTemporaryScrapeFailure(ex) && item.Attempts + 1 < MaxScrapeAttempts;
+        var retry = ShouldRetryScrapeItem(item, ex);
         if (retry)
         {
-            item.Attempts++;
-            var retryDelay = ScrapeRetryDelay(item.Attempts, ex);
+            // A rate-limited or temporarily unavailable source owns its own
+            // cooldown. It must not exhaust this video's finite retry budget.
+            var sourceUnavailable = ex is ScrapeSourceUnavailableException;
+            item.Attempts = AttemptsAfterRetry(item.Attempts, ex);
+            var retryDelay = ScrapeRetryDelay(Math.Max(1, item.Attempts), ex);
             item.NextAttemptAt = DateTimeOffset.UtcNow.Add(retryDelay);
             item.LastError = ex.Message.Length > 240 ? ex.Message[..240] : ex.Message;
             await Task.Run(() => ScrapeQueueStore.Reschedule(DataDir, item));
-            if (ex is ScrapeHttpException { StatusCode: HttpStatusCode.TooManyRequests })
-                await Task.Run(() => ScrapeQueueStore.DelayAllUntil(DataDir, item.NextAttemptAt));
-            Log($"搜刮暂时失败：{item.DisplayQuery} · {retryDelay.TotalSeconds:0} 秒后重试（{item.Attempts}/{MaxScrapeAttempts - 1}）· {ex.Message}");
+            Log(sourceUnavailable
+                ? $"搜刮来源冷却：{item.DisplayQuery} · {retryDelay.TotalSeconds:0} 秒后重试（未消耗视频重试次数）· {ex.Message}"
+                : $"搜刮暂时失败：{item.DisplayQuery} · {retryDelay.TotalSeconds:0} 秒后重试（{item.Attempts}/{MaxScrapeAttempts - 1}）· {ex.Message}");
             return false;
         }
         await Task.Run(() => ScrapeQueueStore.MarkFailed(DataDir, item.VideoId, ex.Message));
@@ -445,10 +557,30 @@ public partial class MainWindow
         return true;
     }
 
+    static bool ShouldRetryScrapeItem(ScrapeQueueItem item, Exception ex) =>
+        ex is ScrapeSourceUnavailableException ||
+        IsTemporaryScrapeFailure(ex) && item.Attempts + 1 < MaxScrapeAttempts;
+
+    static int AttemptsAfterRetry(int attempts, Exception ex) =>
+        ex is ScrapeSourceUnavailableException ? attempts : attempts + 1;
+
+    internal static bool VerifySourceRetryPolicyForDiagnostics()
+    {
+        var exhausted = new ScrapeQueueItem { VideoId = "test", Kind = "title", SearchTitle = "title", Attempts = MaxScrapeAttempts - 1 };
+        return ShouldRetryScrapeItem(exhausted,
+                new ScrapeSourceUnavailableException("source cooling", DateTimeOffset.UtcNow.AddMinutes(1)))
+            && AttemptsAfterRetry(exhausted.Attempts, new ScrapeSourceUnavailableException("source cooling")) == exhausted.Attempts
+            && !ShouldRetryScrapeItem(exhausted, new HttpRequestException("network unavailable"))
+            && !ShouldRetryScrapeItem(new ScrapeQueueItem { VideoId = "test", Kind = "title", SearchTitle = "title" },
+                new HttpRequestException("unauthorized", null, HttpStatusCode.Unauthorized));
+    }
+
     static bool IsTemporaryScrapeFailure(Exception ex) => ex switch
     {
         ScrapeHttpException http => http.StatusCode == HttpStatusCode.TooManyRequests || http.StatusCode == HttpStatusCode.RequestTimeout || (int?)http.StatusCode >= 500,
-        HttpRequestException http => http.StatusCode is null || http.StatusCode == HttpStatusCode.RequestTimeout || (int?)http.StatusCode >= 500,
+        ScrapeSourceUnavailableException => true,
+        HttpRequestException http => http.StatusCode is null || http.StatusCode == HttpStatusCode.TooManyRequests
+            || http.StatusCode == HttpStatusCode.RequestTimeout || (int?)http.StatusCode >= 500,
         TaskCanceledException => true,
         TimeoutException => true,
         _ => false
@@ -462,6 +594,11 @@ public partial class MainWindow
             var minimum = TimeSpan.FromSeconds(30);
             if (rateLimit.RetryAfter is { } header && header > minimum) minimum = header;
             if (backoff < minimum) backoff = minimum;
+        }
+        if (ex is ScrapeSourceUnavailableException { RetryAt: { } retryAt })
+        {
+            var until = retryAt - DateTimeOffset.UtcNow;
+            if (until > backoff) backoff = until;
         }
         return backoff;
     }

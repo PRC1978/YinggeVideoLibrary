@@ -54,12 +54,13 @@ internal static class ScrapeSearchHints
     // When the filename is only a counter, use a work folder below the
     // selected person. A category outside that person's subtree is never a
     // substitute title, even if it happens to contain words.
-    internal static string? FindWorkTitleHint(string? videoPath, IEnumerable<string>? libraryRoots)
+    internal static string? FindWorkTitleHint(string? videoPath, IEnumerable<string>? libraryRoots,
+        bool assumeWeakFilename = false)
     {
         var directories = RootedDirectories(videoPath, libraryRoots);
         if (directories is null) return null;
         var fileTitle = AdditionalScrapers.CleanTitle(Path.GetFileNameWithoutExtension(videoPath!));
-        if (!IsWeakTitle(fileTitle)) return null;
+        if (!assumeWeakFilename && !IsWeakTitle(fileTitle)) return null;
         var person = ChoosePerson(directories, fileTitle);
         if (person is null) return null;
         for (var index = person.Value.Index + 1; index < directories.Count; index++)

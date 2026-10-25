@@ -19,6 +19,7 @@ public partial class MainWindow
     TextBox? scrapeMinSizeBox;
     CheckBox? scrapeSkipWatchedBox;
     CheckBox? scrapeOnlySelectedBox;
+    CheckBox? scrapeRefreshExistingBox;
     HashSet<string> scrapeSkippedTags = new(StringComparer.CurrentCultureIgnoreCase);
 
     void InitializeScrapeFiltersUi()
@@ -56,7 +57,18 @@ public partial class MainWindow
 
         var section = new StackPanel { Margin = new Thickness(0, 2, 0, 18) };
         section.Children.Add(new TextBlock { Text = "批量搜刮条件", FontSize = 16, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) });
-        section.Children.Add(new TextBlock { Text = "默认将排除条件之外的全部尚待搜刮视频入队：有番号且启用 JavDB 的优先按番号查找，其余按标题查找。队列逐项限速执行，可随时暂停或取消待处理。以下条件也适用于已有队列。", TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = System.Windows.Media.Brushes.SlateGray, Margin = new Thickness(0, 0, 0, 8) });
+        section.Children.Add(new TextBlock { Text = "默认将排除条件之外的全部尚待搜刮视频入队：有番号且启用番号来源的优先按番号查找，其余按标题查找。队列逐项限速执行，可随时暂停或取消待处理。以下排除条件也适用于已有队列。", TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = System.Windows.Media.Brushes.SlateGray, Margin = new Thickness(0, 0, 0, 8) });
+        scrapeRefreshExistingBox = new CheckBox
+        {
+            Content = "本次补全已搜刮但字段缺失的资料",
+            IsChecked = false,
+            Margin = new Thickness(0, 2, 0, 4),
+            ToolTip = "仅本次入队时生效。先预览范围；已保存的字段不会自动被新来源覆盖，补全结果进入人工审核。队列任务会保留此模式直到处理完成。"
+        };
+        scrapeRefreshExistingBox.Checked += (_, _) => ScrapeBatchButton.Content = "未搜刮＋需补全入队";
+        scrapeRefreshExistingBox.Unchecked += (_, _) => ScrapeBatchButton.Content = "全部符合条件入队";
+        section.Children.Add(scrapeRefreshExistingBox);
+        section.Children.Add(new TextBlock { Text = "补全模式只会增加详情未核对或常用字段缺失的已保存作品；审核中、已否决的候选不会重新入队。补全结果需人工确认，原资料在确认前保持不变。", TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = System.Windows.Media.Brushes.SlateGray, Margin = new Thickness(0, 0, 0, 10) });
         section.Children.Add(new TextBlock { Text = "跳过这些文件夹（含子文件夹）", FontWeight = FontWeights.SemiBold });
         scrapeExcludedList = new ListBox { Height = 88, Margin = new Thickness(0, 6, 0, 6) };
         RefreshExcludedFoldersList();
@@ -126,19 +138,39 @@ public partial class MainWindow
         return null;
     }
 
-    bool CanQueueForFullMetadata(VideoItem video)
+    internal static bool HasMissingScrapeFields(MovieMetadata existing)
+    {
+        if (!existing.DetailFetched || !existing.DetailIdentityVerified) return true;
+        return string.IsNullOrWhiteSpace(existing.ReleaseDate)
+            || existing.RuntimeMinutes is null or <= 0
+            || string.IsNullOrWhiteSpace(existing.Studio) && string.IsNullOrWhiteSpace(existing.Maker)
+            || existing.Actors is not { Count: > 0 }
+            || existing.Genres is not { Count: > 0 }
+            || string.IsNullOrWhiteSpace(existing.PosterUrl);
+    }
+
+    internal static bool CanRefreshSavedScrape(MovieMetadata existing, AiReviewRecord? review,
+        bool explicitRefresh, bool legacyJavDbRefresh)
+    {
+        if (review is not null && review.Status != "approved") return false;
+        if (explicitRefresh) return HasMissingScrapeFields(existing);
+        return legacyJavDbRefresh && !existing.DetailFetched
+            && string.Equals(existing.Source, "JavDB", StringComparison.OrdinalIgnoreCase);
+    }
+
+    bool CanQueueForFullMetadata(VideoItem video, bool refreshExisting = false)
     {
         if (!metadata.TryGetValue(video.Id, out var existing))
             return !config.AiReviews.ContainsKey(video.Id);
-        if (existing.DetailFetched || !config.ScrapeRefreshIncompleteMetadata ||
-            !string.Equals(existing.Source, "JavDB", StringComparison.OrdinalIgnoreCase)) return false;
-        return !config.AiReviews.TryGetValue(video.Id, out var review) || review.Status == "approved";
+        config.AiReviews.TryGetValue(video.Id, out var review);
+        return CanRefreshSavedScrape(existing, review, refreshExisting, config.ScrapeRefreshIncompleteMetadata);
     }
 
     async Task PreviewScrapeRangeAsync()
     {
         if (!ReadScrapeFilterSettings()) return;
-        var candidate = videos.Where(CanQueueForFullMetadata)
+        var refreshExisting = scrapeRefreshExistingBox?.IsChecked == true;
+        var candidate = videos.Where(video => CanQueueForFullMetadata(video, refreshExisting))
             .Where(video => scrapeOnlySelectedBox?.IsChecked != true || selectedVideoIds.Contains(video.Id)).ToList();
         var evaluated = candidate.Select(video => (video, reason: ScrapeSkipReason(video))).ToList();
         var groups = evaluated.Where(item => item.reason is not null).GroupBy(item => item.reason).Select(group => $"{group.Key}：{group.Count()} 部");
@@ -146,12 +178,20 @@ public partial class MainWindow
         var hasCodeSource = HasEnabledCodeSource;
         var useFolderHint = config.UseFolderPersonHint;
         var libraryFolders = config.Folders.ToArray();
+        var inputs = candidate.Select(video =>
+        {
+            var accepted = metadata.GetValueOrDefault(video.Id);
+            return (video, refresh: refreshExisting && accepted is not null,
+                code: accepted?.Code, title: accepted?.Title);
+        }).ToArray();
         List<PlannedScrapeItem> plans;
         List<ScrapeQueueItem> queued;
         try
         {
-            var planningTask = Task.Run(() => accepted.Select(video =>
-                PlanScrapeQueueItem(video, hasCodeSource, useFolderHint, libraryFolders)).ToList());
+            var acceptedIds = accepted.Select(video => video.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var planningTask = Task.Run(() => inputs.Where(input => acceptedIds.Contains(input.video.Id))
+                .Select(input => PlanScrapeQueueItem(input.video, hasCodeSource, useFolderHint, libraryFolders,
+                    input.refresh, input.code, input.title)).ToList());
             var queueTask = Task.Run(() => ScrapeQueueStore.Load(DataDir));
             await Task.WhenAll(planningTask, queueTask);
             plans = planningTask.Result;
@@ -168,7 +208,7 @@ public partial class MainWindow
         var pendingCount = queued.Count(item => !item.Failed);
         var skipped = string.Join("\n", groups);
         MessageBox.Show(this,
-            $"候选视频：{candidate.Count} 部\n排除条件后：{eligible.Count} 部（番号 {eligible.Count(plan => plan.Item!.Kind == "code")}，标题 {eligible.Count(plan => plan.Item!.Kind == "title")}）\n目录补出作品标题：{eligible.Count(plan => plan.UsedFolderTitle)} 部；仍只有编号、需补标题：{eligible.Count(plan => plan.NeedsManualTitle)} 部。\n已在队列：{eligible.Count - newlyQueued.Count} 部；本次可新增：{newlyQueued.Count} 部。\n当前待处理：{pendingCount} 项；全部加入后最少约 {FormatScrapeMinimumDuration(pendingCount + newlyQueued.Count)}，不含网络耗时和重试。\n\n"
+            $"模式：{(refreshExisting ? "未搜刮＋已存资料补全（需人工审核）" : "默认未搜刮入队")}\n候选视频：{candidate.Count} 部\n排除条件后：{eligible.Count} 部（番号 {eligible.Count(plan => plan.Item!.Kind == "code")}，标题 {eligible.Count(plan => plan.Item!.Kind == "title")}；已存资料补全 {eligible.Count(plan => plan.Item!.RefreshExisting)}）\n目录补出作品标题：{eligible.Count(plan => plan.UsedFolderTitle)} 部；标题较弱或番号冲突、需人工核对：{eligible.Count(plan => plan.NeedsManualTitle)} 部。\n已在队列：{eligible.Count - newlyQueued.Count} 部；本次可新增：{newlyQueued.Count} 部。\n当前待处理：{pendingCount} 项；全部加入后最少约 {FormatScrapeMinimumDuration(pendingCount + newlyQueued.Count)}，不含网络耗时和重试。\n\n"
             + (skipped.Length > 0 ? "排除明细：\n" + skipped + "\n\n" : "")
             + "本次前几项：\n" + string.Join("\n", newlyQueued.Take(8).Select(plan => plan.Video.Title)),
             "搜刮范围预览");

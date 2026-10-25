@@ -1,4 +1,4 @@
-#define MyAppVersion "1.5.0"
+#define MyAppVersion "1.5.1"
 
 [Setup]
 AppId=PRC1978.YinggeVideoLibrary
@@ -23,7 +23,7 @@ SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
-VersionInfoVersion=1.5.0.0
+VersionInfoVersion=1.5.1.0
 
 [Languages]
 Name: "zhcn"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
@@ -33,6 +33,12 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 
 [Files]
 Source: "..\发布\映格视频库.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "third-party\Microsoft.Web.WebView2\1.0.3595.46\LICENSE.txt"; DestDir: "{app}\third-party\Microsoft.Web.WebView2\1.0.3595.46"; Flags: ignoreversion
+Source: "third-party\Microsoft.Web.WebView2\1.0.3595.46\NOTICE.txt"; DestDir: "{app}\third-party\Microsoft.Web.WebView2\1.0.3595.46"; Flags: ignoreversion
+Source: "third-party\Microsoft.NETCore.App.Runtime.win-x64\9.0.17\LICENSE.TXT"; DestDir: "{app}\third-party\Microsoft.NETCore.App.Runtime.win-x64\9.0.17"; Flags: ignoreversion
+Source: "third-party\Microsoft.NETCore.App.Runtime.win-x64\9.0.17\THIRD-PARTY-NOTICES.TXT"; DestDir: "{app}\third-party\Microsoft.NETCore.App.Runtime.win-x64\9.0.17"; Flags: ignoreversion
+Source: "third-party\Microsoft.WindowsDesktop.App.Runtime.win-x64\9.0.17\LICENSE"; DestDir: "{app}\third-party\Microsoft.WindowsDesktop.App.Runtime.win-x64\9.0.17"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\映格视频库"; Filename: "{app}\映格视频库.exe"

@@ -16,12 +16,119 @@ internal static class FeatureDiagnostics
         try
         {
             findings["sphereExactTagCategoryLinks"] = MainWindow.VerifySphereRelationsForDiagnostics();
+            findings["graphMovePreviewAndUndo"] = CategoryGraphMovePlan.VerifyForDiagnostics();
+            findings["graphMoveDurableHistoryAndConflicts"] = CategoryGraphMoveHistoryStore.VerifyForDiagnostics();
+            foreach (var metric in MainWindow.VerifySphereIncrementalIndexForDiagnostics())
+                findings[metric.Key] = metric.Value;
             WindowsCredentialStore.Write(credentialName, "temporary-secret-中文");
             findings["windowsCredentialRoundTrip"] = WindowsCredentialStore.Read(credentialName) == "temporary-secret-中文";
             WindowsCredentialStore.Write(credentialName, "");
             findings["windowsCredentialDelete"] = WindowsCredentialStore.Read(credentialName) is null;
             Directory.CreateDirectory(directory);
+            foreach (var (name, passed) in MainWindow.VerifyLibraryFormatMigrationForDiagnostics(
+                         Path.Combine(directory, "library-format"))) findings[name] = passed;
+            try
+            {
+                foreach (var (name, passed) in MainWindow.VerifyCurrentLibraryCopyForDiagnostics(
+                             Path.Combine(directory, "real-library-copy"))) findings[name] = passed;
+            }
+            catch (Exception ex)
+            {
+                findings["realLibraryCopyUpgrade"] = false;
+                findings["realLibraryCopyUpgradeError"] = ex.ToString();
+            }
+            foreach (var (name, passed) in OrdinarySourceMatrixDiagnostics.Verify(
+                         Path.Combine(directory, "ordinary-source-matrix"))) findings[name] = passed;
+            foreach (var (name, passed) in TmdbUsagePolicyDiagnostics.Verify()) findings[name] = passed;
+            foreach (var (name, passed) in CrossSourceRelationDiagnostics.Verify()) findings[name] = passed;
+            foreach (var (name, passed) in RoleProfileDiagnostics.Verify(directory)) findings[name] = passed;
+            foreach (var result in SiteListImportDiagnostics.Run()) findings[result.Key] = result.Value;
+            foreach (var result in SiteListLocalActionDiagnostics.Run()) findings[result.Key] = result.Value;
+            foreach (var (name, checkPassed) in IndexRootMismatchDiagnostics.Verify(
+                Path.Combine(directory, "index-root-mismatch")))
+                findings[name] = checkPassed;
+            foreach (var check in BackupRestorePreviewDiagnostics.Run(directory))
+                findings[check.Key] = check.Value;
+            foreach (var check in BackupSelectiveImportDiagnostics.Run(directory))
+                findings[check.Key] = check.Value;
+            try
+            {
+                foreach (var check in BackupCrossDeviceDiagnostics.Run(
+                             Path.Combine(directory, "cross-device-import")))
+                    findings[check.Key] = check.Value;
+            }
+            catch (Exception ex)
+            {
+                findings["crossDeviceImportDiagnostics"] = false;
+                findings["crossDeviceImportDiagnosticsError"] = ex.ToString();
+            }
+            foreach (var check in LibraryBackupService.VerifyAiPacingRestoreForDiagnostics(
+                Path.Combine(directory, "ai-backup-pacing")))
+                findings[check.Key] = check.Value;
+            foreach (var check in LibraryRelocationDiagnostics.Verify(
+                Path.Combine(directory, "library-relocation")))
+                findings[check.Key] = check.Value;
+            foreach (var (name, checkPassed) in JavinfoEligibilityDiagnostics.Verify(Path.Combine(directory, "javinfo-eligibility")))
+                findings[name] = checkPassed;
+            foreach (var (name, checkPassed) in NativeMetadataAggregationDiagnostics.Verify())
+                findings[name] = checkPassed;
+            foreach (var (name, checkPassed) in NativeMediaFieldsDiagnostics.Verify())
+                findings[name] = checkPassed;
+            foreach (var (name, checkPassed) in NativeOriginalFieldsDiagnostics.Verify())
+                findings[name] = checkPassed;
+            findings["codeIdentityKeepsInternalSeparators"] = ScrapeCodeIdentity.VerifyForDiagnostics();
+            findings["refreshCannotEraseAcceptedFields"] = MetadataRefreshPolicy.VerifyForDiagnostics();
+            foreach (var (name, checkPassed) in JavDbCatalogDiagnostics.Verify())
+                findings[name] = checkPassed;
+            foreach (var (name, checkPassed) in JavDatabaseCatalogDiagnostics.Verify())
+                findings[name] = checkPassed;
+            foreach (var (name, checkPassed) in JavDatabaseActorSearchDiagnostics.Verify())
+                findings[name] = checkPassed;
+            foreach (var (name, checkPassed) in ScrapeRefreshDiagnostics.Verify(
+                Path.Combine(directory, "scrape-refresh")))
+                findings[name] = checkPassed;
+            foreach (var (name, checkPassed) in await NativeScrapeSafetyDiagnostics.VerifyAsync(
+                Path.Combine(directory, "native-scrape-safety"))) findings[name] = checkPassed;
+            foreach (var (name, checkPassed) in await ScrapeSourceIsolationDiagnostics.VerifyAsync(
+                Path.Combine(directory, "scrape-source-isolation"))) findings[name] = checkPassed;
+            foreach (var (name, checkPassed) in ScrapeSourcePolicyDiagnostics.Verify(
+                Path.Combine(directory, "scrape-source-policy"))) findings[name] = checkPassed;
+            findings["sourceHealthExportRedactsPrivateValues"] = SourceHealthDiagnostics.VerifyForDiagnostics();
+            foreach (var (name, wikidataPassed) in WikidataScraperDiagnostics.Verify()) findings[name] = wikidataPassed;
+            foreach (var (name, omdbPassed) in OmdbScraperDiagnostics.Verify()) findings[name] = omdbPassed;
+            foreach (var (name, kitsuPassed) in KitsuScraperDiagnostics.Verify(
+                Path.Combine(directory, "kitsu-source"))) findings[name] = kitsuPassed;
+            foreach (var (name, tenraiPassed) in TenraiScraperDiagnostics.Verify(
+                Path.Combine(directory, "tenrai-source"))) findings[name] = tenraiPassed;
+            foreach (var (name, traktPassed) in TraktScraperDiagnostics.Verify()) findings[name] = traktPassed;
+            findings["wikidataVerifiedCacheCanBypassCooldown"] = await ScrapeCandidateCache.VerifyWikidataCacheReadyAsync(directory);
+            findings["detailCacheBindsSourceUrlAndCode"] = await ScrapeCandidateCache.VerifyDetailIdentityBindingAsync(directory);
+            findings["reviewHistoryJsonAndCsvRoundTrip"] = ReviewHistoryExport.VerifyForDiagnostics();
+            findings["reviewHistoryCombinedFilters"] = ReviewHistoryQuery.VerifyForDiagnostics();
+            foreach (var check in AiSuggestionAudit.VerifyForDiagnostics())
+                findings[check.Key] = check.Value;
+            foreach (var check in AiAdversarialDiagnostics.Run(Path.Combine(directory, "ai-adversarial")))
+                findings[check.Key] = check.Value;
+            foreach (var check in ReviewTransactionRecoveryDiagnostics.Run(
+                Path.Combine(directory, "review-recovery")))
+                findings[check.Key] = check.Value;
+            foreach (var check in await ReviewAdversarialDiagnostics.RunAsync())
+                findings[check.Key] = check.Value;
+            foreach (var check in await AiJobStoreDiagnostics.VerifyAsync(Path.Combine(directory, "ai-jobs")))
+                findings[check.Key] = check.Value;
+            foreach (var check in await AiBudgetDiagnostics.VerifyAsync(
+                Path.Combine(directory, "ai-budget-accounting")))
+                findings[check.Key] = check.Value;
+            foreach (var check in await AiQueueConcurrencyDiagnostics.VerifyAsync(
+                Path.Combine(directory, "ai-queue-concurrency")))
+                findings[check.Key] = check.Value;
             findings["personalRatingSharedStore"] = PersonalRatingStore.VerifyForDiagnostics(directory);
+            foreach (var (name, passed) in MetadataRatingConcurrencyDiagnostics.Run(
+                         Path.Combine(directory, "rating-concurrency"))) findings[name] = passed;
+            foreach (var check in await DuplicateVideoDiagnostics.VerifyAsync(Path.Combine(directory, "duplicate-videos")))
+                findings[check.Key] = check.Value;
+            foreach (var check in await DuplicateMetadataTransactionDiagnostics.VerifyAsync(
+                Path.Combine(directory, "duplicate-metadata-transactions"))) findings[check.Key] = check.Value;
             var scoreFromJavDb = RatingAggregation.FromMetadata(new MovieMetadata
             {
                 Source = "JavDB", SourceUrl = "https://javdb.com/v/example", Rating = "4.57分"
@@ -408,6 +515,8 @@ internal static class FeatureDiagnostics
                 .ToArray();
             findings["recommendationOnlinePrefersObservedInterest"] =
                 RecommendationEngine.BuildBilibiliTopics(onlinePreference)[0].Keyword == "动画推荐";
+            foreach (var (name, checkPassed) in RecommendationPreferenceDiagnostics.Verify())
+                findings[name] = checkPassed;
             var searchFields = new MovieMetadata { Title = "剧集", Source = "TVmaze", Genres = ["喜剧"], Summary = "搜索摘要" };
             searchFields.StampAvailableFields("搜索结果");
             var refreshedFields = searchFields.Clone();
@@ -448,7 +557,7 @@ internal static class FeatureDiagnostics
                             remaining -= count;
                         }
                         received++;
-                        var body = "{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}";
+                        var body = "{\"choices\":[{\"message\":{\"content\":\"ok\"}}],\"usage\":{\"prompt_tokens\":9,\"completion_tokens\":3}}";
                         var response = i == 0 ? "HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
                             : $"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {Encoding.UTF8.GetByteCount(body)}\r\nConnection: close\r\n\r\n{body}";
                         await stream.WriteAsync(Encoding.UTF8.GetBytes(response));
@@ -459,6 +568,23 @@ internal static class FeatureDiagnostics
                 await server;
                 findings["localAiRetry"] = received == 2 && answer.RootElement.TryGetProperty("choices", out _);
                 findings["aiBudgetPersisted"] = File.Exists(Path.Combine(directory, "ai-budget.json"));
+                var aiLedger = AiRequestQueue.LoadBudgetLedger(directory);
+                findings["aiRetriesReserveEachAttemptAndReconcileTokens"] =
+                    aiLedger.AttemptCount == 2 && aiLedger.ReportedUsageCount == 1
+                    && aiLedger.InputTokens == 9 && aiLedger.OutputTokens == 3
+                    && aiLedger.UnverifiedUsd > 0 && aiLedger.ReportedUsageUsd > 0
+                    && aiLedger.EstimatedUsd >= aiLedger.UnverifiedUsd;
+                local.AiDailyBudgetUsd = 0.0001;
+                try
+                {
+                    using var unexpected = await AiRequestQueue.SendAsync(local,
+                        local.AiEndpoint + "/chat/completions", new { model = "local", max_tokens = 20 }, directory);
+                    findings["aiBudgetStopsBeforeNetwork"] = false;
+                }
+                catch (InvalidOperationException ex)
+                {
+                    findings["aiBudgetStopsBeforeNetwork"] = ex.Message.Contains("预算", StringComparison.Ordinal);
+                }
             }
             var budgetCheckDirectory = Path.Combine(directory, "budget-integrity");
             Directory.CreateDirectory(budgetCheckDirectory);
@@ -468,7 +594,21 @@ internal static class FeatureDiagnostics
             File.WriteAllText(Path.Combine(budgetCheckDirectory, "ai-budget.json"),
                 JsonSerializer.Serialize(new AiRequestQueue.BudgetLedger { Day = DateTime.Now.ToString("yyyy-MM-dd"), EstimatedUsd = 1.25 }));
             findings["validAiBudgetRetained"] = Math.Abs(AiRequestQueue.LoadBudgetLedger(budgetCheckDirectory).EstimatedUsd - 1.25) < 0.00001;
+            File.WriteAllText(Path.Combine(budgetCheckDirectory, "ai-budget.json"),
+                JsonSerializer.Serialize(new AiRequestQueue.BudgetLedger
+                {
+                    Day = DateTime.Now.ToString("yyyy-MM-dd"), EstimatedUsd = 1.25, UnverifiedUsd = -1
+                }));
+            try { AiRequestQueue.LoadBudgetLedger(budgetCheckDirectory); findings["corruptAiBudgetBreakdownFailsClosed"] = false; }
+            catch (InvalidDataException) { findings["corruptAiBudgetBreakdownFailsClosed"] = true; }
             findings["legacyDetailCacheRefresh"] = await ScrapeCandidateCache.VerifyLegacyIdentityRefreshAsync(directory);
+            findings["reviewTransactionDurability"] = ReviewTransactionStore.VerifyForDiagnostics(Path.Combine(directory, "review-transactions"));
+            findings["reviewSelection10k"] = MainWindow.VerifyReviewSelectionForDiagnostics();
+            var fairQueue = ScrapeQueueFairnessDiagnostics.Run(Path.Combine(directory, "source-fair-queue"));
+            findings["sourceFairQueue10k"] = fairQueue.Passed;
+            findings["sourceFairQueue10kMetrics"] = fairQueue;
+            findings["folderTreeHierarchy"] = MainWindow.VerifyFolderTreeForDiagnostics();
+            findings["categoryChildPathsAndBatchApply"] = MainWindow.VerifyChildCategoriesForDiagnostics();
 
             var backupData = Path.Combine(directory, "backup-verification");
             Directory.CreateDirectory(backupData);
@@ -479,6 +619,7 @@ internal static class FeatureDiagnostics
             File.WriteAllText(Path.Combine(backupData, "review-history.jsonl"), "{\"Action\":\"approve\"}" + Environment.NewLine);
             File.WriteAllText(Path.Combine(backupData, "ai-budget.json"), "{\"Day\":\"2026-10-25\",\"EstimatedUsd\":1}");
             File.WriteAllText(Path.Combine(backupData, "javinfo-usage.json"), "{\"UtcDay\":\"2026-10-25\",\"ReservedCalls\":1}");
+            File.WriteAllText(Path.Combine(backupData, "scrape-source-backoff.json"), "{\"Version\":1,\"Sources\":{}}");
             Directory.CreateDirectory(Path.Combine(backupData, "posters"));
             File.WriteAllBytes(Path.Combine(backupData, "posters", "abc.jpg"), [1, 2, 3]);
             Directory.CreateDirectory(Path.Combine(backupData, "thumbs"));
@@ -491,13 +632,60 @@ internal static class FeatureDiagnostics
                 && File.Exists(Path.Combine(backupPackage, "backup-manifest.json"))
                 && File.Exists(Path.Combine(backupPackage, "posters", "abc.jpg"))
                 && File.Exists(Path.Combine(backupPackage, "thumbs", "abc-custom.png"))
+                && File.Exists(Path.Combine(backupPackage, "scrape-source-backoff.json"))
                 && !backedConfig.Contains("secret-sentinel", StringComparison.Ordinal)
                 && !backedConfig.Contains("tmdb-secret", StringComparison.Ordinal)
                 && !backedConfig.Contains("paid-secret", StringComparison.Ordinal);
+            var sourceBackoffPath = Path.Combine(backupData, "scrape-source-backoff.json");
+            var validSourceBackoff = File.ReadAllText(sourceBackoffPath);
+            File.WriteAllText(sourceBackoffPath + ".bak", validSourceBackoff);
+            File.WriteAllText(sourceBackoffPath, "{damaged");
+            var fallbackBackup = LibraryBackupService.Create(backupData);
+            findings["backupUsesValidSourceBackoffFallback"] = LibraryBackupService.Verify(fallbackBackup).IsValid
+                && File.ReadAllText(Path.Combine(fallbackBackup, "scrape-source-backoff.json")) == validSourceBackoff;
+            File.WriteAllText(sourceBackoffPath, validSourceBackoff);
+            var offlineBackupData = Path.Combine(directory, "offline-backup-verification");
+            Directory.CreateDirectory(offlineBackupData);
+            File.WriteAllText(Path.Combine(offlineBackupData, "config.json"), "{\"folders\":[],\"aiKey\":\"offline-secret\"}");
+            File.WriteAllText(Path.Combine(offlineBackupData, "metadata.json"), "{}");
+            LibraryBackupService.StageOfflineBackup(offlineBackupData);
+            bool backupWaitedForOtherSession;
+            using (var activeSession = LibraryBackupService.AcquireSessionLease(offlineBackupData))
+                backupWaitedForOtherSession = !LibraryBackupService.ApplyPendingOfflineBackupAtStartup(offlineBackupData, out _, false)
+                    && LibraryBackupService.HasPendingOfflineBackup(offlineBackupData);
+            var offlineBackupApplied = LibraryBackupService.ApplyPendingOfflineBackupAtStartup(offlineBackupData, out var offlineBackupError, false);
+            var offlineBackupResult = LibraryBackupService.LastOfflineBackupResult(offlineBackupData);
+            findings["scheduledOfflineBackupIsConsistent"] = backupWaitedForOtherSession && offlineBackupApplied
+                && offlineBackupError.Length == 0 && !LibraryBackupService.HasPendingOfflineBackup(offlineBackupData)
+                && offlineBackupResult is { Succeeded: true }
+                && LibraryBackupService.Verify(offlineBackupResult.Path).IsValid
+                && !File.ReadAllText(Path.Combine(offlineBackupResult.Path, "config.json")).Contains("offline-secret", StringComparison.Ordinal);
+            LibraryBackupService.StageOfflineBackup(offlineBackupData);
+            bool restoreBlockedByPendingBackup;
+            try { LibraryBackupService.StageRestore(offlineBackupData, offlineBackupResult!.Path); restoreBlockedByPendingBackup = false; }
+            catch (InvalidOperationException) { restoreBlockedByPendingBackup = true; }
+            LibraryBackupService.CancelPendingOfflineBackup(offlineBackupData);
+            findings["offlineBackupCanCancelWithoutRestoreRace"] = restoreBlockedByPendingBackup
+                && !LibraryBackupService.HasPendingOfflineBackup(offlineBackupData);
+            var failedOfflineData = Path.Combine(directory, "offline-backup-retry");
+            Directory.CreateDirectory(failedOfflineData);
+            File.WriteAllText(Path.Combine(failedOfflineData, "config.json"), "broken config");
+            LibraryBackupService.StageOfflineBackup(failedOfflineData);
+            var keptAfterFailure = LibraryBackupService.ApplyPendingOfflineBackupAtStartup(failedOfflineData,
+                out var offlineFailureMessage, false)
+                && offlineFailureMessage.Contains("一致性备份失败", StringComparison.Ordinal)
+                && LibraryBackupService.HasPendingOfflineBackup(failedOfflineData)
+                && LibraryBackupService.LastOfflineBackupResult(failedOfflineData) is { Succeeded: false };
+            File.WriteAllText(Path.Combine(failedOfflineData, "config.json"), "{\"folders\":[]}");
+            var retrySucceeded = LibraryBackupService.ApplyPendingOfflineBackupAtStartup(failedOfflineData, out _, false)
+                && !LibraryBackupService.HasPendingOfflineBackup(failedOfflineData)
+                && LibraryBackupService.LastOfflineBackupResult(failedOfflineData) is { Succeeded: true };
+            findings["offlineBackupFailureKeepsRetryAndAllowsStart"] = keptAfterFailure && retrySucceeded;
             File.WriteAllText(Path.Combine(backupData, "config.json"), "{\"folders\":[\"modified\"]}");
             File.WriteAllText(Path.Combine(backupData, "metadata.json"), "{\"video-2\":{\"Title\":\"Changed\"}}");
             File.WriteAllText(Path.Combine(backupData, "ai-budget.json"), "{\"Day\":\"2026-10-25\",\"EstimatedUsd\":9}");
             File.WriteAllText(Path.Combine(backupData, "javinfo-usage.json"), "{\"UtcDay\":\"2026-10-25\",\"ReservedCalls\":9}");
+            File.WriteAllText(Path.Combine(backupData, "scrape-source-backoff.json.bak"), "stale pre-restore source cooldown");
             ScrapeQueueStore.Remove(backupData, "video-1");
             LibraryBackupService.StageRestore(backupData, backupPackage);
             bool blockedBySharedLeases;
@@ -512,7 +700,8 @@ internal static class FeatureDiagnostics
             findings["verifiedOfflineRestoreAndQueue"] = appliedBackup && restoreMessage.Length == 0
                 && File.ReadAllText(Path.Combine(backupData, "metadata.json")).Contains("Original", StringComparison.Ordinal)
                 && ScrapeQueueStore.Load(backupData).SingleOrDefault()?.Code == "ABC-123"
-                && File.Exists(Path.Combine(backupData, "posters", "abc.jpg"));
+                && File.Exists(Path.Combine(backupData, "posters", "abc.jpg"))
+                && !File.Exists(Path.Combine(backupData, "scrape-source-backoff.json.bak"));
             using var keptBudget = JsonDocument.Parse(File.ReadAllText(Path.Combine(backupData, "ai-budget.json")));
             findings["restorePreservesMonotonicQuotaLedgers"] = keptBudget.RootElement.GetProperty("EstimatedUsd").GetDouble() == 9
                 && JavinfoUsageLedger.ReadForDiagnostics(backupData).reservedCalls == 9;
@@ -568,6 +757,24 @@ internal static class FeatureDiagnostics
                 && File.Exists(Path.Combine(backupData, "config.json"))
                 && ScrapeQueueStore.Load(backupData).SingleOrDefault()?.Code == "ABC-123";
 
+            foreach (var result in BackupScheduleDiagnostics.Run())
+                findings[result.Key] = result.Value;
+
+            var titleCandidates = await TitleCandidateDiagnostics.RunAsync(directory);
+            findings["titleCandidateOfflineComparison"] = titleCandidates.Passed;
+            findings["titleCandidateThreeSurviveRestart"] = titleCandidates.ThreeCandidatesSurviveRestart;
+            findings["titleCandidateStableTieOrder"] = titleCandidates.StableTieOrder;
+            findings["titleCandidateProvenancePreserved"] = titleCandidates.OriginalAndDetailProvenancePreserved;
+            findings["titleCandidateExpiredStillReadable"] = titleCandidates.ExpiredSnapshotStillReadable;
+            findings["titleCandidateNetworkFailureNotEmpty"] = titleCandidates.NetworkFailureNotCachedAsEmpty;
+            findings["titleCandidateOtherSourceSurvivesOverflow"] = titleCandidates.OtherSourceSurvivesOverflow;
+
+            foreach (var result in MainWindow.VerifyUpdatePromptForDiagnostics(Path.Combine(directory, "update-prompt")))
+                findings["updatePrompt." + result.Key] = result.Value;
+
+            foreach (var result in StartupUpdateGateDiagnostics.Verify(Path.Combine(directory, "startup-update-gate")))
+                findings["startupUpdateGate." + result.Key] = result.Value;
+
             findings["passed"] = findings.Values.OfType<bool>().All(value => value);
         }
         catch (Exception ex) { findings["passed"] = false; findings["error"] = ex.ToString(); }
@@ -577,6 +784,6 @@ internal static class FeatureDiagnostics
             try { Directory.Delete(directory, true); } catch { }
         }
         File.WriteAllText(resultPath, JsonSerializer.Serialize(findings, new JsonSerializerOptions { WriteIndented = true }));
-        return findings.TryGetValue("passed", out var passed) && passed is true ? 0 : 1;
+        return findings.TryGetValue("passed", out var allPassed) && allPassed is true ? 0 : 1;
     }
 }

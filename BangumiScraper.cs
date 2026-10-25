@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -91,6 +92,8 @@ public static class BangumiScraper
             var candidate = ParseSubjectSummary(subject);
             if (candidate is not null) results.Add(candidate);
         }
+        if (data.GetArrayLength() > 0 && results.Count == 0)
+            throw new InvalidDataException("Bangumi 搜索条目缺少可核对的作品 ID、类型或标题，不能判定为无匹配。");
         return results;
     }
 

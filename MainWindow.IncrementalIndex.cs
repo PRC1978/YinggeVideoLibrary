@@ -131,10 +131,19 @@ public partial class MainWindow
             foreach (var pair in delta.replacements) previous[pair.Key] = pair.Value;
             ApplySavedFields(additions);
             videos = previous.Values.OrderByDescending(item => item.Modified).ToList();
+            preservedMismatchedIndexCount = 0;
             categoryDataVersion++;
             ShowView(view);
             TaskStatusText.Text = $"增量更新完成 · {videos.Count} 部视频";
-            try { await SaveIndexAsync(videos, roots); }
+            try
+            {
+                var saved = await SaveIndexAsync(videos, roots);
+                if (saved.PreservedMismatchedIndex)
+                {
+                    preservedMismatchedIndexCount = saved.PreviousEntryCount;
+                    ShowPreservedMismatchedIndexNotice();
+                }
+            }
             catch (Exception ex) { Log("增量索引保存失败：" + ex.Message); }
         }
         catch (Exception ex) { Log("增量更新失败，改为完整扫描：" + ex.Message); await RefreshAsync(); }

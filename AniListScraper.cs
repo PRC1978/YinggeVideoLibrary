@@ -139,6 +139,8 @@ public static class AniListScraper
             record.StampAvailableFields("搜索结果");
             results.Add(record);
         }
+        if (media.GetArrayLength() > 0 && results.Count == 0)
+            throw new InvalidDataException("AniList 搜索条目缺少可核对的动画 ID 或标题，不能判定为无匹配。");
         return results;
     }
 

@@ -8,6 +8,7 @@ public partial class MainWindow
     // on config in place, so keeping a second reference would hide every edit.
     static LibraryConfig CloneLibraryConfig(LibraryConfig source) => new()
     {
+        SchemaVersion = source.SchemaVersion,
         Folders = [.. source.Folders],
         FoldersClearedByUser = source.FoldersClearedByUser,
         Favorites = [.. source.Favorites],
@@ -18,12 +19,22 @@ public partial class MainWindow
         CategoryNames = [.. source.CategoryNames],
         WatchStates = new Dictionary<string, string>(source.WatchStates, StringComparer.OrdinalIgnoreCase),
         AutoCategorize = source.AutoCategorize,
-        CategoryRenames = new Dictionary<string, string>(source.CategoryRenames, StringComparer.CurrentCultureIgnoreCase),
+        CategoryRenames = new Dictionary<string, string>(source.CategoryRenames, StringComparer.OrdinalIgnoreCase),
         CustomPosters = new Dictionary<string, string>(source.CustomPosters, StringComparer.OrdinalIgnoreCase),
+        DisplayTitleOverrides = new Dictionary<string, string>(source.DisplayTitleOverrides, StringComparer.OrdinalIgnoreCase),
+        RecommendationUseFavorites = source.RecommendationUseFavorites,
+        RecommendationUseWatchStatus = source.RecommendationUseWatchStatus,
+        RecommendationUseCategories = source.RecommendationUseCategories,
+        RecommendationUseTags = source.RecommendationUseTags,
+        RecommendationOnlineTopics = source.RecommendationOnlineTopics,
+        RecommendationLessLikeVideoIds = [.. source.RecommendationLessLikeVideoIds],
         ShowAll = source.ShowAll,
         TmdbToken = source.TmdbToken,
         EnableExtension = source.EnableExtension,
         AutoStart = source.AutoStart,
+        MinimizeToTray = source.MinimizeToTray,
+        StartMinimized = source.StartMinimized,
+        StartPage = source.StartPage,
         GpuThumbnails = source.GpuThumbnails,
         AiEndpoint = source.AiEndpoint,
         AiModel = source.AiModel,
@@ -33,7 +44,19 @@ public partial class MainWindow
         AiOutputUsdPerMillion = source.AiOutputUsdPerMillion,
         AiMaxOutputTokens = source.AiMaxOutputTokens,
         AiRequestIntervalMs = source.AiRequestIntervalMs,
+        AiLocalRequestIntervalMs = source.AiLocalRequestIntervalMs,
+        AiCloudRequestIntervalMs = source.AiCloudRequestIntervalMs,
+        AiLocalConcurrency = source.AiLocalConcurrency,
+        AiCloudConcurrency = source.AiCloudConcurrency,
+        AiLocalRetryCount = source.AiLocalRetryCount,
+        AiCloudRetryCount = source.AiCloudRetryCount,
         AiReviews = source.AiReviews.ToDictionary(pair => pair.Key, pair => CloneReview(pair.Value), StringComparer.OrdinalIgnoreCase),
+        AiSuggestions = source.AiSuggestions.ToDictionary(pair => pair.Key,
+            pair => pair.Value is null ? null! : AiSuggestionAudit.Clone(pair.Value), StringComparer.Ordinal),
+        AiSuggestionActions = source.AiSuggestionActions.ToDictionary(pair => pair.Key,
+            pair => pair.Value is null ? null! : AiSuggestionAudit.Clone(pair.Value), StringComparer.Ordinal),
+        SiteListLocalActions = source.SiteListLocalActions.ToDictionary(pair => pair.Key,
+            pair => pair.Value is null ? null! : SiteListLocalActionStore.Clone(pair.Value), StringComparer.Ordinal),
         SearchHistory = [.. source.SearchHistory]
         ,SourceTrustWeights = new Dictionary<string, int>(source.SourceTrustWeights, StringComparer.OrdinalIgnoreCase)
         ,EnableJavDb = source.EnableJavDb
@@ -47,6 +70,11 @@ public partial class MainWindow
         ,EnablePornhub = source.EnablePornhub
         ,EnableTmdb = source.EnableTmdb
         ,EnableTvMaze = source.EnableTvMaze
+        ,EnableWikidata = source.EnableWikidata
+        ,EnableOmdb = source.EnableOmdb
+        ,EnableKitsu = source.EnableKitsu
+        ,EnableTenrai = source.EnableTenrai
+        ,EnableTrakt = source.EnableTrakt
         ,UseFolderPersonHint = source.UseFolderPersonHint
         ,SmartFilters = new Dictionary<string, string>(source.SmartFilters, StringComparer.CurrentCultureIgnoreCase)
         ,AutoAmateurTags = [.. source.AutoAmateurTags]
@@ -58,8 +86,11 @@ public partial class MainWindow
         ,UpdateAutoCheck = source.UpdateAutoCheck
         ,UpdateCheckIntervalHours = source.UpdateCheckIntervalHours
         ,ScrapeRequestIntervalSeconds = source.ScrapeRequestIntervalSeconds
+        ,ScrapeSourcePolicies = source.ScrapeSourcePolicies.ToDictionary(pair => pair.Key,
+            pair => pair.Value.Clone(), StringComparer.OrdinalIgnoreCase)
         ,ScrapeRefreshIncompleteMetadata = source.ScrapeRefreshIncompleteMetadata
         ,CardPageSize = source.CardPageSize
+        ,PosterCacheLimitMb = source.PosterCacheLimitMb
     };
 
     static AiReviewRecord CloneReview(AiReviewRecord review) => new()
@@ -90,21 +121,34 @@ public partial class MainWindow
             && baseline.Folders.Count > 0 ? baseline.Folders : latest.Folders;
         var merged = new LibraryConfig
         {
+            SchemaVersion = Math.Max(baseline.SchemaVersion, Math.Max(current.SchemaVersion, latest.SchemaVersion)),
             Folders = MergeList(baseline.Folders, current.Folders, latestFolders, StringComparer.OrdinalIgnoreCase),
             FoldersClearedByUser = MergeScalar(baseline.FoldersClearedByUser, current.FoldersClearedByUser, latest.FoldersClearedByUser),
             Favorites = MergeList(baseline.Favorites, current.Favorites, latest.Favorites, StringComparer.OrdinalIgnoreCase),
-            CategoryNames = MergeList(baseline.CategoryNames, current.CategoryNames, latest.CategoryNames, StringComparer.CurrentCultureIgnoreCase),
+            CategoryNames = MergeList(baseline.CategoryNames, current.CategoryNames, latest.CategoryNames, StringComparer.OrdinalIgnoreCase),
             SearchHistory = MergeList(baseline.SearchHistory, current.SearchHistory, latest.SearchHistory,
                 StringComparer.CurrentCultureIgnoreCase, prioritizeRecent: true, limit: 12),
             Categories = MergeMap(baseline.Categories, current.Categories, latest.Categories, StringComparer.OrdinalIgnoreCase),
             MultiCategories = MergeListMap(baseline.MultiCategories, current.MultiCategories, latest.MultiCategories,
-                StringComparer.OrdinalIgnoreCase, StringComparer.CurrentCultureIgnoreCase),
+                StringComparer.OrdinalIgnoreCase, StringComparer.OrdinalIgnoreCase),
             Tags = MergeListMap(baseline.Tags, current.Tags, latest.Tags,
                 StringComparer.OrdinalIgnoreCase, StringComparer.CurrentCultureIgnoreCase, limit: 50),
             WatchStates = MergeMap(baseline.WatchStates, current.WatchStates, latest.WatchStates, StringComparer.OrdinalIgnoreCase),
-            CategoryRenames = MergeMap(baseline.CategoryRenames, current.CategoryRenames, latest.CategoryRenames, StringComparer.CurrentCultureIgnoreCase),
+            CategoryRenames = MergeMap(baseline.CategoryRenames, current.CategoryRenames, latest.CategoryRenames, StringComparer.OrdinalIgnoreCase),
             CustomPosters = MergeMap(baseline.CustomPosters, current.CustomPosters, latest.CustomPosters, StringComparer.OrdinalIgnoreCase),
+            DisplayTitleOverrides = MergeMap(baseline.DisplayTitleOverrides, current.DisplayTitleOverrides, latest.DisplayTitleOverrides ?? [], StringComparer.OrdinalIgnoreCase),
+            RecommendationUseFavorites = MergeScalar(baseline.RecommendationUseFavorites, current.RecommendationUseFavorites, latest.RecommendationUseFavorites),
+            RecommendationUseWatchStatus = MergeScalar(baseline.RecommendationUseWatchStatus, current.RecommendationUseWatchStatus, latest.RecommendationUseWatchStatus),
+            RecommendationUseCategories = MergeScalar(baseline.RecommendationUseCategories, current.RecommendationUseCategories, latest.RecommendationUseCategories),
+            RecommendationUseTags = MergeScalar(baseline.RecommendationUseTags, current.RecommendationUseTags, latest.RecommendationUseTags),
+            RecommendationOnlineTopics = MergeScalar(baseline.RecommendationOnlineTopics, current.RecommendationOnlineTopics, latest.RecommendationOnlineTopics),
+            RecommendationLessLikeVideoIds = MergeList(baseline.RecommendationLessLikeVideoIds, current.RecommendationLessLikeVideoIds,
+                latest.RecommendationLessLikeVideoIds, StringComparer.OrdinalIgnoreCase),
             AiReviews = MergeMap(baseline.AiReviews, current.AiReviews, latest.AiReviews, StringComparer.OrdinalIgnoreCase),
+            AiSuggestions = MergeMap(baseline.AiSuggestions, current.AiSuggestions, latest.AiSuggestions, StringComparer.OrdinalIgnoreCase),
+            AiSuggestionActions = MergeMap(baseline.AiSuggestionActions, current.AiSuggestionActions, latest.AiSuggestionActions, StringComparer.OrdinalIgnoreCase),
+            SiteListLocalActions = MergeMap(baseline.SiteListLocalActions, current.SiteListLocalActions,
+                latest.SiteListLocalActions, StringComparer.Ordinal),
             SourceTrustWeights = MergeMap(baseline.SourceTrustWeights, current.SourceTrustWeights, latest.SourceTrustWeights, StringComparer.OrdinalIgnoreCase),
             EnableJavDb = MergeScalar(baseline.EnableJavDb, current.EnableJavDb, latest.EnableJavDb),
             EnableJavDatabase = MergeScalar(baseline.EnableJavDatabase, current.EnableJavDatabase, latest.EnableJavDatabase),
@@ -117,6 +161,11 @@ public partial class MainWindow
             EnablePornhub = MergeScalar(baseline.EnablePornhub, current.EnablePornhub, latest.EnablePornhub),
             EnableTmdb = MergeScalar(baseline.EnableTmdb, current.EnableTmdb, latest.EnableTmdb),
             EnableTvMaze = MergeScalar(baseline.EnableTvMaze, current.EnableTvMaze, latest.EnableTvMaze),
+            EnableWikidata = MergeScalar(baseline.EnableWikidata, current.EnableWikidata, latest.EnableWikidata),
+            EnableOmdb = MergeScalar(baseline.EnableOmdb, current.EnableOmdb, latest.EnableOmdb),
+            EnableKitsu = MergeScalar(baseline.EnableKitsu, current.EnableKitsu, latest.EnableKitsu),
+            EnableTenrai = MergeScalar(baseline.EnableTenrai, current.EnableTenrai, latest.EnableTenrai),
+            EnableTrakt = MergeScalar(baseline.EnableTrakt, current.EnableTrakt, latest.EnableTrakt),
             UseFolderPersonHint = MergeScalar(baseline.UseFolderPersonHint, current.UseFolderPersonHint, latest.UseFolderPersonHint),
             SmartFilters = MergeMap(baseline.SmartFilters, current.SmartFilters, latest.SmartFilters, StringComparer.CurrentCultureIgnoreCase),
             AutoAmateurTags = MergeList(baseline.AutoAmateurTags, current.AutoAmateurTags, latest.AutoAmateurTags, StringComparer.OrdinalIgnoreCase),
@@ -128,14 +177,21 @@ public partial class MainWindow
             UpdateAutoCheck = MergeScalar(baseline.UpdateAutoCheck, current.UpdateAutoCheck, latest.UpdateAutoCheck),
             UpdateCheckIntervalHours = MergeScalar(baseline.UpdateCheckIntervalHours, current.UpdateCheckIntervalHours, latest.UpdateCheckIntervalHours),
             ScrapeRequestIntervalSeconds = MergeScalar(baseline.ScrapeRequestIntervalSeconds, current.ScrapeRequestIntervalSeconds, latest.ScrapeRequestIntervalSeconds),
+            ScrapeSourcePolicies = MergeMap(baseline.ScrapeSourcePolicies, current.ScrapeSourcePolicies,
+                latest.ScrapeSourcePolicies, StringComparer.OrdinalIgnoreCase),
             ScrapeRefreshIncompleteMetadata = MergeScalar(baseline.ScrapeRefreshIncompleteMetadata, current.ScrapeRefreshIncompleteMetadata, latest.ScrapeRefreshIncompleteMetadata),
             CardPageSize = MergeScalar(baseline.CardPageSize, current.CardPageSize, latest.CardPageSize),
+            PosterCacheLimitMb = VideoItem.NormalizePosterCacheLimitMiB(
+                MergeScalar(baseline.PosterCacheLimitMb, current.PosterCacheLimitMb, latest.PosterCacheLimitMb)),
             Player = MergeScalar(baseline.Player, current.Player, latest.Player) ?? "",
             AutoCategorize = MergeScalar(baseline.AutoCategorize, current.AutoCategorize, latest.AutoCategorize),
             ShowAll = MergeScalar(baseline.ShowAll, current.ShowAll, latest.ShowAll),
             TmdbToken = MergeScalar(baseline.TmdbToken, current.TmdbToken, latest.TmdbToken) ?? "",
             EnableExtension = MergeScalar(baseline.EnableExtension, current.EnableExtension, latest.EnableExtension),
             AutoStart = MergeScalar(baseline.AutoStart, current.AutoStart, latest.AutoStart),
+            MinimizeToTray = MergeScalar(baseline.MinimizeToTray, current.MinimizeToTray, latest.MinimizeToTray),
+            StartMinimized = MergeScalar(baseline.StartMinimized, current.StartMinimized, latest.StartMinimized),
+            StartPage = NormalizeStartupPage(MergeScalar(baseline.StartPage, current.StartPage, latest.StartPage)),
             GpuThumbnails = MergeScalar(baseline.GpuThumbnails, current.GpuThumbnails, latest.GpuThumbnails),
             AiEndpoint = MergeScalar(baseline.AiEndpoint, current.AiEndpoint, latest.AiEndpoint) ?? "",
             AiModel = MergeScalar(baseline.AiModel, current.AiModel, latest.AiModel) ?? "",
@@ -144,7 +200,13 @@ public partial class MainWindow
             AiInputUsdPerMillion = MergeScalar(baseline.AiInputUsdPerMillion, current.AiInputUsdPerMillion, latest.AiInputUsdPerMillion),
             AiOutputUsdPerMillion = MergeScalar(baseline.AiOutputUsdPerMillion, current.AiOutputUsdPerMillion, latest.AiOutputUsdPerMillion),
             AiMaxOutputTokens = MergeScalar(baseline.AiMaxOutputTokens, current.AiMaxOutputTokens, latest.AiMaxOutputTokens),
-            AiRequestIntervalMs = MergeScalar(baseline.AiRequestIntervalMs, current.AiRequestIntervalMs, latest.AiRequestIntervalMs)
+            AiRequestIntervalMs = MergeScalar(baseline.AiRequestIntervalMs, current.AiRequestIntervalMs, latest.AiRequestIntervalMs),
+            AiLocalRequestIntervalMs = MergeScalar(baseline.AiLocalRequestIntervalMs, current.AiLocalRequestIntervalMs, latest.AiLocalRequestIntervalMs),
+            AiCloudRequestIntervalMs = MergeScalar(baseline.AiCloudRequestIntervalMs, current.AiCloudRequestIntervalMs, latest.AiCloudRequestIntervalMs),
+            AiLocalConcurrency = MergeScalar(baseline.AiLocalConcurrency, current.AiLocalConcurrency, latest.AiLocalConcurrency),
+            AiCloudConcurrency = MergeScalar(baseline.AiCloudConcurrency, current.AiCloudConcurrency, latest.AiCloudConcurrency),
+            AiLocalRetryCount = MergeScalar(baseline.AiLocalRetryCount, current.AiLocalRetryCount, latest.AiLocalRetryCount),
+            AiCloudRetryCount = MergeScalar(baseline.AiCloudRetryCount, current.AiCloudRetryCount, latest.AiCloudRetryCount)
         };
         if (merged.Folders.Count > 0) merged.FoldersClearedByUser = false;
         return merged;

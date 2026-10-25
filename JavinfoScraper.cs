@@ -26,26 +26,38 @@ public static class JavinfoScraper
         return client;
     }
 
-    public static async Task<List<MovieMetadata>> SearchAsync(string query, string apiKey, string dataDir,
+    public static async Task<List<MovieMetadata>> SearchAsync(JavinfoSearchEvidence evidence, string apiKey, string dataDir,
         int dailyLimit = DefaultDailyRequestLimit, CancellationToken cancellationToken = default)
     {
-        query = (query ?? "").Trim();
-        if (query.Length == 0) throw new ArgumentException("请填写 Javinfo 搜索词。", nameof(query));
-        if (query.Length > 200) query = query[..200];
-        using var response = await PostAsync("query", new { q = query, num = 10 }, apiKey, dataDir, dailyLimit, cancellationToken);
+        if (evidence is null) throw new InvalidOperationException("Javinfo 需要明确番号和已核对的日文作品原名；本次不会发出付费请求。");
+        // The paid API receives only a verified number. The Japanese title is
+        // retained for validating the selected detail, never used as a fuzzy
+        // paid search query.
+        using var response = await PostAsync("query", new { q = evidence.Code, num = 10 }, apiKey, dataDir, dailyLimit, cancellationToken);
         using var json = await ReadBoundedJsonAsync(response, cancellationToken);
-        return ParseSearchResults(json.RootElement);
+        return ExactNumberCandidates(ParseSearchResults(json.RootElement), evidence);
     }
 
+    internal static List<MovieMetadata> ExactNumberCandidates(IEnumerable<MovieMetadata> candidates,
+        JavinfoSearchEvidence evidence) => candidates
+        .Where(item => item.Source?.StartsWith("Javinfo", StringComparison.OrdinalIgnoreCase) == true &&
+            string.Equals(item.Code, evidence.Code, StringComparison.OrdinalIgnoreCase)).ToList();
+
     public static async Task<MovieMetadata> FetchCandidateDetailsAsync(MovieMetadata candidate, string apiKey, string dataDir,
-        int dailyLimit = DefaultDailyRequestLimit, CancellationToken cancellationToken = default)
+        JavinfoSearchEvidence? evidence, int dailyLimit = DefaultDailyRequestLimit, CancellationToken cancellationToken = default)
     {
-        if (!candidate.Source.StartsWith("Javinfo", StringComparison.OrdinalIgnoreCase)
-            || string.IsNullOrWhiteSpace(candidate.Code))
-            throw new InvalidOperationException("Javinfo 候选缺少有效番号，无法核对详情。");
+        if (evidence is null) throw new InvalidOperationException("Javinfo 需要明确番号和已核对的日文作品原名；本次不会发出付费请求。");
+        if (candidate.Source?.StartsWith("Javinfo", StringComparison.OrdinalIgnoreCase) != true
+            || !string.Equals(candidate.Code, evidence.Code, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Javinfo 候选番号与当前视频已核对番号不一致；没有发出详情付费请求。");
         using var response = await PostAsync("movie", new { q = candidate.Code }, apiKey, dataDir, dailyLimit, cancellationToken);
         using var json = await ReadBoundedJsonAsync(response, cancellationToken);
-        return ParseMovieDetails(candidate, json.RootElement);
+        var details = ParseMovieDetails(candidate, json.RootElement);
+        var returnedTitleJa = json.RootElement.TryGetProperty("result", out var item) && item.ValueKind == JsonValueKind.Object
+            ? Text(item, "titleJa") : null;
+        if (!evidence.MatchesTitleJa(returnedTitleJa))
+            throw new InvalidDataException("Javinfo 详情未返回匹配的日文原名；详情未写入，请人工核对。此请求可能已消耗来源额度。");
+        return details;
     }
 
     static async Task<HttpResponseMessage> PostAsync(string endpoint, object body, string apiKey, string dataDir,

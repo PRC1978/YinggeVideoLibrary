@@ -24,19 +24,49 @@ public sealed class JavDbCatalogLink
     public JavDbCatalogLink Clone() => new() { Kind = Kind, Name = Name, Url = Url };
 }
 
+public sealed class VerifiedPersonCredit
+{
+    public string Provider { get; set; } = "";
+    public string PersonId { get; set; } = "";
+    public string PersonUrl { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string CharacterName { get; set; } = "";
+    public string VerifiedFromWorkUrl { get; set; } = "";
+
+    public VerifiedPersonCredit Clone() => new()
+    {
+        Provider = Provider, PersonId = PersonId, PersonUrl = PersonUrl,
+        Name = Name, CharacterName = CharacterName, VerifiedFromWorkUrl = VerifiedFromWorkUrl
+    };
+}
+
 public sealed class MovieMetadata
 {
+    // Legacy metadata entries have no schemaVersion and load as 1.
+    // MetadataStore promotes the complete atomic snapshot to version 2 on save.
+    public int SchemaVersion { get; set; } = 1;
     public string Code { get; set; } = "";
     public string Title { get; set; } = "";
     public string Source { get; set; } = "JavDB";
     public string SourceUrl { get; set; } = "";
+    // Stable catalogue IDs returned by a source. A manual Trakt candidate
+    // keeps its Trakt, IMDb and TMDB identities for the separate detail check.
+    public Dictionary<string, string> ExternalIds { get; set; } = [];
     public string? Poster { get; set; }
     public string? PosterUrl { get; set; }
+    // Public detail-page links only. The app does not fetch these images or
+    // stream a trailer while scraping; each link keeps field provenance.
+    public List<string> PreviewImageUrls { get; set; } = [];
+    public string? TrailerUrl { get; set; }
     public string? OriginalTitle { get; set; }
     public string? ReleaseDate { get; set; }
     public int? RuntimeMinutes { get; set; }
     public string? Director { get; set; }
     public string? Studio { get; set; }
+    // Distinct source labels stay distinct. A site's Studio is not inferred
+    // to be its maker or label, and older Studio records remain readable.
+    public string? Maker { get; set; }
+    public string? Label { get; set; }
     public string? Series { get; set; }
     public string? Country { get; set; }
     public string? Language { get; set; }
@@ -48,12 +78,22 @@ public sealed class MovieMetadata
     // Only links that occurred on the verified JavDB detail page are kept.
     // They allow manual actor/series/tag browsing without guessing site IDs.
     public List<JavDbCatalogLink> CatalogLinks { get; set; } = [];
+    // Kept only from a details response whose work ID matches the selected
+    // candidate. Display names alone are never used to identify a person.
+    public List<VerifiedPersonCredit> PersonCredits { get; set; } = [];
+    // TMDB explicitly marks some titles as adult. Its person data and images
+    // are not used for character profiles on those titles.
+    public bool IsAdultContent { get; set; }
     public List<string> Actors { get; set; } = [];
     public List<string> Genres { get; set; } = [];
     public List<string> Keywords { get; set; } = [];
     // Existing metadata.json records have no field provenance. Leave those
     // fields unmarked rather than presenting a guessed source as evidence.
     public Dictionary<string, MetadataFieldProvenance> FieldProvenance { get; set; } = [];
+    // Independent verified source values remain available after aggregation;
+    // the chosen field's provenance alone cannot explain source conflicts.
+    public List<MetadataSourceObservation> SourceObservations { get; set; } = [];
+    public List<string> SourceConflictFields { get; set; } = [];
     // The source record is complete only when its detail page/API was read.
     // Missing fields remain empty: a source may not publish them at all.
     public bool DetailFetched { get; set; }
@@ -65,17 +105,28 @@ public sealed class MovieMetadata
 
     public MovieMetadata Clone() => new()
     {
+        SchemaVersion = SchemaVersion,
         Code = Code, Title = Title, Source = Source, SourceUrl = SourceUrl,
-        Poster = Poster, PosterUrl = PosterUrl, OriginalTitle = OriginalTitle,
+        ExternalIds = ExternalIds?.ToDictionary(pair => pair.Key, pair => pair.Value,
+            StringComparer.OrdinalIgnoreCase) ?? [],
+        Poster = Poster, PosterUrl = PosterUrl,
+        PreviewImageUrls = PreviewImageUrls?.ToList() ?? [], TrailerUrl = TrailerUrl,
+        OriginalTitle = OriginalTitle,
         ReleaseDate = ReleaseDate, RuntimeMinutes = RuntimeMinutes,
-        Director = Director, Studio = Studio, Series = Series, Country = Country,
+        Director = Director, Studio = Studio, Maker = Maker, Label = Label,
+        Series = Series, Country = Country,
         Language = Language, Summary = Summary, Rating = Rating,
         PlatformRatings = PlatformRatings?.Where(value => value is not null).Select(value => value.Clone()).ToList() ?? [],
         CatalogLinks = CatalogLinks?.Where(value => value is not null).Select(value => value.Clone()).ToList() ?? [],
+        PersonCredits = PersonCredits?.Where(value => value is not null).Select(value => value.Clone()).ToList() ?? [],
+        IsAdultContent = IsAdultContent,
         Actors = Actors?.ToList() ?? [], Genres = Genres?.ToList() ?? [],
         Keywords = Keywords?.ToList() ?? [],
         FieldProvenance = FieldProvenance?.Where(pair => pair.Value is not null)
             .ToDictionary(pair => pair.Key, pair => pair.Value.Clone(), StringComparer.Ordinal) ?? [],
+        SourceObservations = SourceObservations?.Where(value => value is not null)
+            .Select(value => value.Clone()).ToList() ?? [],
+        SourceConflictFields = SourceConflictFields?.ToList() ?? [],
         DetailFetched = DetailFetched, DetailIdentityVerified = DetailIdentityVerified,
         DetailNote = DetailNote, ScrapedAt = ScrapedAt
     };
@@ -88,9 +139,12 @@ public sealed class MovieMetadata
             if (!string.IsNullOrWhiteSpace(value)) values[name] = value;
         }
         Add(nameof(Code), Code); Add(nameof(Title), Title); Add(nameof(PosterUrl), PosterUrl);
+        Add(nameof(PreviewImageUrls), string.Join("\n", PreviewImageUrls ?? []));
+        Add(nameof(TrailerUrl), TrailerUrl);
         Add(nameof(OriginalTitle), OriginalTitle); Add(nameof(ReleaseDate), ReleaseDate);
         if (RuntimeMinutes is > 0) values[nameof(RuntimeMinutes)] = RuntimeMinutes.Value.ToString();
-        Add(nameof(Director), Director); Add(nameof(Studio), Studio); Add(nameof(Series), Series);
+        Add(nameof(Director), Director); Add(nameof(Studio), Studio);
+        Add(nameof(Maker), Maker); Add(nameof(Label), Label); Add(nameof(Series), Series);
         Add(nameof(Country), Country); Add(nameof(Language), Language); Add(nameof(Summary), Summary);
         Add(nameof(Rating), Rating);
         Add(nameof(Actors), string.Join("\u001f", Actors ?? []));
@@ -166,6 +220,25 @@ public static class MetadataStore
     // file while it is being moved into place.
     static readonly Mutex WriteMutex = new(false, "Local\\YinggeVideoLibrary.MetadataWrite");
 
+    // Review transactions hold this lease from their verified before state
+    // through config, metadata and audit writes. SaveReviewUndo re-enters the
+    // same mutex on the same thread, while unrelated metadata saves wait.
+    internal static IDisposable AcquireReviewWriteLease()
+    {
+        try
+        {
+            if (!WriteMutex.WaitOne(TimeSpan.FromSeconds(10)))
+                throw new TimeoutException("元数据正在被另一份程序写入，请稍后重试审核。");
+        }
+        catch (AbandonedMutexException) { }
+        return new ReviewWriteLease();
+    }
+
+    sealed class ReviewWriteLease : IDisposable
+    {
+        public void Dispose() => WriteMutex.ReleaseMutex();
+    }
+
     public static Dictionary<string, MovieMetadata> Load(string dataDir)
     {
         var path = Path.Combine(dataDir, "metadata.json");
@@ -184,8 +257,11 @@ public static class MetadataStore
         {
             if (!File.Exists(path)) return false;
             entries = JsonSerializer.Deserialize<Dictionary<string, MovieMetadata>>(File.ReadAllText(path)) ?? [];
+            if (entries.Values.Any(value => value is null || value.SchemaVersion is < 1 or > 2))
+                throw new InvalidDataException("元数据格式版本不受当前程序支持，已停止读取以保护资料。");
             return true;
         }
+        catch (InvalidDataException) { throw; }
         catch { return false; }
     }
 
@@ -210,10 +286,107 @@ public static class MetadataStore
                     if (!entries.ContainsKey(pair.Key)) entries[pair.Key] = pair.Value;
             }
 
+            if (entries.Values.Any(value => value is null || value.SchemaVersion is < 1 or > 2))
+                throw new InvalidDataException("元数据格式版本不受当前程序支持，已停止保存。");
+            foreach (var value in entries.Values) value.SchemaVersion = 2;
+
             var json = JsonSerializer.Serialize(entries, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(temporary, json);
             if (File.Exists(path)) File.Copy(path, backup, true);
             File.Move(temporary, path, true);
+        }
+        finally
+        {
+            try { if (File.Exists(temporary)) File.Delete(temporary); } catch { }
+            if (ownsMutex) try { WriteMutex.ReleaseMutex(); } catch { }
+        }
+    }
+
+    // A rating lookup may finish after another process has edited this video.
+    // Merge only verified platform scores into the current disk record so a
+    // stale details window cannot replace newly approved titles or tags.
+    public static MovieMetadata AddRatingsForSameWork(string dataDir, string videoId,
+        MovieMetadata expectedWork, IReadOnlyCollection<PlatformRating> ratings)
+    {
+        if (ratings.Count == 0) throw new ArgumentException("没有可保存的站点评分。", nameof(ratings));
+        if (ratings.Any(rating => !RatingAggregation.IsValid(rating)))
+            throw new InvalidDataException("站点评分缺少明确分制或数值无效，未写入资料。");
+        Directory.CreateDirectory(dataDir);
+        var path = Path.Combine(dataDir, "metadata.json");
+        var temporary = $"{path}.{Environment.ProcessId}.{Environment.CurrentManagedThreadId}.{Guid.NewGuid():N}.tmp";
+        var ownsMutex = false;
+        try
+        {
+            try { WriteMutex.WaitOne(); ownsMutex = true; }
+            catch (AbandonedMutexException) { ownsMutex = true; }
+            if (!TryLoad(path, out var latest) || !latest.TryGetValue(videoId, out var current))
+                throw new InvalidDataException("已保存的作品资料已变化，请重新打开详情后再补充评分。");
+            var sameUrl = string.Equals(current.SourceUrl?.Trim(), expectedWork.SourceUrl?.Trim(),
+                StringComparison.OrdinalIgnoreCase);
+            var sameCode = string.Equals(current.Code?.Trim(), expectedWork.Code?.Trim(),
+                StringComparison.OrdinalIgnoreCase);
+            var sameTitle = string.Equals(current.Title?.Trim(), expectedWork.Title?.Trim(),
+                StringComparison.OrdinalIgnoreCase);
+            if (!sameUrl || !sameCode || (!sameTitle && string.IsNullOrWhiteSpace(current.SourceUrl)))
+                throw new InvalidOperationException("另一窗口已改动作品身份，请重新核对后再补充评分。");
+            var updated = current.Clone();
+            foreach (var rating in ratings) RatingAggregation.AddOrUpdate(updated, rating.Clone());
+            foreach (var value in latest.Values) value.SchemaVersion = 2;
+            updated.SchemaVersion = 2;
+            latest[videoId] = updated;
+            File.WriteAllText(temporary, JsonSerializer.Serialize(latest,
+                new JsonSerializerOptions { WriteIndented = true }));
+            File.Copy(path, path + ".bak", true);
+            File.Move(temporary, path, true);
+            return updated;
+        }
+        finally
+        {
+            try { if (File.Exists(temporary)) File.Delete(temporary); } catch { }
+            if (ownsMutex) try { WriteMutex.ReleaseMutex(); } catch { }
+        }
+    }
+
+    // Review undo is the one path allowed to delete accepted metadata. A
+    // normal Save deliberately keeps keys added by another instance. Verify
+    // the exact review targets under the same cross-process write mutex before
+    // replacing them, while retaining every unrelated entry from disk.
+    public static void SaveReviewUndo(string dataDir, Dictionary<string, MovieMetadata> entries,
+        IReadOnlyDictionary<string, MovieMetadata?> expected,
+        IReadOnlyDictionary<string, MovieMetadata?> replacement)
+    {
+        if (!expected.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(replacement.Keys))
+            throw new InvalidDataException("审核撤销缺少元数据前后状态。");
+        Directory.CreateDirectory(dataDir);
+        var path = Path.Combine(dataDir, "metadata.json");
+        var temporary = $"{path}.{Environment.ProcessId}.{Environment.CurrentManagedThreadId}.{Guid.NewGuid():N}.tmp";
+        var ownsMutex = false;
+        try
+        {
+            try { WriteMutex.WaitOne(); ownsMutex = true; }
+            catch (AbandonedMutexException) { ownsMutex = true; }
+            if (File.Exists(path) && !TryLoad(path, out _))
+                throw new InvalidDataException("当前元数据文件无法读取，已停止撤销以保护已有资料。");
+            var latest = TryLoad(path, out var loaded)
+                ? new Dictionary<string, MovieMetadata>(loaded, StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, MovieMetadata>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (id, old) in expected)
+            {
+                latest.TryGetValue(id, out var current);
+                if (JsonSerializer.Serialize(current) != JsonSerializer.Serialize(old))
+                    throw new InvalidOperationException($"视频 {id} 的元数据已在其他窗口更改，已停止撤销。");
+            }
+            foreach (var (id, value) in replacement)
+            {
+                if (value is null) latest.Remove(id);
+                else latest[id] = value.Clone();
+            }
+            foreach (var value in latest.Values) value.SchemaVersion = 2;
+            File.WriteAllText(temporary, JsonSerializer.Serialize(latest, new JsonSerializerOptions { WriteIndented = true }));
+            if (File.Exists(path)) File.Copy(path, path + ".bak", true);
+            File.Move(temporary, path, true);
+            entries.Clear();
+            foreach (var (id, value) in latest) entries[id] = value;
         }
         finally
         {
@@ -243,14 +416,16 @@ public static partial class JavDbScraper
     static readonly Regex DetailLabel = new("<strong\\b[^>]*>(?<value>.*?)</strong>", RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
     static readonly Regex DetailValue = new("<(?:span|div)\\b[^>]*class=[\"'][^\"']*\\bvalue\\b[^\"']*[\"'][^>]*>(?<value>.*?)</(?:span|div)>", RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
     static readonly Regex DetailLinks = new("<a\\b[^>]*>(?<value>.*?)</a>", RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    static readonly Regex DetailHeading = new(@"<h2\b[^>]*>(?<body>.*?)</h2>", RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    static readonly Regex DetailStrong = new(@"<strong\b(?<attributes>[^>]*)>(?<value>.*?)</strong>", RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    static readonly Regex CurrentTitleClass = new(@"\bclass\s*=\s*(['""'])[^'""']*\bcurrent-title\b[^'""']*\1", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     static readonly Regex EmptySearchMessage = new(@"(?:沒有|没有|未能|找不到|未找到|暂无|暫無).{0,24}(?:搜尋結果|搜索结果|影片|视频)|(?:no|zero)\s+(?:matching\s+)?(?:results|videos)(?:\s+found)?", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
     static readonly Regex DetailPath = new(@"^/v/[A-Za-z0-9_-]{2,64}/?$", RegexOptions.Compiled);
     static readonly HttpClient Client = CreateClient();
-    static readonly HttpClient PosterClient = CreateClient(allowRedirect: false);
 
-    static HttpClient CreateClient(bool allowRedirect = true)
+    static HttpClient CreateClient(bool allowRedirect = true, bool useCookies = false)
     {
-        var handler = new HttpClientHandler { AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli, AllowAutoRedirect = allowRedirect };
+        var handler = new HttpClientHandler { AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli, AllowAutoRedirect = allowRedirect, UseCookies = useCookies };
         var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36");
         client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("zh-CN,zh;q=0.9");
@@ -358,6 +533,8 @@ public static partial class JavDbScraper
     static void EnsureReadablePage(string html)
     {
         if (string.IsNullOrWhiteSpace(html)) throw new InvalidOperationException("JavDB 返回了空白页面，无法判断匹配情况。");
+        if (Regex.IsMatch(html, @"<title\b[^>]*>\s*(?:登入|登录|Log\s*in)\b", RegexOptions.IgnoreCase))
+            throw new InvalidOperationException("JavDB 要求登录后才能读取此目录；不会把它当作没有作品。");
         if (html.Contains("操作過於頻繁", StringComparison.OrdinalIgnoreCase)
             || html.Contains("操作过于频繁", StringComparison.OrdinalIgnoreCase)
             || html.Contains("too many requests", StringComparison.OrdinalIgnoreCase))
@@ -412,7 +589,7 @@ public static partial class JavDbScraper
         foreach (Match card in Cards.Matches(html))
         {
             var number = Codes.Match(card.Groups["body"].Value);
-            if (number.Success && string.Equals(WebUtility.HtmlDecode(number.Groups["code"].Value.Trim()), code, StringComparison.OrdinalIgnoreCase)) { matched = card; break; }
+            if (number.Success && ScrapeCodeIdentity.Same(WebUtility.HtmlDecode(number.Groups["code"].Value.Trim()), code)) { matched = card; break; }
         }
         if (matched is null)
         {
@@ -426,34 +603,22 @@ public static partial class JavDbScraper
         var posterUrl = WebUtility.HtmlDecode(Image.Match(matched.Groups["body"].Value).Groups["value"].Value);
         var record = new MovieMetadata { Code = code, Title = title, Source = "JavDB", SourceUrl = detail, PosterUrl = SafePosterUrl(posterUrl) };
         record.StampAvailableFields("搜索结果");
-        try
-        {
-            using var detailResponse = await Client.GetAsync(detail, HttpCompletionOption.ResponseContentRead, cancellationToken);
-            EnsureSuccessfulResponse(detailResponse);
-            var detailHtml = await detailResponse.Content.ReadAsStringAsync(cancellationToken);
-            EnsureReadablePage(detailHtml);
-            record = ParseJavDbDetails(record, detailHtml);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-        catch (Exception ex) { record.DetailNote = $"详情暂不可读（{ex.GetType().Name}）；当前仅有搜索摘要"; }
-        string? poster = null;
-        if (Uri.TryCreate(SafePosterUrl(posterUrl), UriKind.Absolute, out var imageUri) && imageUri.Port == 443 && imageUri.UserInfo.Length == 0)
-        {
-            try
-            {
-                using var imageResponse = await PosterClient.GetAsync(imageUri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-                imageResponse.EnsureSuccessStatusCode();
-                var bytes = await AdditionalScrapers.ReadBoundedPosterAsync(imageResponse, cancellationToken);
-                if (bytes is not null)
-                {
-                    var folder = Path.Combine(dataDir, "posters"); Directory.CreateDirectory(folder);
-                    poster = Path.Combine(folder, videoId + ".jpg");
-                    await File.WriteAllBytesAsync(poster, bytes, cancellationToken);
-                }
-            }
-            catch { /* Keep the title when the image host is unavailable. */ }
-        }
-        record.Poster = poster;
+        // The queue must see detail transport errors (especially 429 and timeouts)
+        // so it can cool this source. A search card is never a successful scrape.
+        record = await RequireVerifiedDetailsAsync(record, FetchCandidateDetailsAsync, cancellationToken);
+        await AdditionalScrapers.DownloadPosterAsync(record, videoId, dataDir, cancellationToken);
+        return record;
+    }
+
+    internal static async Task<MovieMetadata> RequireVerifiedDetailsAsync(MovieMetadata candidate,
+        Func<MovieMetadata, CancellationToken, Task<MovieMetadata>> fetch, CancellationToken cancellationToken = default)
+    {
+        var record = await fetch(candidate, cancellationToken);
+        if (!record.DetailFetched || !record.DetailIdentityVerified ||
+            !ScrapeCodeIdentity.Same(record.Code, candidate.Code))
+            throw new InvalidDataException(record.DetailNote?.Contains("不一致", StringComparison.Ordinal) == true
+                ? "JavDB 详情页番号与搜索候选不一致，请人工核对。"
+                : "JavDB 详情未独立核对番号，搜索摘要不能作为完整资料。");
         return record;
     }
 
@@ -470,6 +635,25 @@ public static partial class JavDbScraper
         if (names.Count > 0) return names;
         return CleanHtml(html).Split(new[] { '、', ',', '，', '/' }, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    // The public heading carries the Japanese title separately from the
+    // result-card title. Require both the heading number and the detail panel
+    // number to match; do not call translated or Latin-only titles Japanese.
+    static string? VerifiedJapaneseHeading(string html, string code)
+    {
+        foreach (Match heading in DetailHeading.Matches(html))
+        {
+            var strongs = DetailStrong.Matches(heading.Groups["body"].Value).Cast<Match>().ToList();
+            if (strongs.Count < 2 || !ScrapeCodeIdentity.Same(CleanHtml(strongs[0].Groups["value"].Value), code)) continue;
+            var current = strongs.Skip(1).FirstOrDefault(item => CurrentTitleClass.IsMatch(item.Groups["attributes"].Value));
+            if (current is null) continue;
+            var title = CleanHtml(current.Groups["value"].Value);
+            if (title.Length is < 2 or > 500 || !title.Any(c => c is >= '\u3040' and <= '\u30ff' or >= '\uff66' and <= '\uff9f'))
+                continue;
+            return title;
+        }
+        return null;
     }
 
     // Parse only labels actually present on the public detail page. A missing
@@ -493,11 +677,14 @@ public static partial class JavDbScraper
             if (label is "番號" or "番号" or "number" or "識別碼")
             {
                 // Do not replace the code verified on the search result card.
-                if (string.Equals(value.Replace(" ", ""), record.Code, StringComparison.OrdinalIgnoreCase))
+                // A real detail page links the prefix separately, so
+                // CleanHtml renders <a>JUR</a>-856 as "JUR -856".
+                var detailCode = Regex.Replace(value, @"\s*-\s*", "-");
+                if (ScrapeCodeIdentity.Same(detailCode, record.Code))
                 { recognized++; codeMatched = true; }
                 else codeConflict = true;
             }
-            else if (label.Contains("發行日期") || label.Contains("发行日期") || label.Contains("上映日期") || label is "releasedate")
+            else if (label.Contains("發行日期") || label.Contains("发行日期") || label.Contains("上映日期") || label is "日期" or "date" or "releasedate")
             { record.ReleaseDate = value; recognized++; }
             else if (label.Contains("時長") || label.Contains("时长") || label.Contains("片長") || label.Contains("片长") || label is "duration")
             {
@@ -507,7 +694,11 @@ public static partial class JavDbScraper
             }
             else if (label.Contains("導演") || label.Contains("导演") || label is "director")
             { record.Director = string.Join("、", DetailNames(raw)); recognized++; }
-            else if (label.Contains("片商") || label.Contains("製作商") || label.Contains("制作商") || label is "maker" or "studio")
+            else if (label is "片商" or "製作商" or "制作商" or "製造商" or "制造商" or "maker" or "manufacturer")
+            { record.Maker = string.Join("、", DetailNames(raw)); recognized++; }
+            else if (label is "廠牌" or "厂牌" or "レーベル" or "label")
+            { record.Label = string.Join("、", DetailNames(raw)); recognized++; }
+            else if (label is "發行商" or "发行商" or "publisher" or "distributor" or "studio")
             { record.Studio = string.Join("、", DetailNames(raw)); recognized++; }
             else if (label.Contains("系列") || label is "series")
             { record.Series = string.Join("、", DetailNames(raw)); recognized++; }
@@ -527,6 +718,8 @@ public static partial class JavDbScraper
             safe.DetailFetched = false;
             return safe;
         }
+        if (codeMatched && VerifiedJapaneseHeading(html, record.Code) is { } japaneseTitle)
+        { record.OriginalTitle = japaneseTitle; recognized++; }
         record.CatalogLinks = ExtractCatalogLinks(html);
         record.RefreshChangedFieldProvenance(candidate, "详情页");
         record.DetailFetched = recognized > 0;

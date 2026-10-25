@@ -144,8 +144,15 @@ public partial class MainWindow
             {
                 ShowView("all");
                 await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
-                if (videos.Count == 0 || !SelectionBar.IsVisible || SelectionBar.Parent is not System.Windows.Controls.Grid)
+                if (videos.Count == 0 || !SelectionBar.IsVisible || SelectionBar.Parent is not System.Windows.Controls.Grid
+                    || !BrowseTagsAction.IsVisible)
                     throw new InvalidOperationException("选择栏未显示在完整列表上方，或视频索引为空");
+                activeTagFilter = "diagnostic-filter";
+                UpdateTagFilterControls();
+                if (!ClearTagFilterAction.IsVisible)
+                    throw new InvalidOperationException("完整列表下缺少清除标签筛选入口");
+                activeTagFilter = null;
+                UpdateTagFilterControls();
                 var allCount = videos.Count;
                 var allStarted = System.Diagnostics.Stopwatch.StartNew();
                 SelectAllLibraryVideos(this, new System.Windows.RoutedEventArgs());
@@ -165,6 +172,66 @@ public partial class MainWindow
                 {
                     ClearVideoSelection();
                     currentFilteredVideos = savedFiltered;
+                }
+                var savedShowAll = config.ShowAll;
+                var savedPageIndex = pageIndex;
+                try
+                {
+                    config.ShowAll = true;
+                    pageIndex = 0;
+                    RenderCards();
+                    var ordered = currentFilteredVideos;
+                    if (ordered.Count >= 6)
+                    {
+                        if (VirtualCards.ItemsSource is null || AllListPanel.Visibility != System.Windows.Visibility.Visible)
+                            throw new InvalidOperationException("完整列表没有使用虚拟化视频卡片");
+                        ToggleCardSelection(ordered[1]);
+                        SelectVideoRange(ordered[5]);
+                        if (selectedVideoIds.Count != 5 || ordered.Skip(1).Take(5).Any(item => !item.IsSelected)
+                            || selectionAnchorId != ordered[1].Id)
+                            throw new InvalidOperationException("完整列表 Shift 连续选择或锚点错误");
+                        SelectVideoRange(ordered[0]);
+                        if (selectedVideoIds.Count != 6 || !ordered[0].IsSelected)
+                            throw new InvalidOperationException("反向 Shift 连续选择错误");
+                        ClearVideoSelection();
+                    }
+
+                    config.ShowAll = false;
+                    pageIndex = 0;
+                    RenderCards();
+                    ordered = currentFilteredVideos;
+                    if (ordered.Count >= 6)
+                    {
+                        if (Cards.ItemsSource is null || pageItems.Count == 0)
+                            throw new InvalidOperationException("分页列表没有视频卡片");
+                        var endIndex = Math.Min(ordered.Count - 1, Math.Max(5, config.CardPageSize + 2));
+                        ToggleCardSelection(ordered[1]);
+                        if (endIndex >= pageItems.Count)
+                        {
+                            pageIndex = 1;
+                            RenderCards();
+                            if (!pageItems.Any(item => item.Id == ordered[endIndex].Id))
+                                throw new InvalidOperationException("跨页目标视频没有显示在下一页");
+                        }
+                        SelectVideoRange(ordered[endIndex]);
+                        if (selectedVideoIds.Count != endIndex || ordered.Skip(1).Take(endIndex).Any(item => !item.IsSelected))
+                            throw new InvalidOperationException("分页列表跨页 Shift 连续选择错误");
+                        ClearVideoSelection();
+                        ToggleCardSelection(ordered[0]);
+                        currentFilteredVideos = ordered.Skip(2).Take(3).ToList();
+                        SelectVideoRange(ordered[3]);
+                        if (selectedVideoIds.Count != 2 || selectionAnchorId != ordered[3].Id || !ordered[3].IsSelected)
+                            throw new InvalidOperationException("筛选变化后 Shift 选择没有重建锚点");
+                        ClearVideoSelection();
+                        RecordCacheDiagnostic("shift range verified", $"完整列表和分页结果均按筛选排序连续选择；跨页终点 {endIndex}；筛选变化时重建锚点；未写入用户数据");
+                    }
+                }
+                finally
+                {
+                    ClearVideoSelection();
+                    config.ShowAll = savedShowAll;
+                    pageIndex = savedPageIndex;
+                    RenderCards();
                 }
                 var one = videos[0];
                 var toggles = System.Diagnostics.Stopwatch.StartNew();

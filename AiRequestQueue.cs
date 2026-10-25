@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.IO;
+using System.Globalization;
 
 namespace YinggeVideoLibrary;
 
@@ -19,6 +20,30 @@ internal static class AiRequestQueue
     {
         if (!Uri.TryCreate(config.AiEndpoint, UriKind.Absolute, out var uri)) return false;
         return !string.IsNullOrWhiteSpace(config.AiKey) || uri.IsLoopback;
+    }
+
+    internal static BudgetLedger LoadBudgetLedger(string dataDir)
+    {
+        var ledgerPath = Path.Combine(dataDir, "ai-budget.json");
+        if (!File.Exists(ledgerPath)) return new BudgetLedger();
+        try
+        {
+            using var json = JsonDocument.Parse(File.ReadAllText(ledgerPath));
+            if (json.RootElement.ValueKind != JsonValueKind.Object ||
+                !json.RootElement.TryGetProperty(nameof(BudgetLedger.Day), out var dayValue) ||
+                dayValue.ValueKind != JsonValueKind.String ||
+                !DateOnly.TryParseExact(dayValue.GetString(), "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                    DateTimeStyles.None, out _) ||
+                !json.RootElement.TryGetProperty(nameof(BudgetLedger.EstimatedUsd), out var costValue) ||
+                costValue.ValueKind != JsonValueKind.Number || !costValue.TryGetDouble(out var cost) ||
+                !double.IsFinite(cost) || cost < 0)
+                throw new InvalidDataException("AI 用量记录格式不正确。");
+            return new BudgetLedger { Day = dayValue.GetString()!, EstimatedUsd = cost };
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidDataException("AI 用量记录无法读取；为保护费用上限，已暂停 AI 请求。", ex);
+        }
     }
 
     public static async Task<JsonDocument> SendAsync(LibraryConfig config, string endpoint, object payload, string dataDir)
@@ -39,9 +64,7 @@ internal static class AiRequestQueue
                 try { BudgetMutex.WaitOne(); ownsBudgetMutex = true; }
                 catch (AbandonedMutexException) { ownsBudgetMutex = true; }
                 var ledgerPath = Path.Combine(dataDir, "ai-budget.json");
-                BudgetLedger ledger;
-                try { ledger = File.Exists(ledgerPath) ? JsonSerializer.Deserialize<BudgetLedger>(File.ReadAllText(ledgerPath)) ?? new() : new(); }
-                catch { ledger = new(); }
+                var ledger = LoadBudgetLedger(dataDir);
                 var today = DateTime.Now.ToString("yyyy-MM-dd");
                 if (ledger.Day != today) ledger = new BudgetLedger { Day = today };
                 if (config.AiDailyBudgetUsd > 0 && ledger.EstimatedUsd + reserve > config.AiDailyBudgetUsd)

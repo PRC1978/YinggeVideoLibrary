@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -21,11 +22,12 @@ public partial class MainWindow
 
     // A ListBox with a fixed viewport realizes only visible rows. The former
     // context menu created two MenuItems for every category before opening.
-    internal BatchCategoryPickerUi BuildBatchCategoryPicker(IReadOnlyList<string> targets, int selectedCount, Action<string, bool> choose)
+    internal BatchCategoryPickerUi BuildBatchCategoryPicker(IReadOnlyList<string> targets, int selectedCount, Action<string, bool> choose,
+        string? description = null, bool moveOnly = false)
     {
         var dialog = new Window
         {
-            Title = "批量分类",
+            Title = moveOnly ? "移动到分类" : selectedCount == 1 ? "视频分类" : "批量分类",
             Owner = this,
             Width = 640,
             Height = 620,
@@ -44,10 +46,10 @@ public partial class MainWindow
 
         var heading = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };
         heading.Children.Add(new TextBlock { Text = "选择目标分类", FontSize = 20, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(38, 51, 71)) });
-        heading.Children.Add(new TextBlock { Text = $"已选 {selectedCount:N0} 部视频 · 可添加到多个分类，也可替换原分类", Margin = new Thickness(0, 6, 0, 0), Foreground = new SolidColorBrush(Color.FromRgb(117, 131, 153)) });
+        heading.Children.Add(new TextBlock { Text = description ?? $"已选 {selectedCount:N0} 部视频 · 可添加到多个分类，也可替换原分类", Margin = new Thickness(0, 6, 0, 0), Foreground = new SolidColorBrush(Color.FromRgb(117, 131, 153)), TextTrimming = TextTrimming.CharacterEllipsis });
         layout.Children.Add(heading);
 
-        var search = new TextBox { Height = 40, Padding = new Thickness(12, 8, 12, 8), BorderBrush = new SolidColorBrush(Color.FromRgb(213, 223, 239)), Background = Brushes.White, ToolTip = "输入分类名称或路径筛选；按 Enter 添加到选中分类" };
+        var search = new TextBox { Height = 40, Padding = new Thickness(12, 8, 12, 8), BorderBrush = new SolidColorBrush(Color.FromRgb(213, 223, 239)), Background = Brushes.White, ToolTip = moveOnly ? "输入分类名称或路径筛选；按 Enter 移动到选中分类" : "输入分类名称或路径筛选；按 Enter 添加到选中分类" };
         Grid.SetRow(search, 1);
         layout.Children.Add(search);
 
@@ -85,9 +87,9 @@ public partial class MainWindow
         Button Action(string label, bool primary = false)
             => new() { Content = label, Style = (Style)FindResource(primary ? "Primary" : "Action"), Margin = new Thickness(0, 0, 9, 7) };
         var actions = new WrapPanel { Margin = new Thickness(0, 14, 0, 0) };
-        var add = Action("添加到分类", true);
+        var add = Action(moveOnly ? "移动到分类" : "添加到分类", true);
         var replace = Action("替换原分类");
-        var create = Action("＋ 新建并添加");
+        var create = Action(moveOnly ? "＋ 新建并移动" : "＋ 新建并添加");
         var createReplace = Action("＋ 新建并替换");
         var clear = Action("清除分类");
         var cancel = Action("取消");
@@ -105,7 +107,7 @@ public partial class MainWindow
             if (e.Key == Key.Enter && categories.SelectedItem is string target) { choose(target, false); e.Handled = true; }
             else if (e.Key == Key.Escape) { dialog.DialogResult = false; e.Handled = true; }
         };
-        foreach (var button in new[] { add, replace, create, createReplace, clear, cancel }) actions.Children.Add(button);
+        foreach (var button in moveOnly ? new[] { add, create, cancel } : new[] { add, replace, create, createReplace, clear, cancel }) actions.Children.Add(button);
         Grid.SetRow(actions, 4);
         layout.Children.Add(actions);
         dialog.Content = layout;
@@ -117,6 +119,20 @@ public partial class MainWindow
     internal async Task<string> VerifyBatchCategoryPickerOffscreenAsync()
     {
         var targets = Enumerable.Range(0, 3500).Select(index => $"人物 {index:0000} / 作品分类").ToArray();
+        // The category picker may hold thousands of paths, but a right click
+        // must build a fixed-size menu before the user asks to choose one.
+        var categoryCount = CategoryTargets().Count();
+        var probe = new VideoItem
+        {
+            Id = "context-menu-offscreen-probe", Path = "context-menu-offscreen-probe.mp4",
+            Title = "右键菜单诊断", Folder = ".", Size = 0, Modified = DateTime.UtcNow
+        };
+        var timer = Stopwatch.StartNew();
+        var card = BuildCardContextMenu(probe);
+        var folder = BuildFolderContextMenu("diagnostic-folder");
+        timer.Stop();
+        if (card.Items.Count > 20 || folder.Items.Count != 1 || timer.ElapsedMilliseconds > 500)
+            throw new InvalidOperationException($"右键菜单仍同步构建了过多分类：卡片 {card.Items.Count} 项，文件夹 {folder.Items.Count} 项，{timer.ElapsedMilliseconds} ms");
         string? chosen = null;
         var shouldReplace = false;
         var picker = BuildBatchCategoryPicker(targets, 32909, (path, replace) => { chosen = path; shouldReplace = replace; });
@@ -143,7 +159,7 @@ public partial class MainWindow
             if (chosen != first || !shouldReplace) throw new InvalidOperationException("批量分类替换动作不正确");
             picker.Clear.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             if (chosen != "未分类" || !shouldReplace) throw new InvalidOperationException("批量分类清除动作不正确");
-            return $"3,500 个分类仅创建 {realized} 个可见条目，搜索、添加、替换、清除正常";
+            return $"实际 {categoryCount:N0} 分类下卡片菜单 {card.Items.Count} 项、文件夹菜单 {folder.Items.Count} 项，构建 {timer.ElapsedMilliseconds} ms；3,500 分类的选择器仅创建 {realized} 个可见条目，搜索、添加、替换、清除正常";
         }
         finally { picker.Dialog.Close(); }
     }

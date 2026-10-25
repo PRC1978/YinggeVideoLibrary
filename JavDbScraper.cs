@@ -57,6 +57,9 @@ public sealed class MovieMetadata
     // The source record is complete only when its detail page/API was read.
     // Missing fields remain empty: a source may not publish them at all.
     public bool DetailFetched { get; set; }
+    // True only when the detail response independently confirms the selected
+    // code or the source's stable item ID. Legacy records default to false.
+    public bool DetailIdentityVerified { get; set; }
     public string? DetailNote { get; set; }
     public DateTime ScrapedAt { get; set; } = DateTime.Now;
 
@@ -73,7 +76,8 @@ public sealed class MovieMetadata
         Keywords = Keywords?.ToList() ?? [],
         FieldProvenance = FieldProvenance?.Where(pair => pair.Value is not null)
             .ToDictionary(pair => pair.Key, pair => pair.Value.Clone(), StringComparer.Ordinal) ?? [],
-        DetailFetched = DetailFetched, DetailNote = DetailNote, ScrapedAt = ScrapedAt
+        DetailFetched = DetailFetched, DetailIdentityVerified = DetailIdentityVerified,
+        DetailNote = DetailNote, ScrapedAt = ScrapedAt
     };
 
     Dictionary<string, string> PresentFieldValues()
@@ -475,6 +479,7 @@ public static partial class JavDbScraper
         var record = candidate.Clone();
         var recognized = 0;
         var codeConflict = false;
+        var codeMatched = false;
         foreach (Match block in DetailBlocks.Matches(html))
         {
             var body = block.Groups["body"].Value;
@@ -488,7 +493,8 @@ public static partial class JavDbScraper
             if (label is "番號" or "番号" or "number" or "識別碼")
             {
                 // Do not replace the code verified on the search result card.
-                if (string.Equals(value.Replace(" ", ""), record.Code, StringComparison.OrdinalIgnoreCase)) recognized++;
+                if (string.Equals(value.Replace(" ", ""), record.Code, StringComparison.OrdinalIgnoreCase))
+                { recognized++; codeMatched = true; }
                 else codeConflict = true;
             }
             else if (label.Contains("發行日期") || label.Contains("发行日期") || label.Contains("上映日期") || label is "releasedate")
@@ -524,6 +530,7 @@ public static partial class JavDbScraper
         record.CatalogLinks = ExtractCatalogLinks(html);
         record.RefreshChangedFieldProvenance(candidate, "详情页");
         record.DetailFetched = recognized > 0;
+        record.DetailIdentityVerified = record.DetailFetched && codeMatched;
         record.DetailNote = recognized > 0 ? $"已读取 JavDB 详情页（{recognized} 项）；来源未提供的字段保持空白"
             : "详情页未返回可识别字段；当前仅有搜索摘要，请核对来源页面";
         // Preserve free-form site ratings as text. Only an explicit scale can

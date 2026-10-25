@@ -303,6 +303,7 @@ public static class JavDatabaseScraper
         }
         result.RefreshChangedFieldProvenance(candidate, "详情页");
         result.DetailFetched = recognized > 0;
+        result.DetailIdentityVerified = result.DetailFetched;
         result.DetailNote = result.DetailFetched
             ? $"已读取 JAVDatabase 公开详情（{recognized} 项）；缺失字段保持空白"
             : "JAVDatabase 详情页没有可识别的资料字段";

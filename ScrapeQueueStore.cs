@@ -576,4 +576,9 @@ public static class ScrapeQueueStore
         try { return new FileStream(Path.Combine(dataDir, "scrape-queue.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
         catch (IOException) { return null; }
     }
+
+    // Restore runs before any library window is created. The on-disk checkpoint
+    // family has been replaced with a verified portable queue snapshot.
+    internal static void ForgetCachedStateAfterOfflineRestore(string dataDir) =>
+        Caches.TryRemove(Path.GetFullPath(dataDir), out _);
 }

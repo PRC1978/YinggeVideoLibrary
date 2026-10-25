@@ -198,6 +198,7 @@ public static class AniListScraper
         var format = Text(item, "format");
         record.RefreshChangedFieldProvenance(candidate, "详情接口");
         record.DetailFetched = true;
+        record.DetailIdentityVerified = true;
         record.DetailNote = $"已读取 AniList 动画详情、制作人员与配音；{(episodes is > 0 ? $"共 {episodes} 集，" : "")}时长为单集分钟数；{format ?? "格式未提供"}。未提供的字段保持空白";
         var platformRating = RatingAggregation.FromMetadata(record, "详情接口条目一致");
         if (platformRating is not null) RatingAggregation.AddOrUpdate(record, platformRating);

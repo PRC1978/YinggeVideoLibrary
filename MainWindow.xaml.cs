@@ -115,6 +115,8 @@ public sealed class VideoItem : INotifyPropertyChanged
     public List<string> CategoryList { get; } = [];
     public List<string> Tags { get; } = [];
     public string TagsText => Tags.Count == 0 ? "" : "#" + string.Join("  #", Tags);
+    public string TagsPreviewText => Tags.Count == 0 ? "尚无标签" : TagsText;
+    public void RefreshTags() { PropertyChanged?.Invoke(this, new(nameof(TagsText))); PropertyChanged?.Invoke(this, new(nameof(TagsPreviewText))); }
     private string category = "未分类";
     public string Category { get => category; set { category = value; PropertyChanged?.Invoke(this, new(nameof(Category))); PropertyChanged?.Invoke(this, new(nameof(Detail))); } }
     private string watchStatus = "未看";
@@ -253,6 +255,9 @@ public partial class MainWindow : Window
     List<VideoItem> currentFilteredVideos = [];
     List<List<VideoItem>> virtualRows = [];
     readonly HashSet<string> selectedVideoIds = new(StringComparer.OrdinalIgnoreCase);
+    // The anchor follows the last ordinary card/checkbox click. A Shift click
+    // selects through the filtered, sorted result, including videos on other pages.
+    string? selectionAnchorId;
     // A replacement library list is the only time card selection needs a
     // full synchronization. Clicking one checkbox must stay O(1).
     List<VideoItem>? selectionSyncedLibrary;
@@ -1312,8 +1317,9 @@ public partial class MainWindow : Window
     void RenderCards()
     {
         if (Cards is null || SortBox is null) return;
+        UpdateTagFilterControls();
         var query = SearchBox?.Text.Trim() ?? "";
-        var inView = videos.Where(v => (view != "favorites" || v.Favorite) && (view != "categories" || selectedCategory == "全部" || v.CategoryList.Any(c => c.Equals(selectedCategory, StringComparison.CurrentCultureIgnoreCase) || c.StartsWith(selectedCategory + " / ", StringComparison.CurrentCultureIgnoreCase)) || v.Category.Equals(selectedCategory, StringComparison.CurrentCultureIgnoreCase)));
+        var inView = videos.Where(v => (activeTagFilter is null || v.Tags.Contains(activeTagFilter, StringComparer.CurrentCultureIgnoreCase)) && (view != "favorites" || v.Favorite) && (view != "categories" || selectedCategory == "全部" || v.CategoryList.Any(c => c.Equals(selectedCategory, StringComparison.CurrentCultureIgnoreCase) || c.StartsWith(selectedCategory + " / ", StringComparison.CurrentCultureIgnoreCase)) || v.Category.Equals(selectedCategory, StringComparison.CurrentCultureIgnoreCase)));
         IEnumerable<VideoItem> filtered;
         if (query.Length == 0)
         {
@@ -1415,9 +1421,52 @@ public partial class MainWindow : Window
     void VideoSelectionChanged(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is not VideoItem video) return;
+        if (System.Windows.Input.Keyboard.Modifiers.HasFlag(System.Windows.Input.ModifierKeys.Shift))
+        {
+            SelectVideoRange(video);
+            e.Handled = true;
+            return;
+        }
         if (video.IsSelected) selectedVideoIds.Add(video.Id); else selectedVideoIds.Remove(video.Id);
+        selectionAnchorId = video.Id;
         UpdateSelectionToolbar();
         e.Handled = true;
+    }
+
+    void SelectVideoRange(VideoItem target)
+    {
+        var targetIndex = currentFilteredVideos.FindIndex(video => video.Id.Equals(target.Id, StringComparison.OrdinalIgnoreCase));
+        if (targetIndex < 0)
+        {
+            target.IsSelected = true;
+            selectedVideoIds.Add(target.Id);
+            selectionAnchorId = target.Id;
+            UpdateSelectionToolbar();
+            return;
+        }
+        // Search and category changes can remove the old anchor from the
+        // current result. In that case begin a fresh range at the clicked item.
+        var anchorIndex = selectionAnchorId is null ? -1 : currentFilteredVideos.FindIndex(video => video.Id.Equals(selectionAnchorId, StringComparison.OrdinalIgnoreCase));
+        if (anchorIndex < 0)
+        {
+            anchorIndex = targetIndex;
+            selectionAnchorId = target.Id;
+        }
+        for (var index = Math.Min(anchorIndex, targetIndex); index <= Math.Max(anchorIndex, targetIndex); index++)
+        {
+            var video = currentFilteredVideos[index];
+            if (selectedVideoIds.Add(video.Id)) video.IsSelected = true;
+            else if (!video.IsSelected) video.IsSelected = true;
+        }
+        UpdateSelectionToolbar();
+    }
+
+    void ToggleCardSelection(VideoItem video)
+    {
+        video.IsSelected = !video.IsSelected;
+        if (video.IsSelected) selectedVideoIds.Add(video.Id); else selectedVideoIds.Remove(video.Id);
+        selectionAnchorId = video.Id;
+        UpdateSelectionToolbar();
     }
 
     IEnumerable<VideoItem> CurrentSelectionScope()
@@ -1712,6 +1761,7 @@ public partial class MainWindow : Window
     void ClearVideoSelection()
     {
         selectedVideoIds.Clear();
+        selectionAnchorId = null;
         foreach (var video in videos) video.IsSelected = false;
         UpdateSelectionToolbar();
     }
@@ -1936,9 +1986,9 @@ public partial class MainWindow : Window
             };
             row.PreviewMouseRightButtonDown += (_, e) =>
             {
-                var menu = new ContextMenu(); menu.Items.Add(new MenuItem { Header = $"移动文件夹内容到：", IsEnabled = false });
-                foreach (var name in CategoryTargets()) { var target = name!; var item = new MenuItem { Header = "▰  " + target }; item.Click += (_, _) => MoveSourceToCategory(folder, target); menu.Items.Add(item); }
-                row.ContextMenu = menu; menu.IsOpen = true; e.Handled = true;
+                row.ContextMenu = BuildFolderContextMenu(folder);
+                row.ContextMenu.IsOpen = true;
+                e.Handled = true;
             };
             var remove = new Button { Content = "移除", Foreground = Brushes.IndianRed, Background = Brushes.Transparent, BorderThickness = new Thickness(0), Padding = new Thickness(14), Cursor = System.Windows.Input.Cursors.Hand };
             remove.Click += (_, _) => { config.Folders.Remove(folder); config.FoldersClearedByUser = config.Folders.Count == 0; SaveConfig(); ConfigureFolderWatchers(); RenderFolders(); _ = RefreshAsync(); CountText.Text = $"{config.Folders.Count} 个位置"; };
@@ -2454,13 +2504,30 @@ public partial class MainWindow : Window
 
     void CardMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        if (sender is not FrameworkElement element || element.DataContext is not VideoItem) return;
+        if (sender is not FrameworkElement element || element.DataContext is not VideoItem video) return;
+        var control = e.OriginalSource is DependencyObject source ? FindParent<WpfButtonBase>(source) : null;
+        if (System.Windows.Input.Keyboard.Modifiers.HasFlag(System.Windows.Input.ModifierKeys.Shift) && control is null)
+        {
+            dragElement = null;
+            SelectVideoRange(video);
+            e.Handled = true;
+            return;
+        }
         // Buttons own their click. Only a blank area of the card can start a drag.
-        if (e.OriginalSource is DependencyObject source && FindParent<WpfButtonBase>(source) is not null) { dragElement = null; return; }
+        if (control is not null) { dragElement = null; return; }
         dragElement = element; dragStartPoint = e.GetPosition(element);
     }
 
-    void CardMouseUp(object sender, System.Windows.Input.MouseButtonEventArgs e) { dragElement = null; HideDragHint(); }
+    void CardMouseUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement element && ReferenceEquals(dragElement, element) && element.DataContext is VideoItem video
+            && !(e.OriginalSource is DependencyObject source && FindParent<WpfButtonBase>(source) is not null))
+        {
+            ToggleCardSelection(video);
+        }
+        dragElement = null;
+        HideDragHint();
+    }
 
     void CardMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
@@ -2487,6 +2554,32 @@ public partial class MainWindow : Window
     void CardRightClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         if (sender is not FrameworkElement element || element.DataContext is not VideoItem video) return;
+        element.ContextMenu = BuildCardContextMenu(video);
+        element.ContextMenu.IsOpen = true;
+        e.Handled = true;
+    }
+
+    void ShowCardMore(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement element || element.DataContext is not VideoItem video) return;
+        element.ContextMenu = BuildCardContextMenu(video);
+        element.ContextMenu.PlacementTarget = element;
+        element.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        element.ContextMenu.IsOpen = true;
+        e.Handled = true;
+    }
+
+    ContextMenu BuildFolderContextMenu(string folder)
+    {
+        var menu = new ContextMenu();
+        var move = new MenuItem { Header = "移动文件夹内容到分类…" };
+        move.Click += (_, _) => Dispatcher.BeginInvoke(() => ShowFolderCategoryPicker(folder));
+        menu.Items.Add(move);
+        return menu;
+    }
+
+    ContextMenu BuildCardContextMenu(VideoItem video)
+    {
         var menu = new ContextMenu();
         var play = new MenuItem { Header = "▶ 播放视频" };
         play.Click += (_, _) => LaunchVideo(video);
@@ -2513,22 +2606,58 @@ public partial class MainWindow : Window
         {
             video.IsSelected = !video.IsSelected;
             if (video.IsSelected) selectedVideoIds.Add(video.Id); else selectedVideoIds.Remove(video.Id);
+            selectionAnchorId = video.Id;
             UpdateSelectionToolbar();
         };
         menu.Items.Add(select);
         menu.Items.Add(new Separator());
-        menu.Items.Add(new MenuItem { Header = $"移动“{video.DisplayTitle}”到：", IsEnabled = false });
-        foreach (var name in CategoryTargets())
-        {
-            var target = name!; var item = new MenuItem { Header = "▰  " + target };
-            item.Click += (_, _) => MoveVideoToCategory(video, target); menu.Items.Add(item);
-        }
-        var custom = new MenuItem { Header = "＋ 新建分类并移动" }; custom.Click += (_, _) => { var target = CreateCategory(); if (!string.IsNullOrWhiteSpace(target)) MoveVideoToCategory(video, target); }; menu.Items.Add(custom);
+        var move = new MenuItem { Header = "管理分类…" };
+        move.Click += (_, _) => Dispatcher.BeginInvoke(() => ShowVideoCategoryPicker(video));
+        menu.Items.Add(move);
         menu.Items.Add(new Separator());
+        var reveal = new MenuItem { Header = "定位视频文件" }; reveal.Click += (_, _) => RevealVideoFor(video); menu.Items.Add(reveal);
         var cover = new MenuItem { Header = "🖼 设置图片封面" }; cover.Click += (_, _) => ChoosePoster(video); menu.Items.Add(cover);
         var clear = new MenuItem { Header = "清除自定义封面", IsEnabled = config.CustomPosters.ContainsKey(video.Id) }; clear.Click += (_, _) => ClearPoster(video); menu.Items.Add(clear);
-        var open = new MenuItem { Header = "打开当前图片" , IsEnabled = !string.IsNullOrWhiteSpace(video.Poster) && File.Exists(video.Poster) }; open.Click += (_, _) => OpenPoster(video); menu.Items.Add(open);
-        element.ContextMenu = menu; menu.IsOpen = true; e.Handled = true;
+        // A poster can live on a disconnected drive. Check it only when the
+        // user requests the file; a synchronous File.Exists stalls right click.
+        var open = new MenuItem { Header = "打开当前图片" , IsEnabled = !string.IsNullOrWhiteSpace(video.Poster) }; open.Click += (_, _) => OpenPoster(video); menu.Items.Add(open);
+        return menu;
+    }
+
+    void ShowVideoCategoryPicker(VideoItem video)
+    {
+        var targets = CategoryTargets().ToArray();
+        string? chosen = null;
+        var replace = false;
+        BatchCategoryPickerUi? picker = null;
+        picker = BuildBatchCategoryPicker(targets, 1, (target, shouldReplace) =>
+        {
+            chosen = target;
+            replace = shouldReplace;
+            picker!.Dialog.DialogResult = true;
+        }, $"{video.DisplayTitle} · 可添加、替换或清除分类");
+        if (picker.Dialog.ShowDialog() != true || chosen is null) return;
+        ApplyBatchCategoryValue(video, config, chosen, replace);
+        if (chosen is not "未分类" and not "全部" && !config.CategoryNames.Contains(chosen, StringComparer.CurrentCultureIgnoreCase))
+            config.CategoryNames.Add(chosen);
+        SaveConfig();
+        Log($"已更新分类：{video.DisplayTitle}");
+        RenderCategories();
+        RenderCards();
+    }
+
+    void ShowFolderCategoryPicker(string folder)
+    {
+        var targets = CategoryTargets().ToArray();
+        string? chosen = null;
+        BatchCategoryPickerUi? picker = null;
+        picker = BuildBatchCategoryPicker(targets, 1, (target, _) =>
+        {
+            chosen = target;
+            picker!.Dialog.DialogResult = true;
+        }, $"将“{System.IO.Path.GetFileName(folder.TrimEnd('\\', '/'))}”中的视频移动到目标分类", moveOnly: true);
+        if (picker.Dialog.ShowDialog() == true && chosen is not null)
+            MoveSourceToCategory(folder, chosen);
     }
 
     async void SmartCategorize(object sender, RoutedEventArgs e)
@@ -3134,39 +3263,8 @@ public partial class MainWindow : Window
     }
     void AssignCategory(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is not VideoItem video || sender is not Button anchor) return;
-        var menu = new ContextMenu();
-        menu.Items.Add(new MenuItem { Header = "可多选分类", IsEnabled = false });
-        var selected = new HashSet<string>(video.CategoryList, StringComparer.CurrentCultureIgnoreCase);
-        if (selected.Count == 0 && video.Category != "未分类") selected.Add(video.Category);
-        void Commit()
-        {
-            video.CategoryList.Clear(); video.CategoryList.AddRange(selected);
-            video.Category = video.CategoryList.FirstOrDefault() ?? "未分类";
-            if (video.Category == "未分类") config.Categories.Remove(video.Id); else config.Categories[video.Id] = video.Category;
-            if (video.CategoryList.Count == 0) config.MultiCategories.Remove(video.Id); else config.MultiCategories[video.Id] = video.CategoryList.ToList();
-            SaveConfig(); Log($"已更新分类：{video.DisplayTitle}");
-            if (view == "categories") RenderCategories();
-            RenderCards();
-        }
-        foreach (var name in new[] { "未分类" }.Concat(CategoryTargets()).Distinct(StringComparer.CurrentCultureIgnoreCase))
-        {
-            var option = new MenuItem { Header = name, IsCheckable = true, IsChecked = name == "未分类" ? selected.Count == 0 : selected.Contains(name), StaysOpenOnClick = true };
-            option.Click += (_, _) =>
-            {
-                if (name == "未分类") selected.Clear(); else { selected.Remove("未分类"); if (!selected.Add(name)) selected.Remove(name); }
-                foreach (var menuItem in menu.Items.OfType<MenuItem>().Where(item => item.IsCheckable && item.Header is string))
-                    menuItem.IsChecked = selected.Contains((string)menuItem.Header) || (menuItem.Header as string) == "未分类" && selected.Count == 0;
-            };
-            menu.Items.Add(option);
-        }
-        menu.Items.Add(new System.Windows.Controls.Separator());
-        var apply = new MenuItem { Header = "✓ 应用分类" };
-        apply.Click += (_, _) => { Commit(); menu.IsOpen = false; };
-        menu.Items.Add(apply);
-        var create = new MenuItem { Header = "＋ 新建分类" };
-        create.Click += (_, _) => { var name = CreateCategory(); if (name is null) return; selected.Clear(); selected.Add(name); Commit(); menu.IsOpen = false; };
-        menu.Items.Add(create); anchor.ContextMenu = menu; menu.PlacementTarget = anchor; menu.IsOpen = true;
+        if ((sender as FrameworkElement)?.DataContext is VideoItem video)
+            ShowVideoCategoryPicker(video);
     }
 
     void EditTags(object sender, RoutedEventArgs e)
@@ -3180,6 +3278,7 @@ public partial class MainWindow : Window
         var value = PromptText("编辑标签", "多个标签请用逗号分隔：", string.Join(", ", video.Tags));
         if (value is null) return;
         video.Tags.Clear(); video.Tags.AddRange(ParseTags(value));
+        video.RefreshTags();
         if (!video.Tags.Contains("素人", StringComparer.CurrentCultureIgnoreCase)) config.AutoAmateurTags.RemoveAll(id => id.Equals(video.Id, StringComparison.OrdinalIgnoreCase));
         if (video.Tags.Count == 0) config.Tags.Remove(video.Id); else config.Tags[video.Id] = video.Tags.ToList();
         SaveConfig(); RenderCards(); Log($"已更新标签：{video.DisplayTitle}");
@@ -3201,6 +3300,11 @@ public partial class MainWindow : Window
     void RevealVideo(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is not VideoItem video) return;
+        RevealVideoFor(video);
+    }
+
+    void RevealVideoFor(VideoItem video)
+    {
         if (!File.Exists(video.Path))
         {
             MessageBox.Show(this, "这个视频文件已经不存在，建议先重新扫描库。", "文件不可用", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -3274,13 +3378,14 @@ public partial class MainWindow : Window
         return confidence;
     }
 
-    static string ReviewStatusFor(int confidence, string verdict)
+    internal static string ReviewStatusFor(int confidence, string verdict)
     {
         var normalized = (verdict ?? "").Trim().ToLowerInvariant();
         if (normalized is "reject" or "rejected" or "否决" or "拒绝" or "不匹配" || normalized.Contains("否决") || normalized.Contains("拒绝")) return "rejected";
         if (confidence < ReviewRejectThreshold) return "rejected";
-        if (normalized is "review" or "pending" or "人工审核" or "人工复核" || normalized.Contains("审核") || confidence < ReviewManualThreshold) return "pending";
-        return "approved";
+        if (confidence < ReviewManualThreshold) return "pending";
+        // An unknown AI verdict is not consent to accept a candidate.
+        return normalized is "approve" or "approved" or "批准" or "通过" or "已通过" ? "approved" : "pending";
     }
 
     async Task<(int confidence, string verdict, string reason, string model)> RequestScrapeAiAssessmentAsync(VideoItem video, MovieMetadata candidate)
@@ -3345,6 +3450,10 @@ public partial class MainWindow : Window
             verdict = "review";
             reason = string.IsNullOrWhiteSpace(candidate.DetailNote) ? reason + "；未取得详情，需人工核对" : reason + "；" + candidate.DetailNote;
         }
+        var identity = ScrapeIdentityPolicy.Apply(video.Title, candidate, confidence, verdict, reason);
+        confidence = identity.Confidence;
+        verdict = identity.Verdict;
+        reason = identity.Reason;
         return new AiReviewRecord
         {
             VideoId = video.Id,
@@ -3661,7 +3770,8 @@ public partial class MainWindow : Window
                 try
                 {
                     var result = await RequestScrapeAiAssessmentAsync(video, review.ToMetadata());
-                    review.Confidence = result.confidence; review.Status = ReviewStatusFor(result.confidence, result.verdict); review.Reason = result.reason; review.Model = result.model; review.DecisionSource = "ai"; review.ReviewedAt = null;
+                    var identity = ScrapeIdentityPolicy.Apply(video.Title, review.ToMetadata(), result.confidence, result.verdict, result.reason);
+                    review.Confidence = identity.Confidence; review.Status = ReviewStatusFor(identity.Confidence, identity.Verdict); review.Reason = identity.Reason; review.Model = result.model; review.DecisionSource = "ai"; review.ReviewedAt = null;
                     if (review.Status == "approved") ApplyReviewDecision(review.VideoId, true, manual: false);
                 }
                 catch (Exception ex) { Log("AI 审核失败：" + ex.Message); }
@@ -3809,34 +3919,31 @@ public partial class MainWindow : Window
         try { var secret = AiKeyBox.Password.Trim(); WindowsCredentialStore.Write("AiKey", secret); config.AiEndpoint = AiEndpointBox.Text.Trim(); config.AiModel = AiModelBox.Text.Trim(); config.AiKey = secret; ReadAiQueueSettings(); SaveConfig(); MessageBox.Show(this, "AI 设置已保存；密钥存于 Windows 凭据管理器。", "映格视频库"); }
         catch (Exception ex) { MessageBox.Show(this, "保存 AI 设置失败：" + ex.Message, "映格视频库", MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
-    void BackupLibrary(object sender, RoutedEventArgs e)
+    async void BackupLibrary(object sender, RoutedEventArgs e)
     {
         try
         {
-            var folder = Path.Combine(DataDir, "backups", DateTime.Now.ToString("yyyyMMdd-HHmmss")); Directory.CreateDirectory(folder);
-            foreach (var name in new[] { "config.json", "metadata.json", "library-index.json", "personal-ratings.json", "review-history.jsonl" })
-            {
-                var file = Path.Combine(DataDir, name);
-                if (File.Exists(file)) File.Copy(file, Path.Combine(folder, name), true);
-            }
-            BackupInfo.Text = "备份完成：" + folder; Log("已备份库数据");
+            BackupInfo.Text = "正在创建并校验备份…";
+            var folder = await Task.Run(() => LibraryBackupService.Create(DataDir));
+            BackupInfo.Text = "备份文件校验通过；运行中创建的备份不保证跨文件同一时间点：" + folder;
+            Log("已备份库数据和搜刮队列");
         }
         catch (Exception ex) { BackupInfo.Text = "备份失败：" + ex.Message; }
     }
     void OpenDataDirectory(object sender, RoutedEventArgs e) { Directory.CreateDirectory(DataDir); Process.Start(new ProcessStartInfo("explorer.exe", DataDir) { UseShellExecute = true }); }
-    void RestoreLatestBackup(object sender, RoutedEventArgs e)
+    async void RestoreLatestBackup(object sender, RoutedEventArgs e)
     {
         try
         {
-            var latest = Directory.Exists(Path.Combine(DataDir, "backups")) ? new DirectoryInfo(Path.Combine(DataDir, "backups")).GetDirectories().OrderByDescending(x => x.LastWriteTimeUtc).FirstOrDefault() : null;
+            var latest = LibraryBackupService.LatestBackup(DataDir);
             if (latest is null) { BackupInfo.Text = "没有找到备份。"; return; }
-            if (MessageBox.Show(this, $"确认恢复备份？\n{latest.FullName}\n恢复后需要重新启动应用。", "恢复备份", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
-            foreach (var name in new[] { "config.json", "metadata.json", "library-index.json", "personal-ratings.json", "review-history.jsonl" })
-            {
-                var source = Path.Combine(latest.FullName, name);
-                if (File.Exists(source)) File.Copy(source, Path.Combine(DataDir, name), true);
-            }
-            BackupInfo.Text = "已恢复最近备份，请重新启动应用。";
+            BackupInfo.Text = "正在校验备份…";
+            var check = await Task.Run(() => LibraryBackupService.Verify(latest));
+            if (!check.IsValid) { BackupInfo.Text = "备份已拒绝：" + check.Message; return; }
+            if (MessageBox.Show(this, $"已校验 {check.FileCount} 个文件的完整性。运行中创建的备份可能包含不同时间点的数据。确认在下次启动时恢复？\n{latest}\n请先关闭其他映格窗口。", "恢复备份", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            { BackupInfo.Text = "已取消恢复，当前数据未修改。"; return; }
+            await Task.Run(() => LibraryBackupService.StageRestore(DataDir, latest));
+            BackupInfo.Text = "恢复已排定。关闭所有映格窗口后重新启动，启动前会再校验备份。";
         }
         catch (Exception ex) { BackupInfo.Text = "恢复失败：" + ex.Message; }
     }

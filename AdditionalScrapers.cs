@@ -218,6 +218,13 @@ public static class AdditionalScrapers
 
     internal static MovieMetadata ParseTmdbDetails(MovieMetadata candidate, JsonElement detail, string type)
     {
+        var match = Regex.Match(candidate.SourceUrl, @"^https://www\.themoviedb\.org/(?<type>movie|tv)/(?<id>[0-9]+)(?:[/?#].*)?$", RegexOptions.IgnoreCase);
+        if (!match.Success || !match.Groups["type"].Value.Equals(type, StringComparison.OrdinalIgnoreCase) ||
+            !int.TryParse(match.Groups["id"].Value, out var requestedId) ||
+            detail.ValueKind != JsonValueKind.Object || !detail.TryGetProperty("id", out var idNode) ||
+            idNode.ValueKind != JsonValueKind.Number ||
+            !idNode.TryGetInt32(out var returnedId) || requestedId != returnedId)
+            throw new InvalidDataException("TMDB 详情 ID 与选中的候选不一致；资料未采用。");
         var record = candidate.Clone();
         var title = Text(detail, type == "movie" ? "title" : "name");
         record.ReleaseDate = Text(detail, type == "movie" ? "release_date" : "first_air_date") ?? record.ReleaseDate;
@@ -256,6 +263,7 @@ public static class AdditionalScrapers
         }
         record.RefreshChangedFieldProvenance(candidate, "详情接口");
         record.DetailFetched = true;
+        record.DetailIdentityVerified = true;
         record.DetailNote = "已读取 TMDB 详情和演职员表；来源未提供的字段保持空白";
         var tmdbRating = RatingAggregation.FromMetadata(record, "详情接口作品一致");
         if (tmdbRating is not null) RatingAggregation.AddOrUpdate(record, tmdbRating);
@@ -275,6 +283,12 @@ public static class AdditionalScrapers
 
     internal static MovieMetadata ParseTvMazeDetails(MovieMetadata candidate, JsonElement detail)
     {
+        var match = Regex.Match(candidate.SourceUrl, @"^https://www\.tvmaze\.com/shows/(?<id>[0-9]+)(?:[/?#].*)?$", RegexOptions.IgnoreCase);
+        if (!match.Success || !int.TryParse(match.Groups["id"].Value, out var requestedId) ||
+            detail.ValueKind != JsonValueKind.Object || !detail.TryGetProperty("id", out var idNode) ||
+            idNode.ValueKind != JsonValueKind.Number ||
+            !idNode.TryGetInt32(out var returnedId) || requestedId != returnedId)
+            throw new InvalidDataException("TVmaze 详情 ID 与选中的候选不一致；资料未采用。");
         var record = candidate.Clone();
         record.Title = Text(detail, "name") ?? record.Title;
         record.ReleaseDate = Text(detail, "premiered") ?? record.ReleaseDate;
@@ -306,6 +320,7 @@ public static class AdditionalScrapers
         }
         record.RefreshChangedFieldProvenance(candidate, "详情接口");
         record.DetailFetched = true;
+        record.DetailIdentityVerified = true;
         record.DetailNote = "已读取 TVmaze 剧集详情及公开演职员信息；未提供的字段保持空白";
         var tvMazeRating = RatingAggregation.FromMetadata(record, "详情接口作品一致");
         if (tvMazeRating is not null) RatingAggregation.AddOrUpdate(record, tvMazeRating);

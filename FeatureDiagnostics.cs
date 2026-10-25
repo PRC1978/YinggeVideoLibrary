@@ -164,14 +164,14 @@ internal static class FeatureDiagnostics
                 && ScrapeQueueStore.Load(incrementalQueueDirectory).Count == 900;
             findings["incrementalQueueRetryFailures"] = ScrapeQueueStore.RetryFailures(incrementalQueueDirectory) == 1
                 && ScrapeQueueStore.HasPending(incrementalQueueDirectory, "video-101");
-            using (var tmdb = JsonDocument.Parse("""{"title":"示例影片","original_title":"Example","release_date":"2025-06-01","runtime":112,"overview":"剧情介绍","genres":[{"name":"剧情"}],"production_companies":[{"name":"示例片厂"}],"vote_average":7.5,"vote_count":10,"credits":{"cast":[{"name":"演员甲"}],"crew":[{"job":"Director","name":"导演乙"}]},"keywords":{"keywords":[{"name":"关键词"}]}}"""))
+            using (var tmdb = JsonDocument.Parse("""{"id":1,"title":"示例影片","original_title":"Example","release_date":"2025-06-01","runtime":112,"overview":"剧情介绍","genres":[{"name":"剧情"}],"production_companies":[{"name":"示例片厂"}],"vote_average":7.5,"vote_count":10,"credits":{"cast":[{"name":"演员甲"}],"crew":[{"job":"Director","name":"导演乙"}]},"keywords":{"keywords":[{"name":"关键词"}]}}"""))
             {
                 var candidate = new MovieMetadata { Title = "示例影片", Source = "TMDB 电影", SourceUrl = "https://www.themoviedb.org/movie/1" };
                 candidate.StampAvailableFields("搜索结果");
                 var full = AdditionalScrapers.ParseTmdbDetails(candidate, tmdb.RootElement, "movie");
                 var review = new AiReviewRecord { CandidateTitle = full.Title, CandidateSource = full.Source, CandidateDetails = full };
                 var restored = JsonSerializer.Deserialize<AiReviewRecord>(JsonSerializer.Serialize(review))!.ToMetadata();
-                findings["tmdbFullMetadataReviewRoundTrip"] = restored.DetailFetched && restored.RuntimeMinutes == 112 && restored.Studio == "示例片厂"
+                findings["tmdbFullMetadataReviewRoundTrip"] = restored.DetailFetched && restored.DetailIdentityVerified && restored.RuntimeMinutes == 112 && restored.Studio == "示例片厂"
                     && restored.Actors.SequenceEqual(["演员甲"]) && restored.Director == "导演乙" && restored.Keywords.SequenceEqual(["关键词"])
                     && restored.PlatformRatings.Count == 1 && restored.PlatformRatings[0].Platform == "TMDB"
                     && restored.PlatformRatings[0].VoteCount == 10;
@@ -190,12 +190,38 @@ internal static class FeatureDiagnostics
                 var secondDetails = await ScrapeCandidateCache.GetOrFetchAsync(directory, "TMDB 详情", "https://www.themoviedb.org/movie/1", FetchDetails);
                 findings["fullMetadataCandidateCache"] = detailFetches == 1 && firstDetails.Count == 1 && secondDetails.Count == 1
                     && secondDetails[0].Director == "导演乙" && secondDetails[0].Actors.SequenceEqual(["演员甲"]);
+                var exactOfficial = ScrapeIdentityPolicy.Apply("示例影片 (2025)", restored, 100, "approve", "AI 极高可信");
+                var fuzzyOfficial = ScrapeIdentityPolicy.Apply("示例影片 特别版", restored, 100, "approve", "AI 极高可信");
+                findings["verifiedOfficialExactTitleGate"] = exactOfficial.Verdict == "approve" && exactOfficial.Confidence == 100
+                    && fuzzyOfficial.Verdict == "review" && fuzzyOfficial.Confidence == 79;
+                var differentYear = restored.Clone();
+                differentYear.Title = "示例影片";
+                differentYear.ReleaseDate = "2024-06-01";
+                var yearConflict = ScrapeIdentityPolicy.Apply("示例影片.2025.mp4", differentYear, 100, "approve", "AI 极高可信");
+                var cjkYearConflict = ScrapeIdentityPolicy.Apply("示例影片2025年", differentYear, 100, "approve", "AI 极高可信");
+                differentYear.ReleaseDate = "2025-06-01";
+                var matchingYear = ScrapeIdentityPolicy.Apply("示例影片.2025.mp4", differentYear, 100, "approve", "AI 极高可信");
+                findings["explicitFileYearMustMatchSourceYear"] = yearConflict.Verdict == "review" && yearConflict.Confidence == 79
+                    && yearConflict.Reason.Contains("年份冲突") && cjkYearConflict.Reason.Contains("年份冲突")
+                    && matchingYear.Verdict == "approve" && matchingYear.Confidence == 100;
+                var unknownVerdict = ScrapeIdentityPolicy.Apply("示例影片 (2025)", restored, 95, "uncertain", "AI 不确定");
+                findings["unknownAiVerdictRequiresReview"] = unknownVerdict.Confidence == 95
+                    && MainWindow.ReviewStatusFor(unknownVerdict.Confidence, unknownVerdict.Verdict) == "pending"
+                    && MainWindow.ReviewStatusFor(95, "") == "pending"
+                    && MainWindow.ReviewStatusFor(95, "approved") == "approved"
+                    && MainWindow.ReviewStatusFor(95, "reject") == "rejected";
+                using var wrongId = JsonDocument.Parse("""{"id":2,"title":"错误作品"}""");
+                try { AdditionalScrapers.ParseTmdbDetails(candidate, wrongId.RootElement, "movie"); findings["tmdbRejectsDetailIdentityConflict"] = false; }
+                catch (InvalidDataException) { findings["tmdbRejectsDetailIdentityConflict"] = true; }
             }
-            using (var tvmaze = JsonDocument.Parse("""{"name":"剧集示例","premiered":"2024-01-01","summary":"<p>第一季</p>","genres":["Comedy"],"averageRuntime":42,"rating":{"average":8.2},"network":{"name":"示例台","country":{"name":"英国"}},"_embedded":{"cast":[{"person":{"name":"演员丙"}}],"crew":[{"type":"Director","person":{"name":"导演丁"}}]}}"""))
+            using (var tvmaze = JsonDocument.Parse("""{"id":123,"name":"剧集示例","premiered":"2024-01-01","summary":"<p>第一季</p>","genres":["Comedy"],"averageRuntime":42,"rating":{"average":8.2},"network":{"name":"示例台","country":{"name":"英国"}},"_embedded":{"cast":[{"person":{"name":"演员丙"}}],"crew":[{"type":"Director","person":{"name":"导演丁"}}]}}"""))
             {
-                var full = AdditionalScrapers.ParseTvMazeDetails(new MovieMetadata { Source = "TVmaze" }, tvmaze.RootElement);
-                findings["tvMazeFullMetadata"] = full.DetailFetched && full.RuntimeMinutes == 42 && full.Summary == "第一季"
+                var full = AdditionalScrapers.ParseTvMazeDetails(new MovieMetadata { Source = "TVmaze", SourceUrl = "https://www.tvmaze.com/shows/123" }, tvmaze.RootElement);
+                findings["tvMazeFullMetadata"] = full.DetailFetched && full.DetailIdentityVerified && full.RuntimeMinutes == 42 && full.Summary == "第一季"
                     && full.Studio == "示例台" && full.Country == "英国" && full.Actors.SequenceEqual(["演员丙"]);
+                using var wrongId = JsonDocument.Parse("""{"id":124,"name":"错误剧集"}""");
+                try { AdditionalScrapers.ParseTvMazeDetails(new MovieMetadata { Source = "TVmaze", SourceUrl = "https://www.tvmaze.com/shows/123" }, wrongId.RootElement); findings["tvMazeRejectsDetailIdentityConflict"] = false; }
+                catch (InvalidDataException) { findings["tvMazeRejectsDetailIdentityConflict"] = true; }
             }
             var javdb = JavDbScraper.ParseJavDbDetails(new MovieMetadata { Code = "ABC-123", Source = "JavDB", SourceUrl = "https://javdb.com/v/sample" },
                 "<div class='panel-block'><strong>發行日期:</strong><span class='value'>2025-02-03</span></div>" +
@@ -215,6 +241,21 @@ internal static class FeatureDiagnostics
                 && linkedJavDb.CatalogLinks.Any(link => link.Kind == "演员" && link.Url == "https://javdb.com/actors/0R1n3")
                 && linkedJavDb.CatalogLinks.Any(link => link.Kind == "标签" && link.Url == "https://javdb.com/tags?c7=11")
                 && linkedJavDb.CatalogLinks.Any(link => link.Kind == "系列" && link.Url == "https://javdb.com/series/P899");
+            var exactCode = ScrapeIdentityPolicy.Apply("ABC-123 作品.mp4", linkedJavDb, 100, "approve", "AI 声称已通过");
+            var codeConflict = ScrapeIdentityPolicy.Apply("ABC-124 作品.mp4", linkedJavDb, 100, "approve", "AI 声称已通过");
+            var noLocalCode = ScrapeIdentityPolicy.Apply("作品名称.mp4", linkedJavDb, 100, "approve", "AI 声称已通过");
+            var noCodeOnDetail = ScrapeIdentityPolicy.Apply("ABC-123 作品.mp4", javdb, 100, "approve", "AI 声称已通过");
+            var searchCard = linkedJavDb.Clone();
+            searchCard.DetailFetched = false;
+            var noDetail = ScrapeIdentityPolicy.Apply("ABC-123 作品.mp4", searchCard, 100, "approve", "AI 声称已通过");
+            findings["aiCannotOverrideIdentityEvidence"] = linkedJavDb.DetailIdentityVerified && !javdb.DetailIdentityVerified
+                && exactCode.Verdict == "approve" && exactCode.Confidence == 100
+                && codeConflict.Verdict == "review" && codeConflict.Confidence == 79 && codeConflict.Reason.Contains("番号冲突")
+                && noLocalCode.Verdict == "review" && noLocalCode.Confidence == 79
+                && noCodeOnDetail.Verdict == "review" && noCodeOnDetail.Confidence == 79
+                && noDetail.Verdict == "review" && noDetail.Confidence == 79;
+            findings["legacyIdentityEvidenceFailsClosed"] = !JsonSerializer.Deserialize<MovieMetadata>(
+                """{"Code":"ABC-123","Title":"作品","DetailFetched":true}""")!.DetailIdentityVerified;
             findings["javDbCatalogLinkValidation"] = !JavDbScraper.TryCatalogUrl("https://javdb.com.evil.test/actors/0R1n3", out _, out _)
                 && !JavDbScraper.TryCatalogUrl("/tags/11", out _, out _)
                 && !JavDbScraper.TryCatalogUrl("/tags?c7=11&script=x", out _, out _)
@@ -419,6 +460,114 @@ internal static class FeatureDiagnostics
                 findings["localAiRetry"] = received == 2 && answer.RootElement.TryGetProperty("choices", out _);
                 findings["aiBudgetPersisted"] = File.Exists(Path.Combine(directory, "ai-budget.json"));
             }
+            var budgetCheckDirectory = Path.Combine(directory, "budget-integrity");
+            Directory.CreateDirectory(budgetCheckDirectory);
+            File.WriteAllText(Path.Combine(budgetCheckDirectory, "ai-budget.json"), "{}");
+            try { AiRequestQueue.LoadBudgetLedger(budgetCheckDirectory); findings["corruptAiBudgetFailsClosed"] = false; }
+            catch (InvalidDataException) { findings["corruptAiBudgetFailsClosed"] = true; }
+            File.WriteAllText(Path.Combine(budgetCheckDirectory, "ai-budget.json"),
+                JsonSerializer.Serialize(new AiRequestQueue.BudgetLedger { Day = DateTime.Now.ToString("yyyy-MM-dd"), EstimatedUsd = 1.25 }));
+            findings["validAiBudgetRetained"] = Math.Abs(AiRequestQueue.LoadBudgetLedger(budgetCheckDirectory).EstimatedUsd - 1.25) < 0.00001;
+            findings["legacyDetailCacheRefresh"] = await ScrapeCandidateCache.VerifyLegacyIdentityRefreshAsync(directory);
+
+            var backupData = Path.Combine(directory, "backup-verification");
+            Directory.CreateDirectory(backupData);
+            File.WriteAllText(Path.Combine(backupData, "config.json"),
+                "{\"folders\":[\"X:\\\\Videos\"],\"aiKey\":\"secret-sentinel\",\"tmdbToken\":\"tmdb-secret\",\"javinfoKey\":\"paid-secret\"}");
+            File.WriteAllText(Path.Combine(backupData, "metadata.json"), "{\"video-1\":{\"Title\":\"Original\"}}");
+            File.WriteAllText(Path.Combine(backupData, "personal-ratings.json"), "{}");
+            File.WriteAllText(Path.Combine(backupData, "review-history.jsonl"), "{\"Action\":\"approve\"}" + Environment.NewLine);
+            File.WriteAllText(Path.Combine(backupData, "ai-budget.json"), "{\"Day\":\"2026-10-25\",\"EstimatedUsd\":1}");
+            File.WriteAllText(Path.Combine(backupData, "javinfo-usage.json"), "{\"UtcDay\":\"2026-10-25\",\"ReservedCalls\":1}");
+            Directory.CreateDirectory(Path.Combine(backupData, "posters"));
+            File.WriteAllBytes(Path.Combine(backupData, "posters", "abc.jpg"), [1, 2, 3]);
+            Directory.CreateDirectory(Path.Combine(backupData, "thumbs"));
+            File.WriteAllBytes(Path.Combine(backupData, "thumbs", "abc-custom.png"), [4, 5, 6]);
+            ScrapeQueueStore.Add(backupData, [new ScrapeQueueItem { VideoId = "video-1", Code = "ABC-123" }]);
+            var backupPackage = LibraryBackupService.Create(backupData);
+            var backupCheck = LibraryBackupService.Verify(backupPackage);
+            var backedConfig = File.ReadAllText(Path.Combine(backupPackage, "config.json"));
+            findings["versionedBackupManifestAndSecrets"] = backupCheck.IsValid && backupCheck.FileCount >= 7
+                && File.Exists(Path.Combine(backupPackage, "backup-manifest.json"))
+                && File.Exists(Path.Combine(backupPackage, "posters", "abc.jpg"))
+                && File.Exists(Path.Combine(backupPackage, "thumbs", "abc-custom.png"))
+                && !backedConfig.Contains("secret-sentinel", StringComparison.Ordinal)
+                && !backedConfig.Contains("tmdb-secret", StringComparison.Ordinal)
+                && !backedConfig.Contains("paid-secret", StringComparison.Ordinal);
+            File.WriteAllText(Path.Combine(backupData, "config.json"), "{\"folders\":[\"modified\"]}");
+            File.WriteAllText(Path.Combine(backupData, "metadata.json"), "{\"video-2\":{\"Title\":\"Changed\"}}");
+            File.WriteAllText(Path.Combine(backupData, "ai-budget.json"), "{\"Day\":\"2026-10-25\",\"EstimatedUsd\":9}");
+            File.WriteAllText(Path.Combine(backupData, "javinfo-usage.json"), "{\"UtcDay\":\"2026-10-25\",\"ReservedCalls\":9}");
+            ScrapeQueueStore.Remove(backupData, "video-1");
+            LibraryBackupService.StageRestore(backupData, backupPackage);
+            bool blockedBySharedLeases;
+            using (var firstSession = LibraryBackupService.AcquireSessionLease(backupData))
+            using (var secondSession = LibraryBackupService.AcquireSessionLease(backupData))
+                blockedBySharedLeases = !LibraryBackupService.ApplyPendingAtStartup(backupData, out _, false)
+                    && File.Exists(Path.Combine(backupData, "restore-pending.json"))
+                    && File.ReadAllText(Path.Combine(backupData, "metadata.json")).Contains("Changed", StringComparison.Ordinal);
+            findings["sharedSessionLeaseBlocksOfflineRestore"] = blockedBySharedLeases;
+            var appliedBackup = LibraryBackupService.ApplyPendingAtStartup(backupData, out var restoreMessage, false);
+            if (!appliedBackup) findings["backupRestoreDiagnostic"] = restoreMessage;
+            findings["verifiedOfflineRestoreAndQueue"] = appliedBackup && restoreMessage.Length == 0
+                && File.ReadAllText(Path.Combine(backupData, "metadata.json")).Contains("Original", StringComparison.Ordinal)
+                && ScrapeQueueStore.Load(backupData).SingleOrDefault()?.Code == "ABC-123"
+                && File.Exists(Path.Combine(backupData, "posters", "abc.jpg"));
+            using var keptBudget = JsonDocument.Parse(File.ReadAllText(Path.Combine(backupData, "ai-budget.json")));
+            findings["restorePreservesMonotonicQuotaLedgers"] = keptBudget.RootElement.GetProperty("EstimatedUsd").GetDouble() == 9
+                && JavinfoUsageLedger.ReadForDiagnostics(backupData).reservedCalls == 9;
+            File.Delete(Path.Combine(backupData, "ai-budget.json"));
+            File.Delete(Path.Combine(backupData, "javinfo-usage.json"));
+            LibraryBackupService.StageRestore(backupData, backupPackage);
+            var restoredMissingLedgers = LibraryBackupService.ApplyPendingAtStartup(backupData, out _, false);
+            using var recoveredBudget = JsonDocument.Parse(File.ReadAllText(Path.Combine(backupData, "ai-budget.json")));
+            findings["restoreMissingQuotaLedgers"] = restoredMissingLedgers
+                && recoveredBudget.RootElement.GetProperty("EstimatedUsd").GetDouble() == 1
+                && JavinfoUsageLedger.ReadForDiagnostics(backupData).reservedCalls == 1;
+            var beforeRejectedRestore = File.ReadAllText(Path.Combine(backupData, "metadata.json"));
+            var damagedBackup = LibraryBackupService.Create(backupData);
+            File.AppendAllText(Path.Combine(damagedBackup, "config.json"), "tampered");
+            var damageRejected = !LibraryBackupService.Verify(damagedBackup).IsValid;
+            try { LibraryBackupService.StageRestore(backupData, damagedBackup); damageRejected = false; }
+            catch (InvalidDataException) { }
+            findings["corruptBackupCannotModifyLibrary"] = damageRejected
+                && File.ReadAllText(Path.Combine(backupData, "metadata.json")) == beforeRejectedRestore;
+            var damagedAfterStaging = LibraryBackupService.Create(backupData);
+            LibraryBackupService.StageRestore(backupData, damagedAfterStaging);
+            File.AppendAllText(Path.Combine(damagedAfterStaging, "metadata.json"), "changed-after-selection");
+            var startupRejectedTamper = !LibraryBackupService.ApplyPendingAtStartup(backupData, out var tamperMessage, false);
+            findings["startupRechecksBackupBeforeWrite"] = startupRejectedTamper
+                && tamperMessage.Contains("校验失败", StringComparison.Ordinal)
+                && File.ReadAllText(Path.Combine(backupData, "metadata.json")) == beforeRejectedRestore
+                && !File.Exists(Path.Combine(backupData, "restore-pending.json"));
+            var missingBackup = LibraryBackupService.Create(backupData);
+            File.Delete(Path.Combine(missingBackup, "scrape-queue.json"));
+            findings["missingBackupFileRejected"] = !LibraryBackupService.Verify(missingBackup).IsValid;
+            var oldBackup = Path.Combine(backupData, "backups", "old-style");
+            Directory.CreateDirectory(oldBackup);
+            File.Copy(Path.Combine(backupData, "config.json"), Path.Combine(oldBackup, "config.json"));
+            findings["legacyBackupWithoutManifestRejected"] = !LibraryBackupService.Verify(oldBackup).IsValid;
+            var rollbackBackup = LibraryBackupService.Create(backupData, rollback: true);
+            File.WriteAllText(Path.Combine(backupData, "restore-active.json"), JsonSerializer.Serialize(new
+                { BackupPath = backupPackage, RollbackPath = rollbackBackup }));
+            File.WriteAllText(Path.Combine(backupData, "metadata.json"), "{\"interrupted\":{}}");
+            var interruptedRecovered = !LibraryBackupService.ApplyPendingAtStartup(backupData, out var interruptedMessage, false);
+            findings["interruptedRestoreRollsBack"] = interruptedRecovered && interruptedMessage.Contains("原数据", StringComparison.Ordinal)
+                && File.ReadAllText(Path.Combine(backupData, "metadata.json")) == beforeRejectedRestore
+                && !File.Exists(Path.Combine(backupData, "restore-active.json"));
+            File.WriteAllText(Path.Combine(backupData, "config.json"), "{broken");
+            LibraryBackupService.StageRestore(backupData, backupPackage);
+            var repairedCorruptConfig = LibraryBackupService.ApplyPendingAtStartup(backupData, out _, false);
+            findings["restoreWhenCurrentConfigCorrupt"] = repairedCorruptConfig
+                && LibraryBackupService.Verify(backupPackage).IsValid
+                && File.ReadAllText(Path.Combine(backupData, "config.json")).Contains("folders", StringComparison.Ordinal);
+            File.Delete(Path.Combine(backupData, "config.json"));
+            LibraryBackupService.StageRestore(backupData, backupPackage);
+            var repairedMissingConfig = LibraryBackupService.ApplyPendingAtStartup(backupData, out _, false);
+            findings["restoreWhenCurrentConfigMissing"] = repairedMissingConfig
+                && File.Exists(Path.Combine(backupData, "config.json"))
+                && ScrapeQueueStore.Load(backupData).SingleOrDefault()?.Code == "ABC-123";
+
             findings["passed"] = findings.Values.OfType<bool>().All(value => value);
         }
         catch (Exception ex) { findings["passed"] = false; findings["error"] = ex.ToString(); }

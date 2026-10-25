@@ -9,6 +9,14 @@ namespace YinggeVideoLibrary;
 /// </summary>
 public partial class App : System.Windows.Application
 {
+    System.IO.FileStream? librarySessionLease;
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        librarySessionLease?.Dispose();
+        base.OnExit(e);
+    }
+
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -64,6 +72,22 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        var dataDir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".YinggeVideoLibrary");
+        if (!LibraryBackupService.ApplyPendingAtStartup(dataDir, out var restoreError))
+        {
+            System.Windows.MessageBox.Show("恢复已停止，视频库尚未加载。\n" + restoreError,
+                "映格视频库 · 备份恢复", MessageBoxButton.OK, MessageBoxImage.Warning);
+            Shutdown(1);
+            return;
+        }
+        try { librarySessionLease = LibraryBackupService.AcquireSessionLease(dataDir); }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show("无法锁定共享视频库数据，请稍后重试。\n" + ex.Message,
+                "映格视频库 · 数据保护", MessageBoxButton.OK, MessageBoxImage.Warning);
+            Shutdown(1);
+            return;
+        }
         var window = new MainWindow();
         MainWindow = window;
         window.Show();

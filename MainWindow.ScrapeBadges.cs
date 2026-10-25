@@ -9,12 +9,14 @@ public partial class MainWindow
         {
             if (video.Tags.Contains("素人", StringComparer.CurrentCultureIgnoreCase)) return;
             video.Tags.Add("素人");
+            video.RefreshTags();
             config.Tags[video.Id] = ParseTags(string.Join(",", video.Tags));
             if (!tracked) config.AutoAmateurTags.Add(video.Id);
         }
         else if (tracked)
         {
             video.Tags.RemoveAll(tag => tag.Equals("素人", StringComparison.CurrentCultureIgnoreCase));
+            video.RefreshTags();
             if (video.Tags.Count == 0) config.Tags.Remove(video.Id);
             else config.Tags[video.Id] = ParseTags(string.Join(",", video.Tags));
             config.AutoAmateurTags.RemoveAll(id => id.Equals(video.Id, StringComparison.OrdinalIgnoreCase));

@@ -163,6 +163,7 @@ public static class JavinfoScraper
         // Keep existing search-stage provenance on unchanged fields.
         result.SourceUrl = ApiMovieUrl(code);
         result.DetailFetched = true;
+        result.DetailIdentityVerified = true;
         result.DetailNote = "Javinfo 汇总的公开作品资料；请核对来源与匹配结果。";
         result.RefreshChangedFieldProvenance(candidate, "详情接口");
         return result;

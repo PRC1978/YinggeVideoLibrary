@@ -44,6 +44,9 @@ public partial class MainWindow
 
     static bool BlockCloseWhileUpdating(bool running, bool closeAllowed) => running && !closeAllowed;
 
+    static string UpdateDownloadTemporaryPath(string target, int processId) =>
+        target + "." + processId + ".part.exe";
+
     static HttpClient CreateUpdateHttpClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
@@ -527,7 +530,8 @@ public partial class MainWindow
         if (updateButton is not null) updateButton.IsEnabled = false;
         var targetDir = Path.Combine(DataDir, "updates");
         var target = Path.Combine(targetDir, $"YinggeVideoLibrary-win-x64-{release.Version}.exe");
-        var temporary = target + "." + Environment.ProcessId + ".part";
+        // The identity check reads PE version resources only from an .exe path.
+        var temporary = UpdateDownloadTemporaryPath(target, Environment.ProcessId);
         try
         {
             Directory.CreateDirectory(targetDir);
@@ -667,12 +671,60 @@ public partial class MainWindow
             && CanDisplayUpdatePrompt(false, true, 1, true, WindowState.Normal);
         findings["activeUpdateCannotCloseSilently"] = BlockCloseWhileUpdating(true, false)
             && !BlockCloseWhileUpdating(true, true) && !BlockCloseWhileUpdating(false, false);
+        findings["downloadTemporaryPathPreservesExecutableIdentity"] =
+            UpdateDownloadTemporaryPath(Path.Combine(directory, "update.exe"), 123)
+                .EndsWith(".part.exe", StringComparison.OrdinalIgnoreCase);
         var runningExecutable = Path.Combine(AppContext.BaseDirectory, "映格视频库.exe");
         findings["downloadMustBeTargetVersionBinary"] =
             PublishedExecutable.IsReleaseBinary(runningExecutable, CurrentUpdateVersion())
             && !PublishedExecutable.IsReleaseBinary(runningExecutable, new Version(99, 0, 0, 0))
             && !PublishedExecutable.TryGetBinaryVersion(
                 Path.Combine(Environment.SystemDirectory, "cmd.exe"), out _);
+        if (PublishedExecutable.IsReleaseBinary(runningExecutable, CurrentUpdateVersion()))
+        {
+            // Exercise the same verifier used by a downloaded GitHub asset. Run it
+            // off the WPF thread because it hashes asynchronously.
+            static bool Verified(string path, ReleaseUpdate candidate) =>
+                Task.Run(() => IsVerifiedUpdateAsync(path, candidate)).GetAwaiter().GetResult();
+
+            var length = new FileInfo(runningExecutable).Length;
+            using var publishedStream = File.OpenRead(runningExecutable);
+            var hash = Convert.ToHexString(SHA256.HashData(publishedStream));
+            var valid = new ReleaseUpdate("v" + FormatUpdateVersion(CurrentUpdateVersion()),
+                CurrentUpdateVersion(), new Uri("https://github.com/PRC1978/YinggeVideoLibrary"),
+                length, hash, true, "");
+            findings["downloadedBinaryWithMatchingSizeHashAndIdentityAccepted"] =
+                Verified(runningExecutable, valid);
+
+            var truncated = Path.Combine(directory, "truncated-update.exe");
+            using (var source = File.OpenRead(runningExecutable))
+            using (var destination = File.Create(truncated))
+            {
+                var bytes = new byte[4096];
+                destination.Write(bytes, 0, source.Read(bytes, 0, bytes.Length));
+            }
+            findings["truncatedDownloadedBinaryRejected"] = !Verified(truncated, valid);
+            findings["wrongHashDownloadedBinaryRejected"] =
+                !Verified(runningExecutable, valid with { Sha256 = new string('0', 64) });
+
+            var foreignExecutable = Path.Combine(Environment.SystemDirectory, "cmd.exe");
+            using var foreignStream = File.OpenRead(foreignExecutable);
+            var foreignHash = Convert.ToHexString(SHA256.HashData(foreignStream));
+            var foreignCandidate = valid with
+            {
+                Size = new FileInfo(foreignExecutable).Length,
+                Sha256 = foreignHash
+            };
+            findings["wrongIdentityDownloadedBinaryRejectedDespiteMatchingHash"] =
+                !Verified(foreignExecutable, foreignCandidate);
+        }
+        else
+        {
+            findings["downloadedBinaryWithMatchingSizeHashAndIdentityAccepted"] = false;
+            findings["truncatedDownloadedBinaryRejected"] = false;
+            findings["wrongHashDownloadedBinaryRejected"] = false;
+            findings["wrongIdentityDownloadedBinaryRejectedDespiteMatchingHash"] = false;
+        }
         File.WriteAllText(SkippedReleasePath(directory), "{damaged");
         findings["corruptSkipFileDoesNotHideRelease"] = !IsSkippedRelease(directory, version);
         return findings;

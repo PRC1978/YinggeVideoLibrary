@@ -61,7 +61,7 @@ public static class KitsuScraper
             nextRequestAt = DateTimeOffset.UtcNow.AddSeconds(2);
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.api+json"));
-            var version = typeof(KitsuScraper).Assembly.GetName().Version?.ToString(3) ?? "1.5.2";
+            var version = typeof(KitsuScraper).Assembly.GetName().Version?.ToString(3) ?? "1.5.3";
             request.Headers.TryAddWithoutValidation("User-Agent",
                 $"PRC1978/YinggeVideoLibrary/{version} (https://github.com/PRC1978/YinggeVideoLibrary)");
             using var response = await Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);

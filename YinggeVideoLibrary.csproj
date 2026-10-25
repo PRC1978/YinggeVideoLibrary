@@ -8,8 +8,8 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>映格视频库</AssemblyName>
-    <Version>1.5.2</Version>
-    <FileVersion>1.5.2.0</FileVersion>
+    <Version>1.5.3</Version>
+    <FileVersion>1.5.3.0</FileVersion>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <Copyright>Copyright (c) 2026 PRC1978</Copyright>
     <ApplicationIcon>app.ico</ApplicationIcon>

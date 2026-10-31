@@ -56,7 +56,16 @@ public partial class MainWindow
                 ExtensionInfo.Text = "未找到小电视空降助手的解压目录。可在 Edge 安装后重启软件，或手动选择含 manifest.json 的扩展文件夹。";
                 return false;
             }
-            return await InstallAirborneExtensionAsync(core, folder);
+            // The WebView2 API deletes _metadata inside the folder it loads, so the
+            // Edge folder and any user-picked folder are only used as copy sources.
+            var copy = AirborneExtensionStore.EnsureManagedCopy(folder, DataDir, out var copyError);
+            if (copy is null)
+            {
+                ExtensionInfo.Text = "无法准备扩展副本：" + (copyError ?? "未知原因") +
+                    "已保持原目录不变，Edge 的扩展目录不会被改写。";
+                return false;
+            }
+            return await InstallAirborneExtensionAsync(core, copy);
         }
         catch (Exception ex)
         {
@@ -67,6 +76,13 @@ public partial class MainWindow
 
     async Task<bool> InstallAirborneExtensionAsync(CoreWebView2 core, string folder)
     {
+        // Last line of defence: AddBrowserExtensionAsync rewrites the folder it is
+        // given, so only a copy under DataDir\extensions\airborne may be loaded.
+        if (!AirborneExtensionStore.ValidateFolderForLoad(folder, DataDir))
+        {
+            ExtensionInfo.Text = "已拒绝加载非映格管理的扩展目录：WebView2 会改写被加载的目录，直接加载可能破坏 Edge 的扩展。请使用“空降助手设置”让映格复制一份后再加载。";
+            return false;
+        }
         var manifest = ReadAirborneManifest(folder);
         if (manifest is null)
         {
@@ -85,7 +101,7 @@ public partial class MainWindow
             airborneWebViewId = extension.Id;
             airborneFolder = folder;
             airborneOptionsPage = manifest.OptionsPage;
-            ExtensionInfo.Text = $"小电视空降助手 {manifest.Version} 已加入内嵌浏览器。WebView2 与 Edge 的登录状态、扩展设置相互独立；刷新哔哩哔哩后查看效果。";
+            ExtensionInfo.Text = $"小电视空降助手 {manifest.Version} 已从映格管理的副本加载，未改动 Edge 的扩展目录。WebView2 与 Edge 的登录状态、扩展设置相互独立；刷新哔哩哔哩后查看效果。";
             return true;
         }
         catch (Exception ex)
@@ -101,6 +117,9 @@ public partial class MainWindow
 
     // No SearchOption.AllDirectories: Edge User Data can contain enormous
     // caches. Only probe the known extension ID beneath profile directories.
+    // The result is a read-only SOURCE folder: it is copied by
+    // AirborneExtensionStore before anything is loaded, never passed to
+    // AddBrowserExtensionAsync directly.
     static string? FindAirborneExtensionQuick()
     {
         var preference = Path.Combine(DataDir, "airborne-extension.path");
@@ -201,8 +220,18 @@ public partial class MainWindow
         {
             ExtensionInfo.Text = "已选中扩展文件夹；请先打开“在线”页面以初始化内嵌浏览器。";
         }
-        else if (config.EnableExtension && !await InstallAirborneExtensionAsync(OnlineWeb.CoreWebView2, folder)) return false;
         else if (!config.EnableExtension) ExtensionInfo.Text = "扩展目录已保存。请启用内嵌扩展并重启软件。";
+        else
+        {
+            // The chosen folder stays a source only; loading always uses a copy.
+            var copy = AirborneExtensionStore.EnsureManagedCopy(folder, DataDir, out var copyError);
+            if (copy is null)
+            {
+                ExtensionInfo.Text = "无法准备扩展副本：" + (copyError ?? "未知原因") + "所选目录保持原样，未被改动。";
+                return false;
+            }
+            if (!await InstallAirborneExtensionAsync(OnlineWeb.CoreWebView2, copy)) return false;
+        }
         try
         {
             Directory.CreateDirectory(DataDir);

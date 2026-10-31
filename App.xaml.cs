@@ -66,6 +66,25 @@ public partial class App : System.Windows.Application
             Shutdown(await Task.Run(() => SharedCacheReadOnlyProbe.Run(e.Args[1])));
             return;
         }
+        if (e.Args.Length > 1 && e.Args[0] == "--ui-fixture")
+        {
+            Shutdown(UiFixtureGenerator.Run(e.Args));
+            return;
+        }
+        if (e.Args.Length > 1 && e.Args[0] == "--diagnose-ui-search")
+        {
+            var searchProbe = new MainWindow
+            {
+                Left = -30000, Top = -30000, Width = 1224, Height = 768,
+                ShowActivated = false, ShowInTaskbar = false, Opacity = 0
+            };
+            MainWindow = searchProbe;
+            searchProbe.Show();
+            var searchResult = await searchProbe.WriteHiddenSearchDiagnosticAsync(e.Args[1]);
+            searchProbe.Close();
+            Shutdown(searchResult);
+            return;
+        }
         if (e.Args.Length > 2 && e.Args[0] == "--self-test-cross-device")
         {
             Shutdown(await Task.Run(() => BackupCrossDeviceDiagnostics.RunToFile(e.Args[1], e.Args[2])));

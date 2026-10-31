@@ -125,7 +125,7 @@ public partial class App : System.Windows.Application
         }
 
         ProjectLicenseMigration.RefreshInstalledSidecar();
-        var dataDir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".YinggeVideoLibrary");
+        var dataDir = AppPaths.DataDirectory;
         if (!LibraryRelocationService.ApplyPendingAtStartup(dataDir, out var restoreError))
         {
             System.Windows.MessageBox.Show("恢复已停止，视频库尚未加载。\n" + restoreError,

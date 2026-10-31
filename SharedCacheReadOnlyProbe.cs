@@ -13,8 +13,7 @@ internal static class SharedCacheReadOnlyProbe
     {
         try
         {
-            var dataDirectory = Path.GetFullPath(Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".YinggeVideoLibrary"));
+            var dataDirectory = Path.GetFullPath(AppPaths.DataDirectory);
             var reportPath = Path.GetFullPath(destination);
             var dataPrefix = dataDirectory.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
             if (reportPath.Equals(dataDirectory, StringComparison.OrdinalIgnoreCase)

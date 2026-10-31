@@ -311,7 +311,9 @@ public partial class MainWindow : Window
 {
     // AppData is virtualized when this EXE is launched by a packaged host.
     // Keep one physical library for both packaged and normal Explorer launches.
-    static readonly string DataDir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".YinggeVideoLibrary");
+    // The path comes from AppPaths so acceptance runs can point the whole UI at
+    // an isolated directory instead of the real user library.
+    static readonly string DataDir = AppPaths.DataDirectory;
     static readonly string ConfigPath = System.IO.Path.Combine(DataDir, "config.json");
     static readonly string ThumbDir = System.IO.Path.Combine(DataDir, "thumbs");
     static readonly string PosterWarmCursorPath = System.IO.Path.Combine(DataDir, "poster-warm-cursor.txt");

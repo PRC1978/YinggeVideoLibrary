@@ -15,8 +15,7 @@ internal static class PortableUpdateWorker
         var resultFile = testOnly
             ? (args.Length == 5 && Path.IsPathFullyQualified(args[4]) ? args[4]
                 : Path.Combine(Path.GetTempPath(), $"YinggeUpdateTest-invalid-{Environment.ProcessId}.txt"))
-            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".YinggeVideoLibrary", "updates", "last-update-result.txt");
+            : Path.Combine(AppPaths.DataDirectory, "updates", "last-update-result.txt");
         string? target = null;
         var previousExited = false;
         var replacementCompleted = false;

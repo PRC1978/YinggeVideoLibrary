@@ -16,14 +16,44 @@ internal static class AiRequestQueue
 {
     static readonly ConcurrentDictionary<string, CancellationTokenSource> ActiveJobs = new(StringComparer.Ordinal);
     static readonly HttpClient Client = new() { Timeout = TimeSpan.FromSeconds(60) };
+    // Diagnostic-only namespace for the mutex names below. Empty by default, so
+    // every production name stays byte-identical
+    // ("Local\YinggeVideoLibrary.AiLocalSlot0", "...AiBudgetV3"). A self-test may
+    // pass --ai-probe-namespace <id> so its probe neither takes nor observes the
+    // slots of another running copy of this application: without it, the
+    // crash-recovery check cannot tell its own holder from a foreign one.
+    static readonly string DiagnosticMutexNamespace = ReadDiagnosticMutexNamespace();
     // Named Mutex slots recover automatically if a process exits mid-request.
     // Unlike a named Semaphore, they cannot stay consumed after a crash.
     static readonly Mutex[] LocalSlots = CreateSlots("Local");
     static readonly Mutex[] CloudSlots = CreateSlots("Cloud");
-    static readonly Mutex BudgetGate = new(false, "Local\\YinggeVideoLibrary.AiBudgetV3");
+    static readonly Mutex BudgetGate = new(false, BudgetGateName);
+    static string BudgetGateName => $"Local\\YinggeVideoLibrary.{DiagnosticMutexNamespace}AiBudgetV3";
     static Mutex[] CreateSlots(string channel) => Enumerable.Range(0, 4)
-        .Select(index => new Mutex(false, $"Local\\YinggeVideoLibrary.Ai{channel}Slot{index}"))
+        .Select(index => new Mutex(false, $"Local\\YinggeVideoLibrary.{DiagnosticMutexNamespace}Ai{channel}Slot{index}"))
         .ToArray();
+
+    /// <summary>Namespace actually applied to the mutex names ("" = production names).</summary>
+    internal static string MutexNamespace => DiagnosticMutexNamespace;
+
+    /// <summary>
+    /// Diagnostic-only command line switch; the empty result means "production
+    /// names". Anything outside a deliberately small character set is ignored so
+    /// a typo can never change the production mutex identity.
+    /// </summary>
+    static string ReadDiagnosticMutexNamespace()
+    {
+        var args = Environment.GetCommandLineArgs();
+        for (var index = 0; index < args.Length - 1; index++)
+        {
+            if (!args[index].Equals("--ai-probe-namespace", StringComparison.OrdinalIgnoreCase)) continue;
+            var value = args[index + 1].Trim();
+            if (value.Length is 0 or > 40) return "";
+            return value.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_')
+                ? value + "." : "";
+        }
+        return "";
+    }
     public sealed class BudgetLedger
     {
         public string Day { get; set; } = "";

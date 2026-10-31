@@ -34,6 +34,20 @@ dotnet publish -c Release -r win-x64 --self-contained true /p:PublishSingleFile=
 
 使用 Inno Setup 7 的 `ISCC.exe` 编译 `YinggeVideoLibrary.iss`，安装包输出到 `..\安装包`。发布新版本时，同步更新 `.csproj` 和安装脚本中的版本号，创建对应的 `vX.Y.Z` GitHub Release，并同时上传 `YinggeVideoLibrary-Setup.exe` 和从发布目录复制的 `YinggeVideoLibrary-win-x64.exe`。两个文件名须保持稳定，供更新器识别。
 
+### 隔离验收与离线诊断
+
+发布前可用隔离数据目录检查，不必触碰真实视频库：
+
+```powershell
+.\映格视频库.exe --data-dir D:\acceptance\data --self-test-features D:\acceptance\features.json
+```
+
+- `--data-dir <绝对路径>`（或环境变量 `YINGGE_DATA_DIR`）把索引、配置、缩略图、扩展副本全部指向该目录；不指定时仍是 `%USERPROFILE%\.YinggeVideoLibrary`。指定后程序不会读写真实数据目录，离屏 UI 诊断（`--diagnose-ui-startup`、`--diagnose-ui-search` 等）也只在该目录内工作。
+- 离线自检：`--self-test-features`、`--self-test-anime`、`--self-test-airborne`、`--self-test-ai-processes`、`--self-test-updater`、`--self-test-startup-update`、`--self-test-cross-device`。全部返回退出码 0 表示断言通过。
+- `--self-test-features` 默认**不读取真实视频库**；只有同时给出 `--allow-real-library-copy` 且未指定 `--data-dir` 时，才会把真实数据复制到临时目录做迁移校验。`--self-test-shared-cache` 读取真实目录，未重定向时需显式 `--allow-real-library-read`。
+- 生成合成大库用于性能检查：`--ui-fixture <数据目录> 30000`。
+
+
 ## 数据与凭据
 
 本地视频、索引和缩略图不属于源码仓库。TMDB Token、AI API Key 和可选的 Javinfo Key 保存在当前 Windows 用户的凭据管理器中；新版本启动时会迁移旧配置文件中的明文密钥，并清理配置备份。启用在线 AI 功能后，软件会把对应任务所需的标题等信息发送到用户自行配置的 API 服务；本地规则分类无需联网。本机 OpenAI 兼容接口可使用 `http://127.0.0.1:端口/v1` 且不需要密钥。

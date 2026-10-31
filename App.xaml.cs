@@ -149,6 +149,9 @@ public partial class App : System.Windows.Application
         }
 
         ProjectLicenseMigration.RefreshInstalledSidecar();
+        // Stale update rollback copies are useful only right after an update. Prune
+        // them in the background so a failed prune can never delay or block startup.
+        _ = Task.Run(() => UpdateBackupJanitor.TryRun(System.IO.Path.GetDirectoryName(Environment.ProcessPath)));
         var dataDir = AppPaths.DataDirectory;
         if (!LibraryRelocationService.ApplyPendingAtStartup(dataDir, out var restoreError))
         {

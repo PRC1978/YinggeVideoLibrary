@@ -8,11 +8,42 @@ namespace YinggeVideoLibrary;
 
 internal static class FeatureDiagnostics
 {
+    /// <summary>
+    /// Explicit opt-in for the only sub-check that reads the live library.
+    /// Without it <c>--self-test-features</c> never opens the real data
+    /// directory, because a plain self-test run must not copy somebody's
+    /// metadata, ratings or review history into <c>%TEMP%</c>.
+    /// </summary>
+    internal const string AllowRealLibraryCopyArgument = "--allow-real-library-copy";
+
+    // Reported for auditing, not asserted: a run that is allowed to read the
+    // real library still has to describe what it actually read.
+    static readonly HashSet<string> auditFindings = new(StringComparer.Ordinal)
+    {
+        "dataDirectoryRedirected", "realLibraryCopyRequested", "realLibraryCopySkipped",
+        "realLibraryRead", "tempDirectoryCleanupFailed", "passed"
+    };
+
+    static bool HasArgument(string name) => Environment.GetCommandLineArgs().Skip(1)
+        .Any(argument => argument.Equals(name, StringComparison.OrdinalIgnoreCase));
+
     public static async Task<int> RunAsync(string resultPath)
     {
-        var findings = new Dictionary<string, object>();
+        var findings = new Dictionary<string, object>(StringComparer.Ordinal);
         var credentialName = "SelfTest-" + Guid.NewGuid().ToString("N");
         var directory = Path.Combine(Path.GetTempPath(), "YinggeFeatureTest-" + Guid.NewGuid().ToString("N"));
+        // AppPaths resolves lazily, so the data directory must be touched before
+        // the redirection flag is read; otherwise IsRedirected still reports the
+        // unresolved default and the audit trail claims the wrong directory.
+        var dataDirectory = AppPaths.DataDirectory;
+        var redirected = AppPaths.IsRedirected;
+        var realLibraryCopyRequested = HasArgument(AllowRealLibraryCopyArgument);
+        findings["dataDirectory"] = dataDirectory;
+        findings["dataDirectoryRedirected"] = redirected;
+        findings["realLibraryCopyRequested"] = realLibraryCopyRequested;
+        findings["realLibraryCopySkipped"] = !realLibraryCopyRequested;
+        findings["realLibraryRead"] = false;
+        findings["tempDirectory"] = directory;
         try
         {
             findings["sphereExactTagCategoryLinks"] = MainWindow.VerifySphereRelationsForDiagnostics();
@@ -29,15 +60,36 @@ internal static class FeatureDiagnostics
                 ProjectLicenseMigration.VerifyForDiagnostics(Path.Combine(directory, "license-migration"));
             foreach (var (name, passed) in MainWindow.VerifyLibraryFormatMigrationForDiagnostics(
                          Path.Combine(directory, "library-format"))) findings[name] = passed;
-            try
+            // The copy-and-upgrade check is the only sub-test that touches the
+            // live library, so it stays opt-in. With a redirected data
+            // directory it still runs, but against the isolated copy, and the
+            // report states that no real library was read.
+            if (realLibraryCopyRequested)
             {
-                foreach (var (name, passed) in MainWindow.VerifyCurrentLibraryCopyForDiagnostics(
-                             Path.Combine(directory, "real-library-copy"))) findings[name] = passed;
+                try
+                {
+                    var copyChecks = MainWindow.VerifyCurrentLibraryCopyForDiagnostics(
+                        Path.Combine(directory, "real-library-copy"), out var copiedFileCount);
+                    foreach (var (name, passed) in copyChecks) findings[name] = passed;
+                    findings["realLibraryCopiedFileCount"] = copiedFileCount;
+                    findings["realLibraryRead"] = !redirected && copiedFileCount > 0;
+                    findings["realLibraryCopySkipped"] = false;
+                    if (copiedFileCount == 0)
+                        findings["realLibraryCopySkipReason"] = redirected
+                            ? "数据目录已重定向到隔离目录，其中没有 config.json/library-index.json/metadata.json，未执行副本升级测试"
+                            : "真实数据目录缺少 config.json/library-index.json/metadata.json，未执行副本升级测试";
+                }
+                catch (Exception ex)
+                {
+                    findings["realLibraryCopyUpgrade"] = false;
+                    findings["realLibraryCopyUpgradeError"] = ex.ToString();
+                }
             }
-            catch (Exception ex)
+            else
             {
-                findings["realLibraryCopyUpgrade"] = false;
-                findings["realLibraryCopyUpgradeError"] = ex.ToString();
+                findings["realLibraryCopySkipReason"] = redirected
+                    ? "数据目录已通过 --data-dir 重定向；未提供 --allow-real-library-copy，跳过真实库副本升级测试"
+                    : "未提供 --allow-real-library-copy；自检默认不读取真实视频库";
             }
             foreach (var (name, passed) in OrdinarySourceMatrixDiagnostics.Verify(
                          Path.Combine(directory, "ordinary-source-matrix"))) findings[name] = passed;
@@ -782,13 +834,21 @@ internal static class FeatureDiagnostics
             foreach (var result in StartupUpdateGateDiagnostics.Verify(Path.Combine(directory, "startup-update-gate")))
                 findings["startupUpdateGate." + result.Key] = result.Value;
 
-            findings["passed"] = findings.Values.OfType<bool>().All(value => value);
+            findings["passed"] = findings
+                .Where(pair => !auditFindings.Contains(pair.Key))
+                .All(pair => pair.Value is not bool flag || flag);
         }
         catch (Exception ex) { findings["passed"] = false; findings["error"] = ex.ToString(); }
         finally
         {
             try { WindowsCredentialStore.Write(credentialName, ""); } catch { }
-            try { Directory.Delete(directory, true); } catch { }
+            // A single recursive delete right after the run regularly failed
+            // while antivirus or a preview handler still held a handle, which
+            // left empty YinggeFeatureTest-* folders in %TEMP%. Retry, then
+            // report the leftover instead of dropping it silently.
+            var deleted = TempDiagnosticDirectory.TryDelete(directory);
+            findings["tempDirectoryCleanupFailed"] = !deleted;
+            if (!deleted) findings["tempDirectoryCleanupFailure"] = directory;
         }
         File.WriteAllText(resultPath, JsonSerializer.Serialize(findings, new JsonSerializerOptions { WriteIndented = true }));
         return findings.TryGetValue("passed", out var allPassed) && allPassed is true ? 0 : 1;

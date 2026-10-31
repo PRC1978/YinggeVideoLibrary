@@ -727,6 +727,9 @@ public partial class MainWindow
         }
         File.WriteAllText(SkippedReleasePath(directory), "{damaged");
         findings["corruptSkipFileDoesNotHideRelease"] = !IsSkippedRelease(directory, version);
+        // Rollback copies left next to the executable are pruned by
+        // UpdateBackupJanitor; its checks run in their own temp directory.
+        foreach (var (name, passed) in UpdateBackupJanitor.SelfTestInto()) findings[name] = passed;
         return findings;
     }
 }

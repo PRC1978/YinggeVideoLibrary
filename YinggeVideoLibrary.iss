@@ -47,3 +47,10 @@ Name: "{autodesktop}\映格视频库"; Filename: "{app}\映格视频库.exe"; Ta
 
 [Run]
 Filename: "{app}\映格视频库.exe"; Description: "启动映格视频库"; Flags: nowait postinstall skipifsilent
+
+[UninstallDelete]
+; The in-app updater writes "{app}\映格视频库.exe.update-previous" and may leave
+; downloaded helpers in {app}\updates. Neither comes from [Files], so Inno Setup
+; would keep them after uninstall. Remove only these two known leftovers.
+Type: files; Name: "{app}\*.update-previous"
+Type: filesandordirs; Name: "{app}\updates"

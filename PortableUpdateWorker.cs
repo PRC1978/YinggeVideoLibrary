@@ -50,6 +50,8 @@ internal static class PortableUpdateWorker
                 throw new InvalidDataException("等待旧版退出期间，目标程序已变化");
             ReplaceVerifiedFile(source, target, expectedHash);
             replacementCompleted = true;
+            // Stale rollback copies must never keep the update from succeeding.
+            _ = PruneBackupsNeverThrows(target, oldVersion.ToString(3));
             Directory.CreateDirectory(Path.GetDirectoryName(resultFile)!);
             File.WriteAllText(resultFile, $"更新成功：{DateTimeOffset.Now:O}");
             if (!testOnly)
@@ -127,10 +129,22 @@ internal static class PortableUpdateWorker
                 if (!Equals(uninstall.GetValue("DisplayVersion"), sourceVersion.ToString(3)))
                     throw new InvalidDataException("安装目录更新后未同步版本记录");
             }
+            var findings = new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["badHashRejected"] = true,
+                ["replacementVerified"] = true,
+                ["previousVersionPreserved"] = true,
+                ["rollbackVerified"] = true,
+                ["otherInstallVersionPreserved"] = true,
+                ["installedVersionUpdated"] = true
+            };
+            // Backup retention is checked in its own isolated directory: the
+            // assertions above use small stand-in files, not real executables.
+            foreach (var (name, passed) in UpdateBackupJanitor.SelfTestInto()) findings[name] = passed;
+            findings["passed"] = findings.Values.OfType<bool>().All(value => value);
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(destination))!);
-            File.WriteAllText(destination, JsonSerializer.Serialize(new { passed = true, badHashRejected = true, replacementVerified = true,
-                previousVersionPreserved = true, rollbackVerified = true, otherInstallVersionPreserved = true, installedVersionUpdated = true }));
-            return 0;
+            File.WriteAllText(destination, JsonSerializer.Serialize(findings));
+            return findings["passed"] is true ? 0 : 1;
         }
         catch (Exception ex)
         {
@@ -284,6 +298,24 @@ internal static class PortableUpdateWorker
             throw new IOException("无法替换正在使用的程序文件，请关闭其他实例，或使用安装包更新", lastFailure);
         }
         finally { try { if (File.Exists(next)) File.Delete(next); } catch { } }
+    }
+
+    // Retention is best effort: a backup that cannot be deleted (read-only,
+    // still mapped by another process) is reported, never thrown. Apply() must
+    // finish the update even when the install directory refuses cleanup.
+    internal static UpdateBackupJanitorResult PruneBackupsNeverThrows(string target, string replacedVersion)
+    {
+        try
+        {
+            return UpdateBackupJanitor.PruneAfterReplace(
+                Path.GetDirectoryName(Path.GetFullPath(target)), replacedVersion);
+        }
+        catch (Exception ex)
+        {
+            var failure = new UpdateBackupJanitorResult { Context = "replaced " + replacedVersion };
+            failure.Errors.Add(ex.Message);
+            return failure;
+        }
     }
 
     static void RestorePreviousFile(string target)

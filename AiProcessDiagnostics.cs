@@ -25,6 +25,7 @@ internal static class AiProcessDiagnostics
     // would only hide the fact that somebody else already holds the slot.
     const int PrecheckTimeoutMs = 1_000;
     const string SabotageArgument = "--ai-probe-hold-mutex-after-crash";
+    const string NamespaceArgument = "--ai-probe-namespace";
 
     static object ProbePayload => new
     {
@@ -63,6 +64,7 @@ internal static class AiProcessDiagnostics
                 {
                     ["kind"] = kind,
                     ["acquired"] = outcome.Acquired,
+                    ["mutexNamespace"] = AiRequestQueue.MutexNamespace,
                     ["requestedTimeoutMs"] = timeoutMs,
                     ["attempts"] = outcome.Attempts,
                     ["waitElapsedMs"] = outcome.ElapsedMs,
@@ -119,8 +121,18 @@ internal static class AiProcessDiagnostics
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
     }
 
-    static int ReadInt(Dictionary<string, object?>? detail, string name)
+    static string? ReadString(Dictionary<string, object?>? detail, string name)
     {
+        if (detail is null || !detail.TryGetValue(name, out var value) || value is null) return null;
+        return value switch
+        {
+            JsonElement element when element.ValueKind == JsonValueKind.String => element.GetString(),
+            string text => text,
+            _ => value.ToString()
+        };
+    }
+
+    static int ReadInt(Dictionary<string, object?>? detail, string name)    {
         if (detail is null || !detail.TryGetValue(name, out var value) || value is null) return -1;
         try
         {
@@ -189,6 +201,28 @@ internal static class AiProcessDiagnostics
     static bool HasArgument(string name) =>
         Environment.GetCommandLineArgs().Skip(1).Any(argument => argument.Equals(name, StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>
+    /// Namespace handed to every child: an explicit <c>--ai-probe-namespace</c>
+    /// wins, <c>none</c> selects the production names (used to show that the
+    /// default naming really is the shared one), otherwise each run gets its own
+    /// identifier. The probe therefore owns its slots outright, so a busy slot
+    /// can only belong to the process this test started and a concurrent copy of
+    /// this application cannot make the outcome depend on timing.
+    /// </summary>
+    static string ResolveProbeNamespace()
+    {
+        var args = Environment.GetCommandLineArgs();
+        for (var index = 0; index < args.Length - 1; index++)
+        {
+            if (!args[index].Equals(NamespaceArgument, StringComparison.OrdinalIgnoreCase)) continue;
+            var value = args[index + 1].Trim();
+            if (value.Equals("none", StringComparison.OrdinalIgnoreCase)
+                || value.Equals("default", StringComparison.OrdinalIgnoreCase)) return "";
+            if (value.Length > 0) return value;
+        }
+        return "probe-" + Guid.NewGuid().ToString("N")[..12];
+    }
+
     internal static async Task<int> RunAsync(string resultPath)
     {
         var root = Path.Combine(Path.GetTempPath(), "YinggeAiProcessProbe-" + Guid.NewGuid().ToString("N"));
@@ -197,8 +231,10 @@ internal static class AiProcessDiagnostics
         var evidence = new Dictionary<string, object?>(StringComparer.Ordinal);
         var running = new List<Process>();
         var sabotage = HasArgument(SabotageArgument);
+        var probeNamespace = ResolveProbeNamespace();
         evidence["probeRoot"] = root;
         evidence["sabotagedMutexHolder"] = sabotage;
+        evidence["mutexNamespace"] = probeNamespace;
         try
         {
             var executable = Environment.ProcessPath;
@@ -215,6 +251,10 @@ internal static class AiProcessDiagnostics
                 };
                 start.ArgumentList.Add("--self-test-ai-child");
                 foreach (var arg in childArgs) start.ArgumentList.Add(arg);
+                // Own mutex namespace: the probe must not share slots with
+                // another copy of this application running in the same session.
+                start.ArgumentList.Add(NamespaceArgument);
+                start.ArgumentList.Add(probeNamespace);
                 // Children inherit the same redirected data directory so a probe
                 // can never fall back to the real library location.
                 start.ArgumentList.Add(AppPaths.DataDirectoryArgument);
@@ -292,25 +332,19 @@ internal static class AiProcessDiagnostics
                 var held = Path.Combine(root, kind + ".held");
                 var denied = Path.Combine(root, kind + ".denied");
                 var recovered = Path.Combine(root, kind + ".recovered");
-                // The slots are session-wide named mutexes shared with every other
-                // running copy of this application, including a real user session.
-                // If one of them already holds the slot, both "blocked" and
-                // "recovered" would describe that foreign holder instead of the
-                // child we just killed, so the interference is measured first and
-                // reported instead of being mistaken for a result.
-                var precheck = await Task.Run(() => AiRequestQueue.ProbeMutexForDiagnostics(
-                    kind == "budget", kind == "local", Path.Combine(root, kind + ".precheck"), PrecheckTimeoutMs));
-                detail["mutexFreeBeforeTest"] = precheck.Acquired;
-                detail["precheckProbe"] = new
-                {
-                    attempts = precheck.Attempts,
-                    elapsedMs = precheck.ElapsedMs,
-                    recoveredFromAbandonedMutex = precheck.RecoveredFromAbandonedMutex,
-                    lastError = precheck.LastError
-                };
-                if (!precheck.Acquired)
+                // The slots are named mutexes; the pre-check runs in a child so it
+                // uses exactly the namespace the real probe uses. A free slot is a
+                // precondition for both "blocked" and "recovered" being about the
+                // process this test started.
+                var precheckMarker = Path.Combine(root, kind + ".precheck");
+                var precheckExit = await ExitAsync(Start("try", kind, precheckMarker,
+                    PrecheckTimeoutMs.ToString(CultureInfo.InvariantCulture)));
+                var precheck = ReadProbeDetail(precheckMarker);
+                detail["mutexFreeBeforeTest"] = precheckExit == 0 && File.Exists(precheckMarker);
+                detail["precheckProbe"] = precheck;
+                if (detail["mutexFreeBeforeTest"] is false)
                     detail["foreignMutexHolder"] =
-                        $"测试开始前互斥就被外部占用：{precheck.LastError}（可能是并发运行的另一份映格视频库实例，本次结果不可信）";
+                        $"测试开始前互斥就被外部占用（命名空间 {probeNamespace}）：{ReadString(precheck, "lastWaitError")}";
                 var holder = Start("hold", kind, held);
                 detail["holderReadyMs"] = await ReadyAsync(holder, held);
                 detail["holderAcquiredMarkerExists"] = File.Exists(held);

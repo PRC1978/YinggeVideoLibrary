@@ -34,8 +34,30 @@ internal static class MikanScraperDiagnostics
         var found = MikanScraper.ParseSearch(SearchHtml);
         var candidate = found[0];
         var detail = MikanScraper.ParseDetail(candidate, DetailHtml);
+        // A page that states it found nothing is a real empty answer; it must not
+        // be reported as a parsing error. The wording is asserted here so the
+        // marker constant cannot silently drift away from the parser.
         var unrelated = MikanScraper.ParseSearch(
+            "<form action='/Home/Search'></form><span>搜索结果</span><p>没有找到相关番组</p>" +
+            "<a href='/Home/Episode/1'>仅有发布资源</a>");
+        // Same page, no empty marker, no catalog anchors: not decidable at all.
+        var undecidableThrows = RejectSearch(
             "<form action='/Home/Search'></form><span>搜索结果</span><a href='/Home/Episode/1'>仅有发布资源</a>");
+        // Shape of the live no-match page (sampled 2026-10-31, ev-fix/l2/
+        // mikan-empty-1.html): no result heading, no catalog anchors, only the
+        // "找不到对应结果" notice. This must stay a real empty answer.
+        var liveEmpty = MikanScraper.ParseSearch(
+            "<html><body><form method='get' action='/Home/Search'><input name='searchstr'></form>" +
+            "<div class=\"no-subscribe-bangumi\">\"zzqqxxyy\" 找不到对应结果 &gt;_&lt; 试试别的关键词吧。</div>" +
+            "<div class=\"m-home\"><img src='/images/mainvisual_line2.jpg' /></div></body></html>");
+        // The card class moved but the catalog anchors are still there: the page
+        // is not empty, the parser no longer understands it.
+        var renamedCards = SearchHtml.Replace("an-text", "an-name", StringComparison.Ordinal);
+        var structureChangeThrows = RejectSearch(renamedCards) &&
+            renamedCards.Contains("/Home/Bangumi/3141", StringComparison.Ordinal) &&
+            // Anchors without the result heading are a structure change too.
+            RejectSearch("<form action='/Home/Search'></form>" +
+                "<a href='/Home/Bangumi/3141'><div class='an-name' title='x'></div></a>");
         var malformedThrows = RejectSearch("<html>登录验证</html>");
         var pathThrows = false;
         try { _ = MikanScraper.NormalizeQuery(@"C:\Anime\Series"); }
@@ -52,7 +74,7 @@ internal static class MikanScraperDiagnostics
         var longSynopsis = MikanScraper.ParseDetail(candidate, DetailHtml.Replace(
             "旅途中的&#x5C11;女 <b>芙莉莲</b> &amp; 同伴。 [简介原文] 旅を続ける少女と仲間。",
             new string('文', 2500), StringComparison.Ordinal));
-        return new Dictionary<string, bool>(StringComparer.Ordinal)
+        var checks = new Dictionary<string, bool>(StringComparer.Ordinal)
         {
             ["mikanSearchUsesOnlyAnimeCards"] = found.Count == 2 &&
                 found.All(item => item.Source == "Mikan" && item.Code.Length == 0 &&
@@ -80,8 +102,62 @@ internal static class MikanScraperDiagnostics
             ["mikanPosterCannotPointOutsideSite"] =
                 MikanScraper.ParseDetail(candidate, DetailHtml.Replace(
                     "/images/Bangumi/202309/5ce9fed1.jpg?width=400&height=560&format=webp",
-                    "https://evil.test/cover.jpg", StringComparison.Ordinal)).PosterUrl == candidate.PosterUrl
+                    "https://evil.test/cover.jpg", StringComparison.Ordinal)).PosterUrl == candidate.PosterUrl,
+            ["mikanEmptyResultPageIsNotAnError"] = unrelated.Count == 0,
+            ["mikanLiveEmptyResultPageIsNotAnError"] = liveEmpty.Count == 0,
+            ["mikanStructureChangeIsNotAnEmptyResult"] = structureChangeThrows && undecidableThrows,
+            ["mikanRateLimitKeepsRetryAfter"] = RateLimitStatus(),
+            ["mikanAccessVerificationBecomesCooldown"] = AccessVerificationStatus()
         };
+        AddCapturedPageRegression(checks);
+        return checks;
+    }
+
+    // Optional offline regression against the live search page captured on
+    // 2026-10-31 (ev-fix/l2/mikan-search-2.html). The download itself timed out
+    // mid-stream, so only the prefix the scraper actually reads is used. Enabled
+    // only through YINGGE_MIKAN_SEARCH_FIXTURE so the default run stays hermetic.
+    static void AddCapturedPageRegression(IDictionary<string, bool> checks)
+    {
+        var path = Environment.GetEnvironmentVariable("YINGGE_MIKAN_SEARCH_FIXTURE");
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return;
+        var html = File.ReadAllText(path);
+        if (html.Length > 192_000) html = html[..192_000];
+        var parsed = MikanScraper.ParseSearch(html);
+        checks["mikanCapturedLiveSearchPageParsesCards"] =
+            parsed.Count == 2 && parsed.All(item => item.Source == "Mikan" && item.Title.Length > 0);
+    }
+
+    // 429 keeps its Retry-After window; nothing is turned into a permanent
+    // failure by the status mapping itself.
+    static bool RateLimitStatus()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var (error, pause) = MikanScraper.ClassifyStatus(System.Net.HttpStatusCode.TooManyRequests,
+            TimeSpan.FromSeconds(90), now);
+        var fallback = MikanScraper.ClassifyStatus(System.Net.HttpStatusCode.TooManyRequests, null, now);
+        return error is ScrapeHttpException { StatusCode: System.Net.HttpStatusCode.TooManyRequests, RetryAfter: { } window }
+            && window == TimeSpan.FromSeconds(90) && pause == TimeSpan.FromSeconds(90)
+            && fallback.Error is ScrapeHttpException { RetryAfter: { } defaultWindow }
+            && defaultWindow == TimeSpan.FromMinutes(1);
+    }
+
+    // 403 and an anti-bot interstitial become a source cooldown of about one
+    // hour, so the queue keeps the task instead of failing the video.
+    static bool AccessVerificationStatus()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var (forbidden, forbiddenPause) = MikanScraper.ClassifyStatus(
+            System.Net.HttpStatusCode.Forbidden, null, now);
+        var (serviceUnavailable, _) = MikanScraper.ClassifyStatus(
+            System.Net.HttpStatusCode.ServiceUnavailable, null, now);
+        return forbidden is ScrapeSourceUnavailableException { RetryAt: { } until }
+            && until - now >= TimeSpan.FromMinutes(59) && until - now <= TimeSpan.FromMinutes(61)
+            && forbiddenPause == TimeSpan.FromHours(1)
+            && serviceUnavailable is ScrapeHttpException { StatusCode: System.Net.HttpStatusCode.ServiceUnavailable }
+            && MikanScraper.IsAccessInterstitial("<html><title>Just a moment...</title></html>")
+            && MikanScraper.IsAccessInterstitial("<script src='/cdn-cgi/challenge-platform/cf-chl'></script>")
+            && !MikanScraper.IsAccessInterstitial(SearchHtml);
     }
 
     static bool RejectSearch(string html)

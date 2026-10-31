@@ -10,7 +10,11 @@ internal static class ScrapeCandidateCache
 {
     const int CurrentSchemaVersion = 2;
     const int TitleSnapshotSchemaVersion = 1;
-    const string DefaultParserVersion = "1";
+    // Bump this whenever a parser rule changes what a cached card means.
+    // CacheAccepted treats a mismatch as a miss, so stored candidates are
+    // re-read from the source instead of silently surviving the rule change.
+    internal const string CurrentParserVersion = "2";
+    const string DefaultParserVersion = CurrentParserVersion;
     const long MaxProbeEntryBytes = 4L * 1024 * 1024;
     static long cacheRevision;
     internal static long CacheRevision => Interlocked.Read(ref cacheRevision);
@@ -455,8 +459,40 @@ internal static class ScrapeCandidateCache
         return fetchInvocations == 4;
     }
 
-    internal static async Task<bool> VerifyWikidataCacheReadyAsync(string dataDir)
+    // A parser rule change must invalidate the stored candidates of that source.
+    // Otherwise a three-day old card keeps being presented as if the new rules
+    // had produced it.
+    internal static async Task<bool> VerifyParserVersionInvalidatesCacheAsync(string dataDir)
     {
+        var directory = System.IO.Path.Combine(dataDir, "parser-version-cache");
+        const string source = "Mikan";
+        const string title = "葬送的芙莉莲";
+        var fetches = 0;
+        Task<List<MovieMetadata>> Fetch()
+        {
+            fetches++;
+            return Task.FromResult(new List<MovieMetadata>
+            {
+                new() { Source = source, Title = title, SourceUrl = "https://mikanani.me/Home/Bangumi/3141" }
+            });
+        }
+        await GetOrFetchAsync(directory, source, title, Fetch);
+        await GetOrFetchAsync(directory, source, title, Fetch);
+        var hitWithoutRefetch = fetches == 1;
+        var path = PathFor(directory, source, title);
+        var stored = JsonSerializer.Deserialize<Entry>(await File.ReadAllTextAsync(path));
+        if (stored is null || stored.ParserVersion != CurrentParserVersion) return false;
+        // Re-label the envelope with the previous parser version: the same entry
+        // must now be a miss.
+        stored.ParserVersion = "1";
+        await File.WriteAllTextAsync(path, JsonSerializer.Serialize(stored));
+        var refreshed = await GetOrFetchAsync(directory, source, title, Fetch);
+        var afterRewrite = JsonSerializer.Deserialize<Entry>(await File.ReadAllTextAsync(path));
+        return hitWithoutRefetch && CurrentParserVersion != "1" && fetches == 2 &&
+            refreshed.Count == 1 && afterRewrite?.ParserVersion == CurrentParserVersion;
+    }
+
+    internal static async Task<bool> VerifyWikidataCacheReadyAsync(string dataDir)    {
         var directory = System.IO.Path.Combine(dataDir, "wikidata-cache-ready");
         const string title = "Spirited Away";
         const string url = "https://www.wikidata.org/wiki/Q155653";

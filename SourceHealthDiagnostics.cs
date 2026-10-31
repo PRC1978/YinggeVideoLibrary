@@ -141,6 +141,10 @@ internal static class SourceHealthDiagnostics
     {
         if (string.IsNullOrWhiteSpace(raw)) return "无未恢复错误";
         var value = raw.ToLowerInvariant();
+        // A public source that answers with an access-verification page is not a
+        // credential problem: the same client would succeed later.
+        if (value.Contains("访问验证", StringComparison.Ordinal) || value.Contains("人机校验", StringComparison.Ordinal))
+            return "来源要求访问验证";
         if (value.Contains("429", StringComparison.Ordinal) || value.Contains("限速", StringComparison.Ordinal)
             || value.Contains("rate limit", StringComparison.Ordinal)) return "请求受限（429）";
         if (value.Contains("401", StringComparison.Ordinal) || value.Contains("403", StringComparison.Ordinal)

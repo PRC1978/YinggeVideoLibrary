@@ -98,22 +98,9 @@ public static class FankuHubScraper
                 var header = response.Headers.RetryAfter;
                 var retry = header?.Delta ?? (header?.Date is DateTimeOffset date
                     ? date - DateTimeOffset.UtcNow : null);
-                var effectiveRetry = retry;
-                if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden or
-                    HttpStatusCode.ServiceUnavailable)
-                {
-                    var fallback = response.StatusCode switch
-                    {
-                        HttpStatusCode.Forbidden => TimeSpan.FromHours(1),
-                        HttpStatusCode.TooManyRequests => TimeSpan.FromMinutes(1),
-                        _ => TimeSpan.FromSeconds(20)
-                    };
-                    var pause = retry is { } specified && specified > TimeSpan.Zero ? specified : fallback;
-                    effectiveRetry = pause > TimeSpan.FromHours(24) ? TimeSpan.FromHours(24) : pause;
-                    nextRequestAt = DateTimeOffset.UtcNow.Add(effectiveRetry.Value);
-                }
-                throw new ScrapeHttpException($"番库返回 HTTP {(int)response.StatusCode}，稍后重试。",
-                    response.StatusCode, effectiveRetry);
+                var (error, pause) = ClassifyStatus(response.StatusCode, retry, DateTimeOffset.UtcNow);
+                if (pause is { } window) nextRequestAt = DateTimeOffset.UtcNow.Add(window);
+                throw error;
             }
             var contentType = response.Content.Headers.ContentType?.MediaType;
             if (contentType is not null && !contentType.Equals("text/html", StringComparison.OrdinalIgnoreCase))
@@ -122,12 +109,55 @@ public static class FankuHubScraper
                 throw new InvalidDataException("番库网页超出解析大小上限。");
             await response.Content.LoadIntoBufferAsync(MaxHtmlBytes, cancellationToken);
             var html = await response.Content.ReadAsStringAsync(cancellationToken);
-            if (html.Contains("cf-chl", StringComparison.OrdinalIgnoreCase) ||
-                html.Contains("Just a moment...", StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException("番库要求额外访问验证，已停止读取该页面。");
+            if (IsAccessInterstitial(html))
+            {
+                var now = DateTimeOffset.UtcNow;
+                var challenge = AccessVerificationFailure(HttpStatusCode.Forbidden, now, "人机校验页");
+                nextRequestAt = challenge.RetryAt ?? now.AddHours(1);
+                throw challenge;
+            }
             return html;
         }
         finally { RequestGate.Release(); }
+    }
+
+    // A challenge page is not an empty index; it is the site refusing this client.
+    internal static bool IsAccessInterstitial(string? html) =>
+        !string.IsNullOrEmpty(html) &&
+        (html.Contains("cf-chl", StringComparison.OrdinalIgnoreCase) ||
+         html.Contains("Just a moment...", StringComparison.OrdinalIgnoreCase));
+
+    // Map a non-success status to the exception the queue understands and the
+    // in-process pause it should respect. 403 is the site refusing this client
+    // (access verification), not a permanent "no such work", so it becomes a
+    // one-hour source cooldown; 429/503 keep their Retry-After semantics.
+    internal static (Exception Error, TimeSpan? Pause) ClassifyStatus(HttpStatusCode status,
+        TimeSpan? retryAfter, DateTimeOffset now)
+    {
+        if (status == HttpStatusCode.Forbidden)
+            return (AccessVerificationFailure(status, now), TimeSpan.FromHours(1));
+        var effective = retryAfter;
+        if (status is HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable)
+        {
+            var fallback = status == HttpStatusCode.TooManyRequests
+                ? TimeSpan.FromMinutes(1) : TimeSpan.FromSeconds(20);
+            var pause = retryAfter is { } specified && specified > TimeSpan.Zero ? specified : fallback;
+            effective = pause > TimeSpan.FromHours(24) ? TimeSpan.FromHours(24) : pause;
+            return (new ScrapeHttpException($"番库返回 HTTP {(int)status}，稍后重试。", status, effective), effective);
+        }
+        return (new ScrapeHttpException($"番库返回 HTTP {(int)status}，稍后重试。", status, effective), null);
+    }
+
+    // The site answered with a refusal instead of content. Non-HTML content and
+    // oversized pages stay content errors; an anti-bot interstitial and a 403 are
+    // "come back later" source states that the queue turns into a cooldown.
+    internal static ScrapeSourceUnavailableException AccessVerificationFailure(HttpStatusCode status,
+        DateTimeOffset now, string? reason = null)
+    {
+        var detail = reason is null ? $"HTTP {(int)status}" : $"{reason}，HTTP {(int)status}";
+        return new ScrapeSourceUnavailableException(
+            $"番库要求访问验证或拒绝访问（{detail}），已停止读取该页面；稍后自动重试。",
+            now.AddHours(1));
     }
 
     internal static List<MovieMetadata> ParseSearch(string html)

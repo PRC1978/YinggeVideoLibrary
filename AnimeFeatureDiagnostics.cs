@@ -17,6 +17,17 @@ internal static class AnimeFeatureDiagnostics
             var cacheDirectory = Path.Combine(Path.GetTempPath(), "YinggeAnimeCacheTest-" + Guid.NewGuid().ToString("N"));
             try { checks["animeVerifiedCacheCanBypassCooldown"] = ScrapeCandidateCache.VerifyAnimeSourceCacheReady(cacheDirectory); }
             finally { if (Directory.Exists(cacheDirectory)) Directory.Delete(cacheDirectory, recursive: true); }
+            var probeDirectory = Path.Combine(Path.GetTempPath(), "YinggeAnimeProbe-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                // The async cache probe must not run on the dispatcher thread: its
+                // await continuations would need the thread we are blocking on.
+                checks["animeParserVersionInvalidatesCache"] = Task.Run(() => ScrapeCandidateCache
+                    .VerifyParserVersionInvalidatesCacheAsync(probeDirectory)).GetAwaiter().GetResult();
+                checks["animeAccessVerificationWritesReadableCooldown"] =
+                    AnimeSourceIntegrationDiagnostics.VerifyAccessVerificationCooldown(probeDirectory);
+            }
+            finally { if (Directory.Exists(probeDirectory)) Directory.Delete(probeDirectory, recursive: true); }
             File.WriteAllText(resultPath, JsonSerializer.Serialize(new
             {
                 passed = checks.Values.All(value => value), checks

@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net;
 
 namespace YinggeVideoLibrary;
 
@@ -104,8 +105,33 @@ internal static class FankuHubScraperDiagnostics
                 RejectSearch(SearchHtml.Replace("共 2 条结果", "无可读结果", StringComparison.Ordinal)),
             ["fankuRejectsFilePathAndUrlQueries"] =
                 FankuHubScraper.NormalizeQuery("  进击的巨人  ") == "进击的巨人" &&
-                RejectQuery("C:\\Videos\\Work.mkv") && RejectQuery("https://example.test/anime")
+                RejectQuery("C:\\Videos\\Work.mkv") && RejectQuery("https://example.test/anime"),
+            ["fankuAccessVerificationIsASourceCooldown"] = AccessVerificationStatus()
         };
+    }
+
+    // 403 and the anti-bot interstitial are "come back later", not "this work
+    // does not exist": they must carry a retry time of about one hour so the
+    // queue records a cooldown instead of marking the video permanently failed.
+    static bool AccessVerificationStatus()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var (forbidden, pause) = FankuHubScraper.ClassifyStatus(HttpStatusCode.Forbidden, null, now);
+        var (tooMany, tooManyPause) = FankuHubScraper.ClassifyStatus(HttpStatusCode.TooManyRequests,
+            TimeSpan.FromSeconds(120), now);
+        var (serverError, serverPause) = FankuHubScraper.ClassifyStatus(HttpStatusCode.ServiceUnavailable, null, now);
+        var (notFound, notFoundPause) = FankuHubScraper.ClassifyStatus(HttpStatusCode.NotFound, null, now);
+        return forbidden is ScrapeSourceUnavailableException { RetryAt: { } until }
+            && until >= now.AddMinutes(59) && until <= now.AddMinutes(61)
+            && pause == TimeSpan.FromHours(1)
+            && FankuHubScraper.IsAccessInterstitial("<html><div id=\"cf-chl-widget\"></div></html>")
+            && FankuHubScraper.IsAccessInterstitial("<title>Just a moment...</title>")
+            && !FankuHubScraper.IsAccessInterstitial(SearchHtml)
+            && tooMany is ScrapeHttpException { StatusCode: HttpStatusCode.TooManyRequests, RetryAfter: { } wait }
+            && wait == TimeSpan.FromSeconds(120) && tooManyPause == TimeSpan.FromSeconds(120)
+            && serverError is ScrapeHttpException { StatusCode: HttpStatusCode.ServiceUnavailable }
+            && serverPause == TimeSpan.FromSeconds(20)
+            && notFound is ScrapeHttpException { StatusCode: HttpStatusCode.NotFound } && notFoundPause is null;
     }
 
     static bool RejectQuery(string query)

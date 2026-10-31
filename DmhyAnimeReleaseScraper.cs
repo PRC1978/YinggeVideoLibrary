@@ -3,6 +3,7 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
@@ -84,14 +85,21 @@ public static class DmhyAnimeReleaseScraper
                 cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
+                // A 403 from the RSS endpoint is the site refusing this client,
+                // not a permanent "no releases". Keep it temporary with an
+                // explicit retry time so the queue records a cooldown.
+                if (response.StatusCode == HttpStatusCode.Forbidden)
+                {
+                    var refusal = AccessVerificationFailure(response.StatusCode, DateTimeOffset.UtcNow);
+                    nextRequestAt = refusal.RetryAt ?? DateTimeOffset.UtcNow.AddMinutes(10);
+                    throw refusal;
+                }
                 var header = response.Headers.RetryAfter;
                 var retry = header?.Delta ?? (header?.Date is DateTimeOffset date
                     ? date - DateTimeOffset.UtcNow : null);
-                if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests or
-                    HttpStatusCode.ServiceUnavailable)
+                if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable)
                 {
-                    var fallback = response.StatusCode == HttpStatusCode.Forbidden
-                        ? TimeSpan.FromMinutes(10) : TimeSpan.FromMinutes(1);
+                    var fallback = TimeSpan.FromMinutes(1);
                     var pause = retry is { } specified && specified > TimeSpan.Zero ? specified : fallback;
                     nextRequestAt = DateTimeOffset.UtcNow.Add(pause > TimeSpan.FromHours(24)
                         ? TimeSpan.FromHours(24) : pause);
@@ -108,15 +116,26 @@ public static class DmhyAnimeReleaseScraper
                 xml.AsSpan().TrimStart().StartsWith("<html", StringComparison.OrdinalIgnoreCase) ||
                 xml.AsSpan().TrimStart().StartsWith("<!DOCTYPE html", StringComparison.OrdinalIgnoreCase))
             {
-                nextRequestAt = DateTimeOffset.UtcNow.AddMinutes(10);
-                throw new InvalidDataException("动漫花园返回网页验证或访问限制，RSS 未读取；稍后再试。");
+                var block = AccessVerificationFailure(HttpStatusCode.Forbidden, DateTimeOffset.UtcNow,
+                    "返回网页验证页");
+                nextRequestAt = block.RetryAt ?? DateTimeOffset.UtcNow.AddMinutes(10);
+                throw block;
             }
             return xml;
         }
         finally { RequestGate.Release(); }
     }
 
-    internal static List<DmhyAnimeRelease> ParseRss(string xml)
+    internal static ScrapeSourceUnavailableException AccessVerificationFailure(HttpStatusCode status,
+        DateTimeOffset now, string? reason = null)
+    {
+        var detail = reason is null ? $"HTTP {(int)status}" : $"{reason}，HTTP {(int)status}";
+        return new ScrapeSourceUnavailableException(
+            $"动漫花园要求访问验证或拒绝访问（{detail}），RSS 未读取；稍后自动重试。",
+            now.AddMinutes(10));
+    }
+
+    internal static List<DmhyAnimeRelease> ParseRss(string xml, int maxResults = MaxResults)
     {
         if (string.IsNullOrWhiteSpace(xml))
             throw new InvalidDataException("动漫花园 RSS 为空，不能判断为无结果。");
@@ -145,13 +164,18 @@ public static class DmhyAnimeReleaseScraper
 
         var results = new List<DmhyAnimeRelease>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        var limit = Math.Clamp(maxResults, 1, 5_000);
+        var itemCount = 0;
+        var wellFormed = 0;
         foreach (var item in channel.Elements().Where(element => element.Name.LocalName == "item"))
         {
+            itemCount++;
             // Read only metadata fields. Never inspect enclosure, description or
             // arbitrary links embedded in them.
             var title = Field(item, "title", 500);
             var link = Field(item, "link", 600);
             var category = Field(item, "category", 40);
+            if (title is not null && link is not null) wellFormed++;
             if (title is null || link is null || !IsAnimeCategory(category) ||
                 !TryPageUrl(link, out var sourceUrl) || !seen.Add(sourceUrl)) continue;
             var parsed = AnimeReleaseTitleParser.Analyze(title);
@@ -171,8 +195,13 @@ public static class DmhyAnimeReleaseScraper
                 SourceUrl = sourceUrl,
                 Category = category
             });
-            if (results.Count >= MaxResults) break;
+            if (results.Count >= limit) break;
         }
+        // An RSS channel with zero items is a legitimate empty answer. Items that
+        // all lost their title or link mean the feed structure changed, which must
+        // not be presented as "no releases found".
+        if (itemCount > 0 && wellFormed == 0)
+            throw new InvalidDataException("动漫花园 RSS 条目缺少标题或链接，页面结构可能已变化；不能当作无结果。");
         return results;
     }
 
@@ -183,8 +212,15 @@ public static class DmhyAnimeReleaseScraper
             ? value : null;
     }
 
-    static bool IsAnimeCategory(string? category)
-        => category is "動畫" or "动画" or "季度全集" or "RAW" or "RＡＷ" or "完結番組" or "完结番组";
+    // The public RSS mixes half-width and full-width ASCII in the same channel
+    // (RAW, RＡＷ and ＲＡＷ all occur). Normalize first, otherwise a full-width
+    // spelling is silently dropped as "not an anime category".
+    internal static bool IsAnimeCategory(string? category)
+    {
+        if (string.IsNullOrWhiteSpace(category)) return false;
+        var normalized = category.Trim().Normalize(NormalizationForm.FormKC);
+        return normalized is "動畫" or "动画" or "季度全集" or "RAW" or "完結番組" or "完结番组";
+    }
 
     internal static bool TryPageUrl(string? value, out string canonicalUrl)
     {

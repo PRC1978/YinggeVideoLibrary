@@ -469,7 +469,7 @@ public partial class MainWindow : Window
         ThumbnailInfo.Text = FindFfmpeg() is null ? "未检测到 FFmpeg。视频旁的同名封面、poster、cover 或 folder 图片仍可作为海报。" : "已检测到 FFmpeg。无本地封面的视频会在后台自动生成缩略图；原视频不会被修改。";
         SortBox.SelectedIndex = 0;
         posterScrollTimer.Tick += (_, _) => { posterScrollTimer.Stop(); if (AllListPanel.Visibility == Visibility.Visible) ScheduleVirtualPosters(pendingVirtualRow, pendingVirtualVisibleRows); else ScheduleVisiblePosters(); };
-        searchRefreshTimer.Tick += (_, _) => { searchRefreshTimer.Stop(); if (view is "all" or "recent" or "favorites" or "categories") RenderCards(); };
+        searchRefreshTimer.Tick += async (_, _) => { searchRefreshTimer.Stop(); if (view is "all" or "recent" or "favorites" or "categories") await RenderSearchAsync(); };
         folderRefreshTimer.Tick += (_, _) =>
         {
             folderRefreshTimer.Stop();
@@ -1534,6 +1534,8 @@ public partial class MainWindow : Window
     void RenderCards()
     {
         if (Cards is null || SortBox is null) return;
+        var renderClock = System.Diagnostics.Stopwatch.StartNew();
+        searchRenderVersion++;
         categoryCardPopulationCompletion?.TrySetResult(false);
         categoryCardRenderRequest++;
         categoryCardItems = null;
@@ -1543,7 +1545,18 @@ public partial class MainWindow : Window
         var query = SearchBox?.Text.Trim() ?? "";
         var inView = videos.Where(v => (activeTagFilter is null || v.Tags.Contains(activeTagFilter, StringComparer.CurrentCultureIgnoreCase)) && (view != "favorites" || v.Favorite) && (view != "categories" || selectedCategory == "全部" || v.CategoryList.Any(c => c.Equals(selectedCategory, StringComparison.OrdinalIgnoreCase) || c.StartsWith(selectedCategory + " / ", StringComparison.OrdinalIgnoreCase)) || v.Category.Equals(selectedCategory, StringComparison.OrdinalIgnoreCase)));
         IEnumerable<VideoItem> filtered;
-        if (query.Length == 0)
+        var prepared = preparedSearch;
+        preparedSearch = null;
+        var usePrepared = prepared is not null && prepared.Query == query && prepared.View == view &&
+            prepared.Category == selectedCategory && prepared.Tag == activeTagFilter &&
+            prepared.SortIndex == SortBox.SelectedIndex && ReferenceEquals(prepared.Source, videos);
+        if (usePrepared)
+        {
+            filtered = prepared!.Items;
+            LastSearchHitCount = prepared.HitCount;
+            LastSearchFields = prepared.Fields;
+        }
+        else if (query.Length == 0)
         {
             filtered = inView;
         }
@@ -1560,9 +1573,10 @@ public partial class MainWindow : Window
             LastSearchFields = hits.Select(hit => hit.reason).Where(reason => reason.Length > 0).Distinct(StringComparer.CurrentCultureIgnoreCase).Take(3).ToArray();
             filtered = SortSearchHits(hits, SortBox.SelectedIndex).Select(hit => hit.video);
         }
-        if (query.Length == 0)
+        if (query.Length == 0 && !usePrepared)
             filtered = SortVideos(filtered, SortBox.SelectedIndex);
         var list = filtered.ToList();
+        lastSearchRenderFilterMs = renderClock.Elapsed.TotalMilliseconds;
         currentFilteredVideos = list;
         UpdateSearchSummary(query, list.Count);
         var resultSummary = query.Length == 0 ? $"{list.Count} 部视频" : $"{list.Count} 部视频 · 模糊匹配";
@@ -1587,17 +1601,13 @@ public partial class MainWindow : Window
         pageIndex = Math.Clamp(pageIndex, 0, pages - 1);
         var visible = list.Skip(pageIndex * pageSize).Take(pageSize).ToList();
         pageItems = visible;
-        if (view == "categories")
-        {
-            // Show the complete graph before realizing the card templates.
-            // Cards are still added in their original order and every item on
-            // the configured page remains available to selection and actions.
-            categoryCardTargets = visible;
-            categoryCardItems = new System.Collections.ObjectModel.ObservableCollection<VideoItem>();
-            categoryCardPopulationCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            Cards.ItemsSource = categoryCardItems;
-        }
-        else Cards.ItemsSource = visible;
+        // Realize the whole page over successive dispatcher turns. A single
+        // 60-card binding/layout pass can block input for hundreds of ms.
+        categoryCardTargets = visible;
+        categoryCardItems = new System.Collections.ObjectModel.ObservableCollection<VideoItem>();
+        categoryCardPopulationCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Cards.ItemsSource = categoryCardItems;
+        lastSearchRenderBindingMs = renderClock.Elapsed.TotalMilliseconds - lastSearchRenderFilterMs;
         CountText.Text = resultSummary;
         Pager.Visibility = pages > 1 ? Visibility.Visible : Visibility.Collapsed;
         PageIndicator.Text = $"第 {pageIndex + 1} / {pages} 页";
@@ -1614,15 +1624,18 @@ public partial class MainWindow : Window
                 ? "文件夹与旧索引不同，旧索引已保留。请检查“视频文件夹”中的位置。"
             : view == "favorites" ? "点视频右下角的星标，就能放到这里。" : "添加一个视频文件夹，马上开始浏览。";
         EmptyClearSearchButton.Visibility = query.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-        if (view == "categories") { RenderCategories(); StartCategoryCardPopulation(); }
+        if (view == "categories") RenderCategories();
+        StartCategoryCardPopulation(view != "categories");
         currentPosterStart = -1;
         ScheduleVisiblePosters();
         UpdateSelectionToolbar();
+        lastSearchRenderFinalMs = renderClock.Elapsed.TotalMilliseconds - lastSearchRenderFilterMs - lastSearchRenderBindingMs;
     }
 
     void StartCategoryCardPopulation(bool allowWithoutGraph = false)
     {
-        if (categoryCardPopulationScheduled || view != "categories" || (!allowWithoutGraph && sphereMapSurface is null) ||
+        if (categoryCardPopulationScheduled || view is not ("all" or "recent" or "favorites" or "categories") ||
+            (!allowWithoutGraph && sphereMapSurface is null) ||
             categoryCardItems is null || categoryCardTargets is null) return;
         categoryCardPopulationScheduled = true;
         var request = categoryCardRenderRequest;
@@ -1632,13 +1645,14 @@ public partial class MainWindow : Window
         var next = 0;
         void AddChunk()
         {
-            if (isClosing || view != "categories" || request != categoryCardRenderRequest ||
+            if (isClosing || view is not ("all" or "recent" or "favorites" or "categories") ||
+                request != categoryCardRenderRequest ||
                 !ReferenceEquals(Cards.ItemsSource, items))
             {
                 completion?.TrySetResult(false);
                 return;
             }
-            var end = Math.Min(targets.Count, next + 12);
+            var end = Math.Min(targets.Count, next + 3);
             while (next < end) items.Add(targets[next++]);
             if (next == targets.Count) completion?.TrySetResult(true);
             else Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(AddChunk));
@@ -3380,6 +3394,7 @@ public partial class MainWindow : Window
     }
     void SearchChanged(object sender, TextChangedEventArgs e)
     {
+        searchQueryVersion++;
         UpdateSearchControls();
         if (view is not ("all" or "recent" or "favorites" or "categories")) return;
         pageIndex = 0;

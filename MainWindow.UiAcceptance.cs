@@ -134,6 +134,8 @@ public partial class MainWindow
                 searchRefreshTimer.Stop();
                 RenderCards();                       // warm-up call for this query
                 searchRefreshTimer.Stop();
+                if (categoryCardPopulationCompletion is { } warmCards)
+                    await warmCards.Task.WaitAsync(TimeSpan.FromSeconds(10));
                 await Dispatcher.InvokeAsync(UpdateLayout, DispatcherPriority.Render);
 
                 var renders = new List<double>();
@@ -149,6 +151,8 @@ public partial class MainWindow
                     var renderMs = renderClock.Elapsed.TotalMilliseconds;
                     var hitCount = LastSearchHitCount;
                     var layoutClock = Stopwatch.StartNew();
+                    if (categoryCardPopulationCompletion is { } cards)
+                        await cards.Task.WaitAsync(TimeSpan.FromSeconds(10));
                     await Dispatcher.InvokeAsync(UpdateLayout, DispatcherPriority.Render);
                     var layoutMs = layoutClock.Elapsed.TotalMilliseconds;
                     renders.Add(renderMs);
@@ -161,6 +165,32 @@ public partial class MainWindow
                 var renderSorted = renders.OrderBy(value => value).ToList();
                 var layoutSorted = layouts.OrderBy(value => value).ToList();
                 var totalSorted = totals.OrderBy(value => value).ToList();
+                var expectedIds = currentFilteredVideos.Select(video => video.Id).ToArray();
+                var lastPulse = Stopwatch.GetTimestamp();
+                var maxUiGapMs = 0d;
+                var pulse = new DispatcherTimer(DispatcherPriority.Send)
+                {
+                    Interval = TimeSpan.FromMilliseconds(16)
+                };
+                pulse.Tick += (_, _) =>
+                {
+                    var now = Stopwatch.GetTimestamp();
+                    maxUiGapMs = Math.Max(maxUiGapMs, Stopwatch.GetElapsedTime(lastPulse, now).TotalMilliseconds);
+                    lastPulse = now;
+                };
+                pulse.Start();
+                var asyncClock = Stopwatch.StartNew();
+                try
+                {
+                    await RenderSearchAsync();
+                    if (categoryCardPopulationCompletion is { } asyncCards)
+                        await asyncCards.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                    pulse.Stop();
+                    await Dispatcher.InvokeAsync(UpdateLayout, DispatcherPriority.Render);
+                }
+                finally { pulse.Stop(); }
+                var asyncTotalMs = asyncClock.Elapsed.TotalMilliseconds;
+                var sameResults = expectedIds.SequenceEqual(currentFilteredVideos.Select(video => video.Id));
                 rows.Add(new Dictionary<string, object?>
                 {
                     ["label"] = label,
@@ -177,7 +207,16 @@ public partial class MainWindow
                     ["layoutMaxMs"] = Math.Round(layoutSorted[^1], 2),
                     ["syncTotalP50Ms"] = UiDiagPercentile(totalSorted, .5),
                     ["syncTotalP95Ms"] = UiDiagPercentile(totalSorted, .95),
-                    ["syncTotalMaxMs"] = Math.Round(totalSorted[^1], 2)
+                    ["syncTotalMaxMs"] = Math.Round(totalSorted[^1], 2),
+                    ["asyncResultsEqual"] = sameResults,
+                    ["asyncTotalMs"] = Math.Round(asyncTotalMs, 2),
+                    ["asyncMaxUiGapMs"] = Math.Round(maxUiGapMs, 2),
+                    ["asyncEligibilityMs"] = Math.Round(lastSearchEligibilityMs, 2),
+                    ["asyncCaptureMaxSliceMs"] = Math.Round(lastSearchCaptureMaxSliceMs, 2),
+                    ["asyncApplyMs"] = Math.Round(lastSearchApplyMs, 2)
+                    , ["asyncRenderFilterMs"] = Math.Round(lastSearchRenderFilterMs, 2)
+                    , ["asyncRenderBindingMs"] = Math.Round(lastSearchRenderBindingMs, 2)
+                    , ["asyncRenderFinalMs"] = Math.Round(lastSearchRenderFinalMs, 2)
                 });
             }
         }

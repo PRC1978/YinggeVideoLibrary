@@ -6,8 +6,22 @@ namespace YinggeVideoLibrary;
 public partial class MainWindow
 {
     internal static IReadOnlyDictionary<string, bool> VerifyCurrentLibraryCopyForDiagnostics(string root)
+        => VerifyCurrentLibraryCopyForDiagnostics(root, out _);
+
+    /// <summary>
+    /// Copies the live library into <paramref name="root"/> to prove that a real
+    /// config/metadata upgrade keeps every relation intact.
+    ///
+    /// This is the only diagnostic that reads the live data directory, so the
+    /// caller must gate it: <c>--self-test-features</c> only reaches it after an
+    /// explicit <c>--allow-real-library-copy</c>. <paramref name="copiedFileCount"/>
+    /// is returned so the caller can state whether anything was actually read.
+    /// </summary>
+    internal static IReadOnlyDictionary<string, bool> VerifyCurrentLibraryCopyForDiagnostics(string root,
+        out int copiedFileCount)
     {
         var checks = new Dictionary<string, bool>(StringComparer.Ordinal);
+        copiedFileCount = 0;
         var originalConfig = Path.Combine(DataDir, "config.json");
         var originalIndex = Path.Combine(DataDir, "library-index.json");
         var originalMetadata = Path.Combine(DataDir, "metadata.json");
@@ -15,13 +29,22 @@ public partial class MainWindow
             return checks;
         Directory.CreateDirectory(root);
         foreach (var name in new[] { "config.json", "library-index.json", "metadata.json" })
+        {
             File.Copy(Path.Combine(DataDir, name), Path.Combine(root, name), true);
+            copiedFileCount++;
+        }
         foreach (var name in new[] { "personal-ratings.json", "review-history.jsonl" })
             if (File.Exists(Path.Combine(DataDir, name)))
+            {
                 File.Copy(Path.Combine(DataDir, name), Path.Combine(root, name), true);
+                copiedFileCount++;
+            }
         foreach (var path in Directory.EnumerateFiles(DataDir, "scrape-queue.*"))
             if (Path.GetExtension(path) is ".json" or ".bin")
+            {
                 File.Copy(path, Path.Combine(root, Path.GetFileName(path)), true);
+                copiedFileCount++;
+            }
         var copiedConfigPath = Path.Combine(root, "config.json");
         var original = JsonSerializer.Deserialize<LibraryConfig>(File.ReadAllText(copiedConfigPath))!;
         var index = JsonSerializer.Deserialize<LibraryIndex>(

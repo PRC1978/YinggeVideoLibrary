@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Collections.Concurrent;
 using System.IO;
 using System.Globalization;
@@ -516,22 +517,68 @@ internal static class AiRequestQueue
             }
         });
 
-    internal static async Task<bool> TryMutexForDiagnosticsAsync(bool budget, bool local, string marker)
+    internal readonly record struct MutexProbeOutcome(bool Acquired, int Attempts, long ElapsedMs,
+        bool RecoveredFromAbandonedMutex, string? LastError);
+
+    /// <summary>
+    /// Diagnostic probe that mirrors the production acquisition loop: a
+    /// non-blocking <see cref="Mutex.WaitOne(int)"/> poll, and
+    /// <see cref="AbandonedMutexException"/> treated as "acquired" because the
+    /// previous owner died.
+    ///
+    /// The deadline is measured inside the loop on a dedicated caller thread.
+    /// The previous implementation started a two second
+    /// <see cref="CancellationTokenSource"/> on the caller's async path, so on a
+    /// cold start the budget could be consumed by JIT and thread-pool warm-up
+    /// before the first wait ran; the crash-recovery self-test then reported a
+    /// mutex that had in fact already recovered.
+    /// </summary>
+    internal static MutexProbeOutcome ProbeMutexForDiagnostics(bool budget, bool local, string marker,
+        int timeoutMs)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        try
+        var slots = local ? LocalSlots : CloudSlots;
+        var attempts = 0;
+        var acquired = false;
+        var recoveredFromAbandoned = false;
+        string? lastError = null;
+        var clock = Stopwatch.StartNew();
+        while (true)
         {
-            if (budget)
-                await WithBudgetGateAsync(() => { File.WriteAllText(marker, "acquired"); return 0; }, timeout.Token);
-            else
-                await Task.Run(() =>
+            attempts++;
+            try
+            {
+                if (budget ? BudgetGate.WaitOne(0) : slots[0].WaitOne(0))
                 {
-                    using var slot = AcquireChannelSlot(new ChannelPolicy(local, TimeSpan.FromMilliseconds(500), 1, 0),
-                        timeout.Token);
-                    File.WriteAllText(marker, "acquired");
-                }, timeout.Token);
-            return true;
+                    acquired = true;
+                    break;
+                }
+            }
+            catch (AbandonedMutexException)
+            {
+                // The owning process was killed. Production treats an abandoned
+                // slot as acquired, so the probe must as well, otherwise the test
+                // would assert behaviour the product does not have.
+                acquired = true;
+                recoveredFromAbandoned = true;
+                break;
+            }
+            catch (Exception ex) when (ex is ObjectDisposedException or ApplicationException)
+            {
+                lastError = $"{ex.GetType().Name}: {ex.Message}";
+                break;
+            }
+            if (clock.ElapsedMilliseconds >= timeoutMs)
+            {
+                lastError = $"等待 {timeoutMs} 毫秒仍未取得互斥（已尝试 {attempts} 次）";
+                break;
+            }
+            Thread.Sleep(25);
         }
-        catch (OperationCanceledException) when (timeout.IsCancellationRequested) { return false; }
+        var elapsedMs = clock.ElapsedMilliseconds;
+        if (!acquired) return new MutexProbeOutcome(false, attempts, elapsedMs, false, lastError);
+        File.WriteAllText(marker, recoveredFromAbandoned ? "acquired-after-abandon" : "acquired");
+        try { if (budget) BudgetGate.ReleaseMutex(); else slots[0].ReleaseMutex(); }
+        catch (ApplicationException) { }
+        return new MutexProbeOutcome(true, attempts, elapsedMs, recoveredFromAbandoned, lastError);
     }
 }

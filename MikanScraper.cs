@@ -52,6 +52,21 @@ public static class MikanScraper
     static readonly Regex Tag = new("<[^>]*>", RegexOptions.Singleline | RegexOptions.CultureInvariant,
         HtmlRegexTimeout);
     static readonly Regex Whitespace = new(@"\s+", RegexOptions.CultureInvariant, HtmlRegexTimeout);
+    // Empty-result wording of the public search page. Sampled live on 2026-10-31:
+    // the no-match page has no result heading and only the notice
+    // "找不到对应结果" (see ev-fix/l2/mikan-empty-1.html). The other spellings are
+    // tolerated variants. This is the only signal that separates "nothing
+    // matched" from "the card markup changed", so it is also asserted in
+    // diagnostics rather than trusted silently.
+    static readonly Regex EmptyResultMarker = new(
+        @"找不到对应结果|没有找到|沒有找到|未找到|無符合|无符合|无匹配|查询不到|暂无(?:相关)?(?:搜索结果|结果|番组|匹配)",
+        RegexOptions.CultureInvariant, HtmlRegexTimeout);
+    // Catalog anchors survive a rename of the card classes. Counting them lets
+    // ParseSearch tell "no cards because nothing matched" from "no cards
+    // because the markup moved".
+    static readonly Regex BangumiAnchor = new(
+        """(?:href\s*=\s*["']/Home/Bangumi/|data-src\s*=\s*["']/images/Bangumi/)""",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, HtmlRegexTimeout);
 
     public static async Task<List<MovieMetadata>> SearchAsync(string query,
         CancellationToken cancellationToken = default)
@@ -107,16 +122,9 @@ public static class MikanScraper
                 var header = response.Headers.RetryAfter;
                 var retry = header?.Delta ?? (header?.Date is DateTimeOffset date
                     ? date - DateTimeOffset.UtcNow : null);
-                if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable)
-                {
-                    var fallback = response.StatusCode == HttpStatusCode.TooManyRequests
-                        ? TimeSpan.FromMinutes(1) : TimeSpan.FromSeconds(20);
-                    var pause = retry is { } specified && specified > TimeSpan.Zero ? specified : fallback;
-                    nextRequestAt = DateTimeOffset.UtcNow.Add(pause > TimeSpan.FromHours(24)
-                        ? TimeSpan.FromHours(24) : pause);
-                }
-                throw new ScrapeHttpException($"蜜柑返回 HTTP {(int)response.StatusCode}，稍后重试。",
-                    response.StatusCode, retry);
+                var (error, pause) = ClassifyStatus(response.StatusCode, retry, DateTimeOffset.UtcNow);
+                if (pause is { } window) nextRequestAt = DateTimeOffset.UtcNow.Add(window);
+                throw error;
             }
             var contentType = response.Content.Headers.ContentType?.MediaType;
             if (contentType is not null && !contentType.Equals("text/html", StringComparison.OrdinalIgnoreCase))
@@ -131,20 +139,67 @@ public static class MikanScraper
                 if (count == 0) break;
                 buffer.Write(chunk, 0, count);
             }
-            return Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length);
+            var html = Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length);
+            if (IsAccessInterstitial(html))
+            {
+                var challenge = AccessVerificationFailure(HttpStatusCode.Forbidden,
+                    DateTimeOffset.UtcNow, "人机校验页");
+                nextRequestAt = challenge.RetryAt ?? DateTimeOffset.UtcNow.AddHours(1);
+                throw challenge;
+            }
+            return html;
         }
         finally { RequestGate.Release(); }
     }
 
+    // An interstitial ("Just a moment...", cf-chl) is the site refusing this
+    // client, not a page without candidates.
+    internal static bool IsAccessInterstitial(string? html) =>
+        !string.IsNullOrEmpty(html) &&
+        (html.Contains("cf-chl", StringComparison.OrdinalIgnoreCase) ||
+         html.Contains("Just a moment...", StringComparison.OrdinalIgnoreCase));
+
+    internal static ScrapeSourceUnavailableException AccessVerificationFailure(HttpStatusCode status,
+        DateTimeOffset now, string? reason = null)
+    {
+        var detail = reason is null ? $"HTTP {(int)status}" : $"{reason}，HTTP {(int)status}";
+        return new ScrapeSourceUnavailableException(
+            $"蜜柑要求访问验证或拒绝访问（{detail}），已停止读取该页面；稍后自动重试。",
+            now.AddHours(1));
+    }
+
+    // Same split as the fankuhub scraper: only "the site refuses this client"
+    // becomes a cooldown; 429/503 stay rate-limit errors with their window.
+    internal static (Exception Error, TimeSpan? Pause) ClassifyStatus(HttpStatusCode status,
+        TimeSpan? retryAfter, DateTimeOffset now)
+    {
+        if (status == HttpStatusCode.Forbidden)
+            return (AccessVerificationFailure(status, now), TimeSpan.FromHours(1));
+        if (status is HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable)
+        {
+            var fallback = status == HttpStatusCode.TooManyRequests
+                ? TimeSpan.FromMinutes(1) : TimeSpan.FromSeconds(20);
+            var pause = retryAfter is { } specified && specified > TimeSpan.Zero ? specified : fallback;
+            pause = pause > TimeSpan.FromHours(24) ? TimeSpan.FromHours(24) : pause;
+            return (new ScrapeHttpException($"蜜柑返回 HTTP {(int)status}，稍后重试。", status, pause), pause);
+        }
+        return (new ScrapeHttpException($"蜜柑返回 HTTP {(int)status}，稍后重试。", status, retryAfter), null);
+    }
+
     internal static List<MovieMetadata> ParseSearch(string html)
     {
-        if (string.IsNullOrWhiteSpace(html) || !html.Contains("搜索结果", StringComparison.Ordinal) ||
-            !html.Contains("/Home/Search", StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(html) || !html.Contains("/Home/Search", StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("蜜柑搜索页面结构不完整，不能判断为无结果。");
         // The recommendation section precedes the release table. Never let a
-        // release title masquerade as a catalogued anime candidate.
+        // release title masquerade as a catalogued anime candidate. A live page
+        // with no match carries no result heading at all (sampled 2026-10-31), so
+        // the heading is optional and only bounds the recommendation region.
         var end = html.IndexOf("搜索结果", StringComparison.Ordinal);
-        var cards = html[..end];
+        var cards = end < 0 ? "" : html[..end];
+        var resultsSection = end < 0 ? html : html[end..];
+        // Anchors are counted over the whole page: they survive a rename of the
+        // card classes, which is exactly the case that must not look empty.
+        var anchors = BangumiAnchor.Matches(html).Count;
         var results = new List<MovieMetadata>();
         var seen = new HashSet<int>();
         foreach (Match match in SearchCard.Matches(cards))
@@ -165,7 +220,15 @@ public static class MikanScraper
             results.Add(candidate);
             if (results.Count >= 10) break;
         }
-        return results;
+        if (results.Count > 0) return results;
+        // Zero cards is only a real "no match" when the page says so. The page
+        // carries bangumi anchors (poster images or catalog links) even when the
+        // card class names change, so anchors without parsed cards mean the
+        // markup moved, not that nothing matched.
+        if (EmptyResultMarker.IsMatch(resultsSection)) return results;
+        if (anchors > 0)
+            throw new InvalidDataException("蜜柑搜索页面结构可能已变化，不能当作无结果。");
+        throw new InvalidDataException("蜜柑搜索页面没有可核对的结果标记，不能判断为无结果。");
     }
 
     internal static MovieMetadata ParseDetail(MovieMetadata candidate, string html)

@@ -483,8 +483,11 @@ public partial class MainWindow
                 // The cache itself decides whether a network request is needed.
                 // A valid local hit must remain usable while this source cools.
                 var cacheQuery = source == 8 ? javinfoEvidence!.Code : title;
+                // The parser version is part of the cache key: a rule change must
+                // not keep serving candidates that the old rules produced.
                 var found = await ScrapeCandidateCache.GetOrFetchAsync(DataDir, name, cacheQuery,
-                    () => bulk ? RunQueueSourceAsync(sourceKey, Fetch, cancellationToken) : Fetch())
+                    () => bulk ? RunQueueSourceAsync(sourceKey, Fetch, cancellationToken) : Fetch(),
+                    ScrapeCandidateCache.CurrentParserVersion)
                     .WaitAsync(cancellationToken);
                 // Old snapshots can contain several loosely matched numbers.
                 // Never offer or enrich a paid candidate with a different code.

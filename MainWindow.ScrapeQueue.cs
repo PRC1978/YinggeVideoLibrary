@@ -106,11 +106,20 @@ public partial class MainWindow
         {
             var limited = ex is ScrapeHttpException { StatusCode: HttpStatusCode.TooManyRequests }
                 || ex is HttpRequestException { StatusCode: HttpStatusCode.TooManyRequests };
-            var retryAfter = ex is ScrapeHttpException rateLimit ? rateLimit.RetryAfter : null;
-            var retryAt = await Task.Run(() => ScrapeQueueStore.RecordSourceFailure(
+            // A source that asks for a specific cool-off (rate limit header or an
+            // access-verification page) must own that window, so the persisted
+            // backoff matches what the site actually told us.
+            var retryAfter = ex switch
+            {
+                ScrapeHttpException rateLimit => rateLimit.RetryAfter,
+                ScrapeSourceUnavailableException { RetryAt: { } retryAt } when retryAt > DateTimeOffset.UtcNow
+                    => retryAt - DateTimeOffset.UtcNow,
+                _ => null
+            };
+            var retryAtValue = await Task.Run(() => ScrapeQueueStore.RecordSourceFailure(
                 DataDir, source, ex.Message, limited, retryAfter,
                 policy.ConsecutiveFailureLimit), cancellationToken);
-            throw new ScrapeSourceUnavailableException($"{source} 暂时不可用：{ex.Message}", retryAt);
+            throw new ScrapeSourceUnavailableException($"{source} 暂时不可用：{ex.Message}", retryAtValue);
         }
     }
     CancellationTokenSource? scrapeQueueCancellation;
@@ -580,13 +589,27 @@ public partial class MainWindow
 
     internal static bool VerifySourceRetryPolicyForDiagnostics()
     {
+        var now = DateTimeOffset.UtcNow;
+        // An access-verification refusal (403 / challenge page) is a source
+        // state: it must keep the task, keep the video's retry budget and ask
+        // for roughly the window the source itself named.
+        var refusal = FankuHubScraper.AccessVerificationFailure(HttpStatusCode.Forbidden, now);
         var exhausted = new ScrapeQueueItem { VideoId = "test", Kind = "title", SearchTitle = "title", Attempts = MaxScrapeAttempts - 1 };
         return ShouldRetryScrapeItem(exhausted,
                 new ScrapeSourceUnavailableException("source cooling", DateTimeOffset.UtcNow.AddMinutes(1)))
             && AttemptsAfterRetry(exhausted.Attempts, new ScrapeSourceUnavailableException("source cooling")) == exhausted.Attempts
             && !ShouldRetryScrapeItem(exhausted, new HttpRequestException("network unavailable"))
             && !ShouldRetryScrapeItem(new ScrapeQueueItem { VideoId = "test", Kind = "title", SearchTitle = "title" },
-                new HttpRequestException("unauthorized", null, HttpStatusCode.Unauthorized));
+                new HttpRequestException("unauthorized", null, HttpStatusCode.Unauthorized))
+            && IsTemporaryScrapeFailure(refusal) && ShouldRetryScrapeItem(exhausted, refusal)
+            && AttemptsAfterRetry(exhausted.Attempts, refusal) == exhausted.Attempts
+            && refusal.RetryAt is { } refusalUntil && refusalUntil - now >= TimeSpan.FromMinutes(59)
+            && ScrapeRetryDelay(1, refusal) >= TimeSpan.FromMinutes(59)
+            && FankuHubScraper.IsAccessInterstitial("<html><script src=\"/cdn-cgi/challenge-platform/cf-chl\"></script></html>")
+            // A credentialed source that answers 403 is a real permission
+            // problem and stays permanent; only the explicit refusal type above
+            // is treated as temporary.
+            && !IsTemporaryScrapeFailure(new ScrapeHttpException("forbidden", HttpStatusCode.Forbidden, null));
     }
 
     static bool IsTemporaryScrapeFailure(Exception ex) => ex switch

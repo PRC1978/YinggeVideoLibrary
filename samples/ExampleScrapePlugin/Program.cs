@@ -85,6 +85,16 @@ internal static class Program
             Error(id, "rate_limited", "示例插件模拟限流", retryAfterSeconds: 900);
             return;
         }
+        if (query.Contains("stream", StringComparison.OrdinalIgnoreCase))
+        {
+            // 8 MB without a single newline: the host must stop at its cap
+            // instead of buffering the whole line first.
+            var chunk = new string('y', 64 * 1024);
+            for (var index = 0; index < 128; index++) Console.Out.Write(chunk);
+            Console.Out.Flush();
+            Thread.Sleep(5000);
+            return;
+        }
         if (query.Contains("pathleak", StringComparison.OrdinalIgnoreCase))
         {
             var leak = new JsonArray

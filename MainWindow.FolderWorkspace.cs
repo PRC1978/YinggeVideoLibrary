@@ -224,7 +224,7 @@ public partial class MainWindow
             Padding = new Thickness(9, 2, 9, 2), Margin = new Thickness(0, 0, 9, 8),
             ToolTip = "搜索当前层的库内目录"
         };
-        controls.Children.Add(search);
+        controls.Children.Add(UiTextInput.WithPlaceholder(search, "搜索当前层目录"));
         var sort = new ComboBox { Width = 125, Height = 34, Margin = new Thickness(0, 0, 9, 8) };
         foreach (var label in new[] { "名称排序", "视频最多", "最近更新" }) sort.Items.Add(label);
         sort.SelectedIndex = folderSortMode;

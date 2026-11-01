@@ -11,6 +11,16 @@ internal static class PluginScrapeBridge
     // additionally forced to pending regardless of this number.
     internal const int ManualThreshold = 80;
 
+    // A stored candidate survives the plugin being disabled or removed, so the
+    // review row can still rebuild its descriptor from the record.
+    internal static PluginDescriptor DescriptorFor(string pluginId, string name, string version) =>
+        new()
+        {
+            FolderPath = "", FolderName = pluginId,
+            Manifest = new PluginManifest { Id = pluginId, Name = name, Version = version },
+            Status = PluginStatus.Ready
+        };
+
     internal static string SourceLabel(PluginDescriptor plugin) =>
         "插件：" + (string.IsNullOrWhiteSpace(plugin.DisplayName) ? plugin.Id : plugin.DisplayName);
 

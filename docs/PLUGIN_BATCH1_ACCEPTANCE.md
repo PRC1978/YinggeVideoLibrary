@@ -1,5 +1,8 @@
 # 插件平台第一批（搜刮来源）验收记录
 
+> 第二批修正（多候选保留、网络边界说明、有界读取、启停先写盘）见 `docs/ROUND2_ACCEPTANCE.md`；
+> `--self-test-plugins` 已从 32 项扩到 38 项。
+
 分支：`codex/plugin-platform-first-batch`（从 `codex/search-card-performance` 另建工作树，未改动原分支）
 接口文档：`docs/PLUGINS.md`
 

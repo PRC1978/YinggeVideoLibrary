@@ -148,7 +148,7 @@ public partial class MainWindow
             }
         };
         Grid.SetColumn(search, 1);
-        grid.Children.Add(search);
+        grid.Children.Add(UiTextInput.WithPlaceholder(search, "搜索设置主题"));
         return grid;
     }
 

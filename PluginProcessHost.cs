@@ -130,6 +130,43 @@ internal static class PluginProcessHost
 
     sealed record InvocationResult(bool Ok, string ErrorCode, string ErrorMessage, TimeSpan? RetryAfter, string? Payload);
 
+    // Reads one line without ever holding more than maxChars characters. A
+    // plugin that streams megabytes without a newline is cut off at the limit
+    // instead of being buffered first and rejected afterwards.
+    sealed class BoundedLineReader(StreamReader reader)
+    {
+        readonly char[] buffer = new char[4096];
+        int position;
+        int length;
+
+        async Task<int> NextAsync(CancellationToken cancellationToken)
+        {
+            if (position >= length)
+            {
+                length = await reader.ReadAsync(buffer.AsMemory(), cancellationToken);
+                position = 0;
+                if (length == 0) return -1;
+            }
+            return buffer[position++];
+        }
+
+        internal long CharactersRead { get; private set; }
+
+        internal async Task<(string? Line, bool TooLong)> ReadLineAsync(int maxChars, CancellationToken cancellationToken)
+        {
+            var builder = new StringBuilder(Math.Min(maxChars, 4096));
+            while (true)
+            {
+                var value = await NextAsync(cancellationToken);
+                if (value < 0) return builder.Length == 0 ? (null, false) : (builder.ToString(), false);
+                CharactersRead++;
+                if (value == '\n') return (builder.ToString().TrimEnd('\r'), false);
+                if (builder.Length >= maxChars) return (null, true);
+                builder.Append((char)value);
+            }
+        }
+    }
+
     static async Task<InvocationResult> InvokeAsync(PluginDescriptor plugin, PluginRequest request,
         TimeSpan timeout, CancellationToken cancellationToken)
     {
@@ -189,9 +226,13 @@ internal static class PluginProcessHost
             // Keep stdin open: a plugin that reads to EOF would otherwise stop
             // before answering. Closing is done after the response arrives.
 
+            var lineReader = new BoundedLineReader(process.StandardOutput);
             for (var attempt = 0; attempt < MaxSkippedLines; attempt++)
             {
-                var line = await process.StandardOutput.ReadLineAsync(deadline.Token);
+                var (line, tooLong) = await lineReader.ReadLineAsync(MaxLineChars, deadline.Token);
+                if (tooLong)
+                    return new InvocationResult(false, "response_too_large",
+                        $"插件响应超过 {MaxLineChars / 1024} KB，已终止该次调用。", null, null);
                 if (line is null)
                 {
                     var exitCode = SafeExitCode(process);
@@ -200,9 +241,6 @@ internal static class PluginProcessHost
                     return new InvocationResult(false, "plugin_exited",
                         $"插件未返回结果就退出（退出码 {exitCode}）{detail}", null, null);
                 }
-                if (line.Length > MaxLineChars)
-                    return new InvocationResult(false, "response_too_large",
-                        $"插件响应超过 {MaxLineChars / 1024} KB，已丢弃。", null, null);
                 if (string.IsNullOrWhiteSpace(line)) continue;
                 PluginResponse? response;
                 try { response = JsonSerializer.Deserialize<PluginResponse>(line); }
@@ -236,6 +274,17 @@ internal static class PluginProcessHost
             try { if (!process.HasExited) process.Kill(true); } catch { }
             try { await process.WaitForExitAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(3)); } catch { }
         }
+    }
+
+    // Test hook: proves the cap is applied while reading, not after buffering.
+    internal static (bool TooLong, long CharactersRead) MeasureBoundedRead(string payload, int maxChars)
+    {
+        var bytes = Encoding.UTF8.GetBytes(payload);
+        using var stream = new MemoryStream(bytes);
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        var lineReader = new BoundedLineReader(reader);
+        var (line, tooLong) = lineReader.ReadLineAsync(maxChars, CancellationToken.None).GetAwaiter().GetResult();
+        return (tooLong || line is null, lineReader.CharactersRead);
     }
 
     static int SafeExitCode(Process process)

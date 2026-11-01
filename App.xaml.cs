@@ -71,6 +71,11 @@ public partial class App : System.Windows.Application
             Shutdown(await Task.Run(() => SharedCacheReadOnlyProbe.Run(e.Args[1])));
             return;
         }
+        if (e.Args.Length > 2 && e.Args[0] == "--self-test-missing-files")
+        {
+            Shutdown(await Task.Run(() => MissingFileDiagnostics.RunToFile(e.Args[1], e.Args[2])));
+            return;
+        }
         // --self-test-plugins <隔离工作目录> <结果 JSON> [示例插件构建输出目录]
         if (e.Args.Length > 2 && e.Args[0] == "--self-test-plugins")
         {

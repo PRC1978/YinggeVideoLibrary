@@ -216,41 +216,47 @@ public partial class MainWindow
     void PluginToggleClick(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is not PluginDescriptor plugin || pluginState is null) return;
-        if (plugin.Enabled)
+        // Work on a copy: the visible state only changes after plugins.json was
+        // actually written, so a read-only folder cannot leave the UI lying.
+        var next = PluginStateStore.Clone(pluginState);
+        var enable = !plugin.Enabled;
+        if (enable)
         {
-            pluginState.Enabled.RemoveAll(id => id.Equals(plugin.Id, StringComparison.OrdinalIgnoreCase));
-            plugin.Enabled = false;
-            plugin.Status = PluginStatus.Ready;
-            plugin.Message = "";
-            PluginStateStore.Save(DataDir, pluginState, out _);
-            PluginLog.Append(DataDir, plugin.Id, "已停用");
-            RenderPlugins();
+            if (plugin.Manifest is null) return;
+            var signature = plugin.PermissionSignature;
+            var consented = next.Consents.TryGetValue(plugin.Id, out var saved) && saved == signature;
+            if (!consented)
+            {
+                var network = plugin.Manifest.Permissions.Network.Count == 0 ? "（无）" : string.Join("、", plugin.Manifest.Permissions.Network);
+                var data = plugin.Manifest.Permissions.Data.Count == 0 ? "（不接收任何数据）" : string.Join("、", plugin.Manifest.Permissions.Data);
+                var answer = MessageBox.Show(this,
+                    $"启用“{plugin.DisplayName}”后，程序会：\n\n" +
+                    $"· 只把标题或番号发送给它（数据范围：{data}）\n" +
+                    $"· 接受它返回的、位于这些域名下的链接：{network}\n\n" +
+                    "清单里的域名只用于声明和校验插件返回的链接，**不是**网络隔离：插件是独立进程，但它仍可以自行连接任何地址。程序只保证不把完整路径、私有标签和密钥交给它。\n\n" +
+                    "确认启用？",
+                    "确认插件权限", MessageBoxButton.OKCancel, MessageBoxImage.Question);
+                if (answer != MessageBoxResult.OK) return;
+                next.Consents[plugin.Id] = signature;
+            }
+            if (!next.Enabled.Contains(plugin.Id, StringComparer.OrdinalIgnoreCase))
+                next.Enabled.Add(plugin.Id);
+        }
+        else
+        {
+            next.Enabled.RemoveAll(id => id.Equals(plugin.Id, StringComparison.OrdinalIgnoreCase));
+        }
+        if (!PluginStateStore.Save(DataDir, next, out var error))
+        {
+            MessageBox.Show(this, $"插件状态无法保存，未做任何更改：{error}\n\n如果插件目录或数据目录是只读的，请先取消只读再试。",
+                "插件", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
-        if (plugin.Manifest is null) return;
-        var signature = plugin.PermissionSignature;
-        var consented = pluginState.Consents.TryGetValue(plugin.Id, out var saved) && saved == signature;
-        if (!consented)
-        {
-            var network = plugin.Manifest.Permissions.Network.Count == 0 ? "（无）" : string.Join("、", plugin.Manifest.Permissions.Network);
-            var data = plugin.Manifest.Permissions.Data.Count == 0 ? "（不接收任何数据）" : string.Join("、", plugin.Manifest.Permissions.Data);
-            var answer = MessageBox.Show(this,
-                $"启用“{plugin.DisplayName}”将允许它：\n\n" +
-                $"· 访问这些域名：{network}\n" +
-                $"· 接收这些数据：{data}\n\n" +
-                "程序只发送标题或番号，不发送完整路径、私有标签和密钥。插件在独立进程运行，但独立进程不是 Windows 安全沙箱，请只安装你信任的来源。\n\n确认启用？",
-                "确认插件权限", MessageBoxButton.OKCancel, MessageBoxImage.Question);
-            if (answer != MessageBoxResult.OK) return;
-            pluginState.Consents[plugin.Id] = signature;
-        }
-        if (!pluginState.Enabled.Contains(plugin.Id, StringComparer.OrdinalIgnoreCase))
-            pluginState.Enabled.Add(plugin.Id);
-        plugin.Enabled = true;
+        pluginState = next;
+        plugin.Enabled = enable;
         plugin.Status = PluginStatus.Ready;
         plugin.Message = "";
-        if (!PluginStateStore.Save(DataDir, pluginState, out var error))
-            MessageBox.Show(this, "插件状态无法保存：" + error, "插件", MessageBoxButton.OK, MessageBoxImage.Warning);
-        else PluginLog.Append(DataDir, plugin.Id, "已启用");
+        PluginLog.Append(DataDir, plugin.Id, enable ? "已启用" : "已停用");
         RenderPlugins();
     }
 
@@ -342,8 +348,8 @@ public partial class MainWindow
             // the UI thread; the file writes inside are short and journaled.
             var stored = StorePluginCandidates(video, outcome.Candidates, plugin);
             PluginScrapeResultText.Text = stored == 0
-                ? "候选都已存在，未重复入队。"
-                : $"已把 {stored} 条候选放入“搜刮”页的人工审核队列（{outcome.ElapsedMs} ms）。原始资料没有被修改。";
+                ? "候选未能保存，未入队。"
+                : $"该视频现有 {stored} 条候选已保存到人工审核队列（{outcome.ElapsedMs} ms）。原始资料没有被修改。";
             RefreshReviewQueue();
         }
         catch (Exception ex)
@@ -359,49 +365,81 @@ public partial class MainWindow
         }
     }
 
-    // Each candidate is stored through the same journaled review transaction as
-    // a built-in source, with Status forced to pending. Nothing here touches
-    // metadata directly.
+    // Every candidate is persisted first. The review record only points at one
+    // of them, and the number reported to the user is the number the store will
+    // show again after a restart.
     int StorePluginCandidates(VideoItem video, IReadOnlyList<PluginCandidate> candidates, PluginDescriptor plugin)
     {
-        var stored = 0;
         foreach (var candidate in candidates)
         {
-            var metadata = PluginScrapeBridge.ToMetadata(candidate, plugin);
-            var review = PluginScrapeBridge.BuildPendingReview(video.Id, video.Title, metadata, plugin, candidate.ConfidenceHint);
-            var locked = false;
-            try
+            PluginCandidateStore.Add(DataDir, video.Id, new PluginCandidateRecord
             {
-                try { ConfigWriteMutex.WaitOne(); locked = true; }
-                catch (AbandonedMutexException) { locked = true; }
-                var before = CaptureReviewState(video.Id);
-                // A human-approved record is never replaced by a plugin claim.
-                if (before.Review is { Status: "approved" })
-                {
-                    Log($"插件候选已跳过：{video.Title} 已有通过审核的资料。");
-                    continue;
-                }
-                var after = before.Clone();
-                after.Review = review;
-                after = WithAutomaticAmateurTag(video, after, false);
-                var transaction = ReviewTransactionStore.Create("candidate",
-                    new Dictionary<string, ReviewItemSnapshot> { [video.Id] = before },
-                    new Dictionary<string, ReviewItemSnapshot> { [video.Id] = after });
-                if (!TryCommitJournaledReview(transaction, out var error))
-                {
-                    Log("插件候选无法写入审核记录：" + error);
-                    continue;
-                }
-                ApplyReviewBadge(video);
-                stored++;
-            }
-            catch (Exception ex)
-            {
-                Log("插件候选入队失败：" + ex.Message);
-            }
-            finally { if (locked) ConfigWriteMutex.ReleaseMutex(); }
+                PluginId = plugin.Id,
+                SavedAt = DateTimeOffset.Now,
+                Hint = candidate.ConfidenceHint,
+                Evidence = candidate.Evidence,
+                Metadata = PluginScrapeBridge.ToMetadata(candidate, plugin)
+            });
         }
-        if (stored > 0) RenderCards();
-        return stored;
+        var stored = PluginCandidateStore.Get(DataDir, video.Id);
+        if (stored.Count == 0) return 0;
+        var existing = config.AiReviews.GetValueOrDefault(video.Id);
+        // Never replace an approved record, and never silently move a pending
+        // plugin review away from the candidate the user already selected.
+        if (existing is { Status: "approved" }) return stored.Count;
+        if (existing is { DecisionSource: "plugin", Status: "pending" }) return stored.Count;
+        CommitPluginCandidate(video, stored[0], plugin);
+        RenderCards();
+        return stored.Count;
+    }
+
+    bool CommitPluginCandidate(VideoItem video, PluginCandidateRecord record, PluginDescriptor plugin)
+    {
+        var review = PluginScrapeBridge.BuildPendingReview(video.Id, video.Title, record.Metadata, plugin, record.Hint);
+        var locked = false;
+        try
+        {
+            try { ConfigWriteMutex.WaitOne(); locked = true; }
+            catch (AbandonedMutexException) { locked = true; }
+            var before = CaptureReviewState(video.Id);
+            if (before.Review is { Status: "approved" }) return false;
+            var after = before.Clone();
+            after.Review = review;
+            after = WithAutomaticAmateurTag(video, after, false);
+            var transaction = ReviewTransactionStore.Create("candidate",
+                new Dictionary<string, ReviewItemSnapshot> { [video.Id] = before },
+                new Dictionary<string, ReviewItemSnapshot> { [video.Id] = after });
+            if (!TryCommitJournaledReview(transaction, out var error))
+            {
+                Log("插件候选无法写入审核记录：" + error);
+                return false;
+            }
+            ApplyReviewBadge(video);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log("插件候选入队失败：" + ex.Message);
+            return false;
+        }
+        finally { if (locked) ConfigWriteMutex.ReleaseMutex(); }
+    }
+
+    // Called from the review row selector. Keeps every candidate and only moves
+    // the pointer used for this video's pending review.
+    void ApplyPluginCandidateSelection(string videoId, int index)
+    {
+        if (videos.FirstOrDefault(item => item.Id == videoId) is not { } video) return;
+        var stored = PluginCandidateStore.Get(DataDir, videoId);
+        if (index < 0 || index >= stored.Count) return;
+        var record = stored[index];
+        var plugin = PluginScrapeBridge.DescriptorFor(record.PluginId,
+            string.IsNullOrWhiteSpace(record.Metadata.Source) ? record.PluginId : record.Metadata.Source,
+            record.PluginId);
+        if (CommitPluginCandidate(video, record, plugin))
+        {
+            RefreshReviewQueue();
+            Log($"插件候选已切换：{video.Title} → 候选 {index + 1}/{stored.Count}");
+        }
     }
 }

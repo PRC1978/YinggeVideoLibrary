@@ -92,6 +92,19 @@ internal static class PluginStateStore
         if (state.LastErrors.Remove(pluginId)) Save(dataDir, state, out _);
     }
 
+    // Deep copy so a failed save cannot leave the in-memory state ahead of disk.
+    internal static PluginState Clone(PluginState state) => new()
+    {
+        SchemaVersion = state.SchemaVersion,
+        Enabled = state.Enabled.ToList(),
+        Consents = new Dictionary<string, string>(state.Consents, StringComparer.OrdinalIgnoreCase),
+        LastErrors = state.LastErrors.ToDictionary(
+            pair => pair.Key,
+            pair => new PluginLastError { At = pair.Value.At, Message = pair.Value.Message },
+            StringComparer.OrdinalIgnoreCase),
+        LoadError = state.LoadError
+    };
+
     internal static bool IsEnabled(PluginState state, string pluginId) =>
         state.Enabled.Contains(pluginId, StringComparer.OrdinalIgnoreCase);
 

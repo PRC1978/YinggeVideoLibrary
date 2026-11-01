@@ -138,19 +138,22 @@ public partial class MainWindow
         ScrapeBatchButton.ToolTip = "有番号的视频优先使用启用的番号来源；其他视频按标题搜索公开来源。勾选“仅已选”时只处理选中视频";
         if (ScrapePanel.Child is StackPanel panel)
         {
-            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 16), LastChildFill = true };
+            // Buttons wrap instead of being docked right: at the minimum window
+            // width a DockPanel keeps them beyond the right edge where they
+            // cannot be clicked at all.
+            var row = new StackPanel { Margin = new Thickness(0, 0, 0, 16) };
+            var actions = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
             scrapeQueuePageButton = new Button
             {
                 Content = "继续轮询", Style = (Style)FindResource("Action"),
-                Margin = new Thickness(12, 0, 0, 0)
+                Margin = new Thickness(0, 0, 9, 6)
             };
             scrapeQueuePageButton.Click += CancelBatch;
-            DockPanel.SetDock(scrapeQueuePageButton, Dock.Right);
-            row.Children.Add(scrapeQueuePageButton);
+            actions.Children.Add(scrapeQueuePageButton);
             scrapeQueueRetryButton = new Button
             {
                 Content = "重试失败", Style = (Style)FindResource("Action"),
-                Margin = new Thickness(12, 0, 0, 0)
+                Margin = new Thickness(0, 0, 9, 6)
             };
             scrapeQueueRetryButton.Click += async (_, _) =>
             {
@@ -165,23 +168,21 @@ public partial class MainWindow
                 catch (Exception ex) { Log("重试搜刮队列失败：" + ex.Message); }
                 finally { scrapeQueueChanging = false; UpdateScrapeQueueStatus(); }
             };
-            DockPanel.SetDock(scrapeQueueRetryButton, Dock.Right);
-            row.Children.Add(scrapeQueueRetryButton);
+            actions.Children.Add(scrapeQueueRetryButton);
             scrapeQueueClearButton = new Button
             {
                 Content = "取消待处理", Style = (Style)FindResource("Action"),
-                Margin = new Thickness(12, 0, 0, 0),
+                Margin = new Thickness(0, 0, 9, 6),
                 ToolTip = "停止当前轮询并移除尚未处理的任务；失败记录及已保存的资料保持不变"
             };
             scrapeQueueClearButton.Click += async (_, _) => await CancelPendingScrapeQueueAsync();
-            DockPanel.SetDock(scrapeQueueClearButton, Dock.Right);
-            row.Children.Add(scrapeQueueClearButton);
+            actions.Children.Add(scrapeQueueClearButton);
             scrapeQueueInfo = new TextBlock
             {
                 Foreground = new SolidColorBrush(Color.FromRgb(82, 100, 122)),
-                VerticalAlignment = VerticalAlignment.Center,
                 TextWrapping = TextWrapping.Wrap
             };
+            row.Children.Add(actions);
             row.Children.Add(scrapeQueueInfo);
             panel.Children.Insert(2, row);
         }

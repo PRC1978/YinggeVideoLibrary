@@ -135,7 +135,14 @@ public sealed class IndexEntry
     public string Path { get; set; } = "";
     public long Size { get; set; }
     public long ModifiedTicks { get; set; }
+    // Persisted so a restart can show "not on disk" before the next scan ends.
+    public bool Missing { get; set; }
 }
+
+// Present is the normal state. Missing means the folder was scanned
+// successfully and the file is gone. RootUnavailable means the drive or the
+// scan root could not be read at all, which is not evidence of deletion.
+public enum VideoAvailability { Present, Missing, RootUnavailable }
 
 public sealed class LibraryIndex
 {
@@ -151,10 +158,36 @@ public sealed class VideoItem : INotifyPropertyChanged
     public required string Folder { get; init; }
     public required long Size { get; init; }
     public required DateTime Modified { get; init; }
+    private VideoAvailability availability;
+    public VideoAvailability Availability
+    {
+        get => availability;
+        set
+        {
+            if (availability == value) return;
+            availability = value;
+            PropertyChanged?.Invoke(this, new(nameof(Availability)));
+            PropertyChanged?.Invoke(this, new(nameof(IsMissing)));
+            PropertyChanged?.Invoke(this, new(nameof(IsUnavailable)));
+            cachedDetail = null;
+            PropertyChanged?.Invoke(this, new(nameof(Detail)));
+            PropertyChanged?.Invoke(this, new(nameof(AvailabilityText)));
+        }
+    }
+    public bool IsMissing => availability == VideoAvailability.Missing;
+    public bool IsUnavailable => availability == VideoAvailability.RootUnavailable;
+    public string AvailabilityText => availability switch
+    {
+        VideoAvailability.Missing => "不在本地",
+        VideoAvailability.RootUnavailable => "位置暂不可用",
+        _ => ""
+    };
     // Cards rebind this summary on every recycled row. Folder and Size are
     // init-only; the two mutable inputs clear the cached value in their setters.
     private string? cachedDetail;
-    public string Detail => cachedDetail ??= $"{(string.IsNullOrEmpty(Code) ? "" : Code + " · ")}{Category} · {System.IO.Path.GetFileName(Folder)} · {FormatSize(Size)}";
+    public string Detail => cachedDetail ??= $"{(string.IsNullOrEmpty(Code) ? "" : Code + " · ")}{Category} · {System.IO.Path.GetFileName(Folder)} · {FormatSize(Size)}" +
+        (availability == VideoAvailability.Missing ? " · 不在本地"
+            : availability == VideoAvailability.RootUnavailable ? " · 位置暂不可用" : "");
     public List<string> CategoryList { get; } = [];
     public string CategoryPathsText => CategoryList.Count == 0
         ? $"当前分类：{Category}"
@@ -909,7 +942,8 @@ public partial class MainWindow : Window
                 {
                     Id = IdFor(entry.Path), Path = entry.Path, Title = System.IO.Path.GetFileNameWithoutExtension(entry.Path),
                     Folder = System.IO.Path.GetDirectoryName(entry.Path) ?? "", Size = Math.Max(0, entry.Size),
-                    Modified = new DateTime(entry.ModifiedTicks, DateTimeKind.Local)
+                    Modified = new DateTime(entry.ModifiedTicks, DateTimeKind.Local),
+                    Availability = entry.Missing ? VideoAvailability.Missing : VideoAvailability.Present
                 });
             }
             catch { invalidCount++; }
@@ -984,7 +1018,7 @@ public partial class MainWindow : Window
             Log("没有已配置文件夹，保留已有共享索引");
             return default;
         }
-        var index = new LibraryIndex { Folders = NormalizeRoots(roots), Entries = items.Select(v => new IndexEntry { Path = v.Path, Size = v.Size, ModifiedTicks = v.Modified.Ticks }).ToList() };
+        var index = new LibraryIndex { Folders = NormalizeRoots(roots), Entries = items.Select(v => new IndexEntry { Path = v.Path, Size = v.Size, ModifiedTicks = v.Modified.Ticks, Missing = v.IsMissing }).ToList() };
         await IndexWriteGate.WaitAsync();
         try
         {
@@ -1159,13 +1193,44 @@ public partial class MainWindow : Window
 
     static string IdFor(string path) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(path.ToLowerInvariant())))[..24].ToLowerInvariant();
 
-    sealed class ScanResult
+    internal sealed class ScanResult
     {
         public List<VideoItem> Items { get; } = [];
         public HashSet<string> IncompleteRoots { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
-    static ScanResult Scan(string[] roots, HashSet<string> favorites, CancellationToken cancellationToken = default)
+    // Entries the scan did not find are either gone or unknown. Only a root
+    // that was read completely may turn an entry into "missing"; a root that
+    // could not be read keeps its entries as "temporarily unavailable", and a
+    // folder that is no longer configured is simply out of scope.
+    internal static (int Missing, int Unavailable) MergeAvailability(List<VideoItem> result,
+        IReadOnlyList<VideoItem> previous, string[] scanRoots, IReadOnlyCollection<string> incompleteRoots)
+    {
+        var seen = new HashSet<string>(result.Select(item => item.Path), StringComparer.OrdinalIgnoreCase);
+        var unavailable = new HashSet<string>(incompleteRoots, StringComparer.OrdinalIgnoreCase);
+        var missing = 0;
+        var unknown = 0;
+        foreach (var item in previous)
+        {
+            if (!seen.Add(item.Path)) continue;
+            var owningRoot = scanRoots.FirstOrDefault(candidate => IsDescendantPath(candidate, item.Path));
+            if (owningRoot is null) continue;
+            if (unavailable.Contains(owningRoot))
+            {
+                item.Availability = VideoAvailability.RootUnavailable;
+                unknown++;
+            }
+            else
+            {
+                item.Availability = VideoAvailability.Missing;
+                missing++;
+            }
+            result.Add(item);
+        }
+        return (missing, unknown);
+    }
+
+    internal static ScanResult Scan(string[] roots, HashSet<string> favorites, CancellationToken cancellationToken = default)
     {
         var result = new ScanResult();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1220,6 +1285,12 @@ public partial class MainWindow : Window
     async Task RefreshAsync()
     {
         if (isClosing) return;
+        if (!cleanupRecoveryDone)
+        {
+            cleanupRecoveryDone = true;
+            try { await RecoverInterruptedCleanupAsync(); }
+            catch (Exception ex) { Log("检查上次清理状态失败：" + ex.Message); }
+        }
         var version = ++scanVersion;
         CancelSphereGraphIndexBuild();
         var cancellation = new CancellationTokenSource();
@@ -1265,27 +1336,22 @@ public partial class MainWindow : Window
             var scan = await Task.Run(() => Scan(scanRoots, favorites, cancellation.Token), cancellation.Token);
             if (isClosing || version != scanVersion) return;
             var result = scan.Items;
-            if (scan.IncompleteRoots.Count > 0)
+            var previous = videos;
+            if (previous.Count == 0)
             {
-                // A disconnected drive or denied directory is not evidence
-                // that its videos were deleted. Keep the last known entries
-                // and leave the on-disk index untouched until a complete scan.
-                var previous = videos;
-                if (previous.Count == 0)
+                previous = await Task.Run(() =>
                 {
-                    previous = await Task.Run(() =>
-                    {
-                        if (!TryReadLibraryIndex(IndexPath, out LibraryIndex? saved)
-                            && !TryReadLibraryIndex(IndexPath + ".bak", out saved)) return new List<VideoItem>();
-                        if (saved is null) return new List<VideoItem>();
-                        return ItemsFromIndex(saved, out _);
-                    });
-                    if (isClosing || version != scanVersion) return;
-                }
-                var seen = new HashSet<string>(result.Select(item => item.Path), StringComparer.OrdinalIgnoreCase);
-                foreach (var item in previous)
-                    if (scan.IncompleteRoots.Any(root => IsDescendantPath(root, item.Path)) && seen.Add(item.Path)) result.Add(item);
+                    if (!TryReadLibraryIndex(IndexPath, out LibraryIndex? saved)
+                        && !TryReadLibraryIndex(IndexPath + ".bak", out saved)) return new List<VideoItem>();
+                    if (saved is null) return new List<VideoItem>();
+                    return ItemsFromIndex(saved, out _);
+                });
+                if (isClosing || version != scanVersion) return;
             }
+            // Every entry that the scan did not find is either gone (the folder
+            // was read completely) or unknown (the drive could not be read).
+            // Only the first case may ever be offered for cleanup.
+            MergeAvailability(result, previous, scanRoots, scan.IncompleteRoots);
             videos = result;
             preservedMismatchedIndexCount = 0;
             categoryDataVersion++;
@@ -1483,7 +1549,8 @@ public partial class MainWindow : Window
 
     void ShowView(string target)
     {
-        if (view != target) pageIndex = 0;
+        var changedView = view != target;
+        if (changedView) pageIndex = 0;
         view = target;
         if (target != "categories") { sphereGraphTimer.Stop(); CancelSphereGraphIndexBuild(); }
         var titles = new Dictionary<string, (string, string, string)> {
@@ -1504,7 +1571,9 @@ public partial class MainWindow : Window
         PageSubtitle.Text = preservedMismatchedIndexCount > 0 && (target is "all" or "recent" or "favorites" or "categories")
             ? "当前文件夹扫描为 0，且与旧索引的位置不同；旧索引已保留。请检查视频文件夹设置。"
             : current.Item2;
-        SectionTitle.Text = current.Item3;
+        // Settings and scrape already carry their own card heading; a second
+        // identical title only pushed the real content further down.
+        SectionTitle.Text = target is "settings" or "scrape" ? "" : current.Item3;
         HeaderArea.Margin = target == "online" ? new Thickness(28, 18, 28, 12) : new Thickness(48, 42, 48, 25);
         foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav }) { button.Background = Brushes.Transparent; button.Foreground = new SolidColorBrush(Color.FromRgb(116, 130, 149)); }
         var selected = target switch { "recent" => RecentNav, "favorites" => FavoriteNav, "recommendations" => RecommendationsNav, "categories" => CategoriesNav, "folders" => FoldersNav, "status" => StatusNav, "scrape" => ScrapeNav, "online" => OnlineNav, "plugins" => SettingsNav, "settings" => SettingsNav, _ => AllNav };
@@ -1532,6 +1601,9 @@ public partial class MainWindow : Window
         else if (target == "recommendations") { CountText.Text = ""; RenderRecommendations(); }
         else if (target is "status" or "online") CountText.Text = "";
         else RenderCards();
+        // Switching pages used to inherit the previous page's offset, so the
+        // new page opened mid-scroll. Only reset when the page really changed.
+        if (changedView) LibraryScroll.ScrollToTop();
     }
 
     void RenderCards()
@@ -1579,8 +1651,11 @@ public partial class MainWindow : Window
         if (query.Length == 0 && !usePrepared)
             filtered = SortVideos(filtered, SortBox.SelectedIndex);
         var list = filtered.ToList();
+        if (availabilityFilter != 0)
+            list = list.Where(item => availabilityFilter == 1 ? item.IsMissing : item.IsUnavailable).ToList();
         lastSearchRenderFilterMs = renderClock.Elapsed.TotalMilliseconds;
         currentFilteredVideos = list;
+        UpdateAvailabilityChips();
         UpdateSearchSummary(query, list.Count);
         var resultSummary = query.Length == 0 ? $"{list.Count} 部视频" : $"{list.Count} 部视频 · 模糊匹配";
         var full = config.ShowAll;
@@ -3400,6 +3475,8 @@ public partial class MainWindow : Window
     }
     void SearchChanged(object sender, TextChangedEventArgs e)
     {
+        if (SearchPlaceholderText is not null)
+            SearchPlaceholderText.Visibility = string.IsNullOrEmpty(SearchBox.Text) ? Visibility.Visible : Visibility.Collapsed;
         searchQueryVersion++;
         UpdateSearchControls();
         if (view is not ("all" or "recent" or "favorites" or "categories")) return;
@@ -3844,6 +3921,7 @@ public partial class MainWindow : Window
         if (reviewNextPageButton is not null) reviewNextPageButton.IsEnabled = reviewPageIndex + 1 < reviewPageCount;
         if (reviewPageLabel is not null) reviewPageLabel.Text = $"第 {reviewPageIndex + 1} / {reviewPageCount} 页 · 每页最多 {ReviewPageSize} 条";
         var ids = records.Select(review => review.VideoId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var pluginCandidates = PluginCandidateStore.Load(DataDir).Videos;
         reviewSelection.RemoveWhere(id => !ids.Contains(id));
         ReviewQueuePanel.Children.Clear();
         var low = records.Count(review => review.Confidence < ReviewManualThreshold);
@@ -3891,6 +3969,29 @@ public partial class MainWindow : Window
             detail.Children.Add(new TextBlock { Text = review.CandidateTitle, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(55, 70, 95)), TextTrimming = TextTrimming.CharacterEllipsis });
             detail.Children.Add(new TextBlock { Text = $"{available[review.VideoId].DisplayTitle} · {review.CandidateSource} · {review.CandidateCode}", Foreground = new SolidColorBrush(Color.FromRgb(131, 144, 163)), FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis });
             detail.Children.Add(new TextBlock { Text = $"评估：{review.Model} · 依据：{review.Reason}", Foreground = new SolidColorBrush(Color.FromRgb(111, 122, 143)), FontSize = 11, TextWrapping = TextWrapping.Wrap });
+            // A plugin may return several candidates for one video. They are all
+            // kept on disk; this selector decides which one the record points at.
+            if (review.DecisionSource == "plugin" && pluginCandidates.TryGetValue(review.VideoId, out var storedCandidates) && storedCandidates.Count > 1)
+            {
+                var selector = new System.Windows.Controls.ComboBox
+                {
+                    Width = 280, Height = 28, FontSize = 11, Margin = new Thickness(0, 4, 0, 0),
+                    HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
+                    ToolTip = "同一视频的全部插件候选；切换只改变待审核记录指向的候选，不影响已保存的资料"
+                };
+                for (var index = 0; index < storedCandidates.Count; index++)
+                    selector.Items.Add($"候选 {index + 1}/{storedCandidates.Count} · {storedCandidates[index].Metadata.Source} · {storedCandidates[index].Metadata.Code}");
+                var current = PluginCandidateStore.IndexOf(storedCandidates, review.CandidateSourceUrl, review.CandidateCode);
+                selector.SelectedIndex = current >= 0 ? current : 0;
+                var applied = selector.SelectedIndex;
+                selector.SelectionChanged += (_, _) =>
+                {
+                    if (selector.SelectedIndex < 0 || selector.SelectedIndex == applied) return;
+                    applied = selector.SelectedIndex;
+                    ApplyPluginCandidateSelection(review.VideoId, applied);
+                };
+                detail.Children.Add(selector);
+            }
             Grid.SetColumn(detail, 2); grid.Children.Add(detail);
             var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             var information = new Button { Content = "资料", Style = (Style)FindResource("Action"), Padding = new Thickness(10, 0, 10, 0) };

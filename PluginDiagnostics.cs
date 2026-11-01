@@ -138,6 +138,22 @@ internal static class PluginDiagnostics
                 CancellationToken.None).GetAwaiter().GetResult();
             Check("oversizeResponseRejected", !huge.Ok && huge.ErrorCode == "response_too_large", huge.ErrorCode);
 
+            var stream = PluginProcessHost.SearchAsync(samplePlugin,
+                new PluginSearchParameters { Token = "t-7", Query = "stream", Kind = "title", Limit = 3 },
+                CancellationToken.None).GetAwaiter().GetResult();
+            observed["streamElapsedMs"] = stream.ElapsedMs;
+            Check("streamingResponseIsCutOff", !stream.Ok && stream.ErrorCode == "response_too_large" &&
+                stream.ElapsedMs < 8000, $"code={stream.ErrorCode} ms={stream.ElapsedMs}");
+
+            // 8 MB with no newline: the reader must stop at the cap without
+            // materialising the whole line first.
+            var bounded = PluginProcessHost.MeasureBoundedRead(new string('y', 8 * 1024 * 1024), PluginProcessHost.MaxLineChars);
+            observed["boundedReadCharacters"] = bounded.CharactersRead;
+            // It must stop at the cap, not consume the 8 M characters first.
+            Check("boundedReaderStopsAtCap", bounded.TooLong &&
+                bounded.CharactersRead <= PluginProcessHost.MaxLineChars + 2,
+                $"tooLong={bounded.TooLong} chars={bounded.CharactersRead}");
+
             var crash = PluginProcessHost.SearchAsync(samplePlugin,
                 new PluginSearchParameters { Token = "t-5", Query = "crash", Kind = "title", Limit = 3 },
                 CancellationToken.None).GetAwaiter().GetResult();
@@ -171,6 +187,42 @@ internal static class PluginDiagnostics
             // pending: the await returns to the caller, so the UI thread is free.
             Check("callDoesNotBlockCaller", ticks > 10, $"ticks={ticks}");
         }
+
+        // --- candidate store: keep every candidate across restarts ----------------
+        var candidateDir = Path.Combine(work, "candidates");
+        PluginCandidateRecord Candidate(string url, string code) => new()
+        {
+            PluginId = "com.example.review",
+            SavedAt = DateTimeOffset.Now,
+            Hint = 60,
+            Evidence = "自检",
+            Metadata = new MovieMetadata { Title = "候选 " + code, Source = "示例来源", SourceUrl = url, Code = code }
+        };
+        var firstCount = PluginCandidateStore.Add(candidateDir, "video-1", Candidate("https://example.com/1", "EX-1"));
+        var duplicateCount = PluginCandidateStore.Add(candidateDir, "video-1", Candidate("https://example.com/1", "EX-1"));
+        var secondCount = PluginCandidateStore.Add(candidateDir, "video-1", Candidate("https://example.com/2", "EX-2"));
+        var reloadedCandidates = PluginCandidateStore.Load(candidateDir).Videos["video-1"];
+        observed["candidatesForVideo"] = secondCount;
+        Check("candidateStoreKeepsAll", firstCount == 1 && secondCount == 2);
+        Check("candidateStoreDedupes", duplicateCount == 1);
+        Check("candidateStoreSurvivesReload", reloadedCandidates.Count == 2 &&
+            PluginCandidateStore.CountFor(candidateDir, "video-1") == 2);
+
+        // --- plugin state must not claim success when the file is read-only -------
+        var readOnlyDir = Path.Combine(work, "readonly-state");
+        Directory.CreateDirectory(readOnlyDir);
+        var initialState = new PluginState();
+        initialState.Enabled.Add("com.example.ready");
+        PluginStateStore.Save(readOnlyDir, initialState, out _);
+        var statePath = Path.Combine(readOnlyDir, PluginStateStore.FileName);
+        File.SetAttributes(statePath, FileAttributes.ReadOnly);
+        var beforeText = File.ReadAllText(statePath);
+        var nextState = PluginStateStore.Clone(initialState);
+        nextState.Enabled.Add("com.example.other");
+        var savedOnReadOnly = PluginStateStore.Save(readOnlyDir, nextState, out var saveError);
+        Check("stateSaveFailsWhenReadOnly", !savedOnReadOnly && saveError.Length > 0 &&
+            File.ReadAllText(statePath) == beforeText, saveError);
+        File.SetAttributes(statePath, FileAttributes.Normal);
 
         // --- privacy and review gate --------------------------------------------
         var request = PluginProtocol.Encode(new PluginRequest

@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Security.Cryptography;
@@ -1497,6 +1497,7 @@ public partial class MainWindow : Window
             ["settings"] = ("设置", "播放器、性能和备份设置。", "设置"),
             ["scrape"] = ("搜刮", "管理来源、凭据和完整资料匹配。", "搜刮设置")
             , ["online"] = ("在线", "在应用内浏览视频网站。", "在线")
+            , ["plugins"] = ("插件", "管理第三方搜刮来源，插件候选一律人工审核。", "插件")
         };
         var current = titles[target];
         PageTitle.Text = current.Item1;
@@ -1506,14 +1507,14 @@ public partial class MainWindow : Window
         SectionTitle.Text = current.Item3;
         HeaderArea.Margin = target == "online" ? new Thickness(28, 18, 28, 12) : new Thickness(48, 42, 48, 25);
         foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav }) { button.Background = Brushes.Transparent; button.Foreground = new SolidColorBrush(Color.FromRgb(116, 130, 149)); }
-        var selected = target switch { "recent" => RecentNav, "favorites" => FavoriteNav, "recommendations" => RecommendationsNav, "categories" => CategoriesNav, "folders" => FoldersNav, "status" => StatusNav, "scrape" => ScrapeNav, "online" => OnlineNav, "settings" => SettingsNav, _ => AllNav };
+        var selected = target switch { "recent" => RecentNav, "favorites" => FavoriteNav, "recommendations" => RecommendationsNav, "categories" => CategoriesNav, "folders" => FoldersNav, "status" => StatusNav, "scrape" => ScrapeNav, "online" => OnlineNav, "plugins" => SettingsNav, "settings" => SettingsNav, _ => AllNav };
         selected.Background = new SolidColorBrush(Color.FromRgb(234, 240, 255)); selected.Foreground = new SolidColorBrush(Color.FromRgb(62, 99, 213));
-        Toolbar.Visibility = target is "settings" or "status" or "scrape" or "online" or "recommendations" or "folders" ? Visibility.Collapsed : Visibility.Visible;
+        Toolbar.Visibility = target is "settings" or "status" or "scrape" or "online" or "recommendations" or "folders" or "plugins" ? Visibility.Collapsed : Visibility.Visible;
         LibraryScroll.Visibility = target == "online" ? Visibility.Collapsed : Visibility.Visible;
         AllListPanel.Visibility = Visibility.Collapsed;
         OnlinePanel.Visibility = target == "online" ? Visibility.Visible : Visibility.Collapsed;
         if (target == "online") _ = InitializeOnlineAsync();
-        Cards.Visibility = target is "folders" or "status" or "scrape" or "settings" or "online" or "recommendations" ? Visibility.Collapsed : Visibility.Visible;
+        Cards.Visibility = target is "folders" or "status" or "scrape" or "settings" or "online" or "recommendations" or "plugins" ? Visibility.Collapsed : Visibility.Visible;
         EmptyPanel.Visibility = Visibility.Collapsed;
         Pager.Visibility = Visibility.Collapsed;
         CategoryPanel.Visibility = target == "categories" ? Visibility.Visible : Visibility.Collapsed;
@@ -1523,9 +1524,11 @@ public partial class MainWindow : Window
         StatusPanel.Visibility = target == "status" ? Visibility.Visible : Visibility.Collapsed;
         SettingsPanel.Visibility = target == "settings" ? Visibility.Visible : Visibility.Collapsed;
         ScrapePanel.Visibility = target == "scrape" ? Visibility.Visible : Visibility.Collapsed;
+        PluginsPanel.Visibility = target == "plugins" ? Visibility.Visible : Visibility.Collapsed;
         if (target == "folders") { CountText.Text = $"{config.Folders.Count} 个位置"; RenderFolders(); }
         else if (target == "settings") { CountText.Text = ""; PlayerPathBox.Text = FindPlayer() ?? ""; AutoStartBox.IsChecked = config.AutoStart; GpuBox.IsChecked = config.GpuThumbnails; AiEndpointBox.Text = config.AiEndpoint; AiModelBox.Text = config.AiModel; AiKeyBox.Password = config.AiKey; BackupInfo.Text = CacheDiagnosticSummary; }
         else if (target == "scrape") { CountText.Text = ""; ScrapeTmdbTokenBox.Password = config.TmdbToken; RefreshReviewQueue(); }
+        else if (target == "plugins") { CountText.Text = ""; EnsurePluginCatalog(); RenderPlugins(); }
         else if (target == "recommendations") { CountText.Text = ""; RenderRecommendations(); }
         else if (target is "status" or "online") CountText.Text = "";
         else RenderCards();
@@ -3327,6 +3330,7 @@ public partial class MainWindow : Window
     void NavStatus(object sender, RoutedEventArgs e) => ShowView("status");
     void NavSettings(object sender, RoutedEventArgs e) => ShowView("settings");
     void NavScrape(object sender, RoutedEventArgs e) => ShowView("scrape");
+    void OpenPluginsFromSettings(object sender, RoutedEventArgs e) => ShowView("plugins");
     void NavOnline(object sender, RoutedEventArgs e) => ShowView("online");
     void AddResetInterfaceAction()
     {

@@ -19,7 +19,7 @@ public partial class MainWindow
         new("all", "全部视频"), new("recent", "最近更新"), new("favorites", "收藏"),
         new("recommendations", "为你推荐"), new("categories", "分类"),
         new("folders", "视频文件夹"), new("status", "状态"),
-        new("scrape", "搜刮"), new("online", "在线"), new("settings", "设置")
+        new("scrape", "搜刮"), new("online", "在线"), new("plugins", "插件"), new("settings", "设置")
     ];
 
     TextBlock? startupStatus;

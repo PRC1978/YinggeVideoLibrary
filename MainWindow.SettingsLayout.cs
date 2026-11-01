@@ -90,6 +90,21 @@ public partial class MainWindow
         AddSection(panel, "appearance", "外观与浏览", "卡片密度、显示方式和界面布局", "◫", "#EAF0FF", "#4C6BDC", buckets["appearance"], true);
         AddSection(panel, "library", "视频库与缓存", "索引、缩略图和重复视频", "▣", "#EAF6F3", "#2D9A82", buckets["library"]);
         AddSection(panel, "scrape", "搜刮与审核", "来源凭据和批量搜刮范围", "⌕", "#FFF3E9", "#CB7A33", buckets["scrape"]);
+        // Plugin management is a page of its own; this card is the discoverable entry.
+        var pluginHint = new TextBlock
+        {
+            Text = "第三方搜刮来源在独立进程中运行。插件返回的候选只进入搜刮页的人工审核，不会直接写入视频资料；默认只发送标题或番号，不发送路径、私有标签和密钥。",
+            TextWrapping = TextWrapping.Wrap, FontSize = 12, Foreground = Tint("#75859E"), MaxWidth = 640,
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left
+        };
+        var pluginOpen = new Button
+        {
+            Content = "打开插件管理", Style = (Style)FindResource("Action"),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left, Margin = new Thickness(0, 10, 0, 0)
+        };
+        pluginOpen.Click += OpenPluginsFromSettings;
+        AddSection(panel, "plugins", "插件", "第三方搜刮来源：发现、启停、权限与最近错误",
+            "⧉", "#EEF3FF", "#4C6BDC", [pluginHint, pluginOpen]);
         AddSection(panel, "ai", "AI 接口与费用", "本地或兼容接口、限速和预算", "✦", "#F2ECFC", "#8660BD", buckets["ai"]);
         AddSection(panel, "playback", "播放与封面", "播放器位置和缩略图生成状态", "▶", "#EBF5FD", "#3987B6", buckets["playback"]);
         AddSection(panel, "online", "在线与扩展", "内嵌浏览器的扩展设置", "◎", "#EEF2FB", "#5879BA", buckets["online"]);

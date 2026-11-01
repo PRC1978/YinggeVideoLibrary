@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "com.yingge.example.scrape",
+  "name": "示例搜刮来源",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "author": "映格示例",
+  "description": "离线示例插件：演示清单、独立进程协议与失败模式，不发任何网络请求。",
+  "homepage": "",
+  "capabilities": ["scrape.source"],
+  "permissions": {
+    "network": ["example.com"],
+    "data": ["query.text", "query.code"]
+  },
+  "entry": { "file": "ExampleScrapePlugin.exe", "arguments": [] },
+  "timeoutSeconds": 15
+}

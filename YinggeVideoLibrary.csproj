@@ -15,6 +15,13 @@
     <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <!-- The sample plugin is a separate executable with its own obj/bin. Keep
+         every file under samples\ out of the application build. -->
+    <Compile Remove="samples\**\*.cs" />
+    <Page Remove="samples\**\*.xaml" />
+    <ApplicationDefinition Remove="samples\**\*.xaml" />
+  </ItemGroup>
+  <ItemGroup>
     <Resource Include="app.ico" />
     <Resource Include="third-party\TMDB\tmdb-primary-short-blue.png" />
   </ItemGroup>

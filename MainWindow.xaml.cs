@@ -1652,8 +1652,10 @@ public partial class MainWindow : Window
                 completion?.TrySetResult(false);
                 return;
             }
+            var populateClock = System.Diagnostics.Stopwatch.StartNew();
             var end = Math.Min(targets.Count, next + 3);
             while (next < end) items.Add(targets[next++]);
+            lastSearchPopulateMaxChunkMs = Math.Max(lastSearchPopulateMaxChunkMs, populateClock.Elapsed.TotalMilliseconds);
             if (next == targets.Count) completion?.TrySetResult(true);
             else Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(AddChunk));
         }

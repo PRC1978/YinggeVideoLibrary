@@ -380,10 +380,10 @@ public partial class MainWindow
                     throw new InvalidOperationException("分类页卡片分批加载被意外取消");
                 await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
                 var cardReadyMs = graphStarted.ElapsedMilliseconds;
-                var generatedCardContainers = Enumerable.Range(0, Cards.Items.Count)
-                    .Count(position => Cards.ItemContainerGenerator.ContainerFromIndex(position) is not null);
-                if (Cards.Items.Count != pageItems.Count || generatedCardContainers != pageItems.Count)
-                    throw new InvalidOperationException($"分类页卡片未全部实现：数据 {Cards.Items.Count}、视觉容器 {generatedCardContainers}/{pageItems.Count}");
+                var generatedCardContainers = Cards.Children.OfType<System.Windows.FrameworkElement>()
+                    .Take(pageItems.Count).Count(card => card.Visibility == System.Windows.Visibility.Visible && card.DataContext is VideoItem);
+                if (Cards.VisibleCardCount != pageItems.Count || generatedCardContainers != pageItems.Count)
+                    throw new InvalidOperationException($"分类页卡片未全部实现：数据 {Cards.VisibleCardCount}、视觉容器 {generatedCardContainers}/{pageItems.Count}");
                 var graphIndex = GetSphereGraphIndex();
                 // Derive the expected paths from the source library, not from
                 // the graph's dictionaries: a linguistic key comparer can

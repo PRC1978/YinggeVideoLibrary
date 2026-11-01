@@ -217,6 +217,8 @@ public partial class MainWindow
                     , ["asyncRenderFilterMs"] = Math.Round(lastSearchRenderFilterMs, 2)
                     , ["asyncRenderBindingMs"] = Math.Round(lastSearchRenderBindingMs, 2)
                     , ["asyncRenderFinalMs"] = Math.Round(lastSearchRenderFinalMs, 2)
+                    , ["asyncRetireMaxChunkMs"] = Math.Round(lastSearchRetireMaxChunkMs, 2)
+                    , ["asyncPopulateMaxChunkMs"] = Math.Round(lastSearchPopulateMaxChunkMs, 2)
                 });
             }
         }

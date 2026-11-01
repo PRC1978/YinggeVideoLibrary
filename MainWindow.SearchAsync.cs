@@ -17,6 +17,8 @@ public partial class MainWindow
     double lastSearchRenderFilterMs;
     double lastSearchRenderBindingMs;
     double lastSearchRenderFinalMs;
+    double lastSearchRetireMaxChunkMs;
+    double lastSearchPopulateMaxChunkMs;
 
     // Capture mutable card data on the UI thread in bounded slices. The worker
     // then reads detached copies, so edits made while searching cannot race
@@ -95,14 +97,18 @@ public partial class MainWindow
         // Replacing a populated ItemsSource tears down every card in one UI
         // turn. Retire the old page in small batches before binding the new one.
         var oldCards = categoryCardItems;
+        lastSearchRetireMaxChunkMs = 0;
+        lastSearchPopulateMaxChunkMs = 0;
         if (oldCards is not null && ReferenceEquals(Cards.ItemsSource, oldCards))
         {
             categoryCardRenderRequest++;
             categoryCardPopulationCompletion?.TrySetResult(false);
             while (oldCards.Count > 0)
             {
+                var retireClock = Stopwatch.StartNew();
                 for (var n = 0; n < 3 && oldCards.Count > 0; n++)
                     oldCards.RemoveAt(oldCards.Count - 1);
+                lastSearchRetireMaxChunkMs = Math.Max(lastSearchRetireMaxChunkMs, retireClock.Elapsed.TotalMilliseconds);
                 await Dispatcher.Yield(DispatcherPriority.Background);
                 if (isClosing || request != searchQueryVersion || render != searchRenderVersion ||
                     !ReferenceEquals(source, videos) || targetView != view ||

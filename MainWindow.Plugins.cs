@@ -196,11 +196,9 @@ public partial class MainWindow
         if (PluginScrapeSourceBox is null) return;
         var selected = (PluginScrapeSourceBox.SelectedItem as PluginDescriptor)?.Id;
         PluginScrapeSourceBox.Items.Clear();
+        PluginScrapeSourceBox.DisplayMemberPath = nameof(PluginDescriptor.DisplayName);
         foreach (var plugin in pluginCatalog.Where(item => item.Enabled && item.Status is PluginStatus.Ready or PluginStatus.Disabled))
-        {
             PluginScrapeSourceBox.Items.Add(plugin);
-            PluginScrapeSourceBox.DisplayMemberPath = nameof(PluginDescriptor.DisplayName);
-        }
         if (PluginScrapeSourceBox.Items.Count == 0)
         {
             PluginScrapeSourceBox.IsEnabled = false;
@@ -340,7 +338,9 @@ public partial class MainWindow
                     $"插件返回 {outcome.Candidates.Count} 条候选（{outcome.ElapsedMs} ms）。没有选中视频，因此只预览、不入队。";
                 return;
             }
-            var stored = await Task.Run(() => StorePluginCandidatesAsync(video, outcome.Candidates, plugin));
+            // The commit path updates bound VideoItem state, so it must stay on
+            // the UI thread; the file writes inside are short and journaled.
+            var stored = StorePluginCandidates(video, outcome.Candidates, plugin);
             PluginScrapeResultText.Text = stored == 0
                 ? "候选都已存在，未重复入队。"
                 : $"已把 {stored} 条候选放入“搜刮”页的人工审核队列（{outcome.ElapsedMs} ms）。原始资料没有被修改。";
@@ -362,7 +362,7 @@ public partial class MainWindow
     // Each candidate is stored through the same journaled review transaction as
     // a built-in source, with Status forced to pending. Nothing here touches
     // metadata directly.
-    Task<int> StorePluginCandidatesAsync(VideoItem video, IReadOnlyList<PluginCandidate> candidates, PluginDescriptor plugin)
+    int StorePluginCandidates(VideoItem video, IReadOnlyList<PluginCandidate> candidates, PluginDescriptor plugin)
     {
         var stored = 0;
         foreach (var candidate in candidates)
@@ -402,6 +402,6 @@ public partial class MainWindow
             finally { if (locked) ConfigWriteMutex.ReleaseMutex(); }
         }
         if (stored > 0) RenderCards();
-        return Task.FromResult(stored);
+        return stored;
     }
 }

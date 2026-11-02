@@ -22,6 +22,7 @@ internal static class TagRules
         if (tags is null) return [];
         return tags
             .Where(tag => tag is not null)
+            .SelectMany(tag => tag!.Split(Separators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             .Select(tag => Regex.Replace(tag!.Normalize(NormalizationForm.FormKC), @"\s+", " ").Trim().TrimStart('#', '＃'))
             .Where(tag => tag.Length > 0)
             .Distinct(StringComparer.CurrentCultureIgnoreCase)

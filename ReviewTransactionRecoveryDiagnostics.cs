@@ -157,16 +157,17 @@ internal static class ReviewTransactionRecoveryDiagnostics
             // read as "the user changed the tags" and block every commit.
             var data = Path.Combine(root, "duplicate-tags");
             var disk = Pending("one", "待审核", "旧标题");
-            disk.Tags = ["旅行", "旅行", " 科幻 "];
+            disk.Tags = ["旅行", "旅行, 科幻 "];
             Seed(data, disk);
             var inMemory = disk.Clone();
             inMemory.Tags = TagRules.Normalize(disk.Tags);
+            var sameAsConfigLoader = inMemory.Tags.SequenceEqual(TagRules.Parse(string.Join(",", disk.Tags)));
             var after = Approved("one", "新标题");
             var begun = true;
             try { ReviewTransactionStore.Begin(data, Transaction("field-approve", inMemory, after)); }
             catch (InvalidOperationException) { begun = false; }
             var recovered = begun && ReviewTransactionStore.RecoverPendingAtStartup(data, out _);
-            results["reviewDuplicateTagsDoNotBlock"] = begun && recovered &&
+            results["reviewDuplicateTagsDoNotBlock"] = sameAsConfigLoader && begun && recovered &&
                 !ReviewTransactionStore.HasPending(data) && SameSaved(data, after);
         }
 

@@ -1608,9 +1608,18 @@ public partial class MainWindow : Window
         PluginsPanel.Visibility = target == "plugins" ? Visibility.Visible : Visibility.Collapsed;
         if (target == "folders") { CountText.Text = $"{config.Folders.Count} 个位置"; RenderFolders(); }
         else if (target == "settings") { CountText.Text = ""; PlayerPathBox.Text = FindPlayer() ?? ""; AutoStartBox.IsChecked = config.AutoStart; GpuBox.IsChecked = config.GpuThumbnails; AiEndpointBox.Text = config.AiEndpoint; AiModelBox.Text = config.AiModel; AiKeyBox.Password = config.AiKey; BackupInfo.Text = CacheDiagnosticSummary; }
-        else if (target == "scrape") { CountText.Text = ""; ScrapeTmdbTokenBox.Password = config.TmdbToken; RefreshReviewQueue(); }
+        else if (target == "scrape")
+        {
+            CountText.Text = "";
+            ScrapeTmdbTokenBox.Password = config.TmdbToken;
+            // The source list is built from the plugin catalog. This used to be
+            // a second, unreachable scrape branch, so opening 搜刮 straight after
+            // launch offered only the built-in sources until 插件 was visited.
+            EnsurePluginCatalog();
+            RefreshScrapeSourcePlugins();
+            RefreshReviewQueue();
+        }
         else if (target == "plugins") { CountText.Text = ""; EnsurePluginCatalog(); RenderPlugins(); }
-        else if (target == "scrape") { EnsurePluginCatalog(); RefreshScrapeSourcePlugins(); }
         else if (target == "recommendations") { CountText.Text = ""; RenderRecommendations(); }
         else if (target is "status" or "online")
         {
@@ -2146,13 +2155,7 @@ public partial class MainWindow : Window
         UpdateSelectionToolbar();
     }
 
-    static List<string> ParseTags(string text) => text
-        .Split([',', '，', ';', '；', '\n', '\r', '\t'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-        .Select(tag => System.Text.RegularExpressions.Regex.Replace(tag.Normalize(NormalizationForm.FormKC), @"\s+", " ").Trim().TrimStart('#', '＃'))
-        .Where(tag => tag.Length > 0)
-        .Distinct(StringComparer.CurrentCultureIgnoreCase)
-        .Take(50)
-        .ToList();
+    static List<string> ParseTags(string text) => TagRules.Parse(text);
 
     async void BatchCategoryButtonClick(object sender, RoutedEventArgs e)
     {
@@ -4237,8 +4240,15 @@ public partial class MainWindow : Window
             try
             {
                 TaskStatusText.Text = $"正在调用插件来源 {pluginSource.DisplayName}…";
+                // The status page is hidden while the scrape page is open, so the
+                // outcome also goes to the line under the source selector. Without
+                // it a failed candidate write looked like nothing happened.
+                if (ScrapeSourceResultText is not null)
+                    ScrapeSourceResultText.Text = $"正在调用插件来源 {pluginSource.DisplayName}…";
                 var pluginOutcome = await RunPluginSourceAsync(video, pluginSource, title, CancellationToken.None);
                 TaskStatusText.Text = "插件来源：" + pluginOutcome.Message;
+                if (ScrapeSourceResultText is not null)
+                    ScrapeSourceResultText.Text = pluginOutcome.Message;
                 if (!pluginOutcome.Ok)
                     MessageBox.Show(this, pluginOutcome.Message, "插件来源", MessageBoxButton.OK, MessageBoxImage.Warning);
                 RenderCards();
@@ -4247,6 +4257,8 @@ public partial class MainWindow : Window
             catch (Exception ex)
             {
                 TaskStatusText.Text = "插件来源调用失败 · 视频状态未改变";
+                if (ScrapeSourceResultText is not null)
+                    ScrapeSourceResultText.Text = "插件来源调用失败 · 视频状态未改变：" + PluginLog.Redact(ex.Message);
                 Log("插件来源调用失败：" + ex.Message);
                 MessageBox.Show(this, "插件来源调用失败：" + ex.Message + "\n\n视频状态没有改变，可改用其他来源。",
                     "插件来源", MessageBoxButton.OK, MessageBoxImage.Warning);

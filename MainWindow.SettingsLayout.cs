@@ -211,6 +211,9 @@ public partial class MainWindow
                 + (key == "data" ? " 非商业许可 项目许可 关于 来源 致谢 TMDB" : ""),
             IsExpanded = expanded
         };
+        // A stable id per card: the header is a composite of text blocks, so the
+        // card had no reachable name for keyboard or UI automation.
+        System.Windows.Automation.AutomationProperties.SetAutomationId(section, "SettingsSection_" + key);
         section.Expanded += (_, _) =>
         {
             chevron.Text = "⌃";

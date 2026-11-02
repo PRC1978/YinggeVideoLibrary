@@ -151,6 +151,25 @@ internal static class ReviewTransactionRecoveryDiagnostics
                 invalid == 0 && history.Count == 6 && ReviewTransactionStore.LastUndoable(history) is null &&
                 SameSaved(data, s0) && UnrelatedPreserved(data);
         }
+        {
+            // The config loader canonicalises tags (dedupe, trim, cap), but the
+            // file on disk keeps whatever it had. A stale duplicate must not be
+            // read as "the user changed the tags" and block every commit.
+            var data = Path.Combine(root, "duplicate-tags");
+            var disk = Pending("one", "待审核", "旧标题");
+            disk.Tags = ["旅行", "旅行", " 科幻 "];
+            Seed(data, disk);
+            var inMemory = disk.Clone();
+            inMemory.Tags = TagRules.Normalize(disk.Tags);
+            var after = Approved("one", "新标题");
+            var begun = true;
+            try { ReviewTransactionStore.Begin(data, Transaction("field-approve", inMemory, after)); }
+            catch (InvalidOperationException) { begun = false; }
+            var recovered = begun && ReviewTransactionStore.RecoverPendingAtStartup(data, out _);
+            results["reviewDuplicateTagsDoNotBlock"] = begun && recovered &&
+                !ReviewTransactionStore.HasPending(data) && SameSaved(data, after);
+        }
+
         return results;
     }
 

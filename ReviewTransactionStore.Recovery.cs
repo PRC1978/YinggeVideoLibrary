@@ -26,7 +26,7 @@ internal static partial class ReviewTransactionStore
         if (File.Exists(path)) throw new InvalidOperationException("上一次审核事务尚未完成，请重启软件恢复后再审核。");
         var disk = ReadDisk(dataDir);
         if (!Matches(disk, transaction.Before))
-            throw new InvalidOperationException("审核预览已过期：磁盘中的审核、资料或标签已改变。");
+            throw new InvalidOperationException("审核预览已过期：" + DescribeMismatch(disk, transaction.Before));
         if (HistoryContains(dataDir, transaction))
             throw new InvalidOperationException("审核事务编号已存在于历史中，已停止重复提交。");
         DurableReplace(path, JsonSerializer.Serialize(transaction, Options), backup: false);
@@ -214,6 +214,26 @@ internal static partial class ReviewTransactionStore
     static bool Matches(DiskState disk, IReadOnlyDictionary<string, ReviewItemSnapshot> expected)
         => expected.All(pair => Equal(ReadSnapshot(disk, pair.Key), pair.Value));
 
+    // The generic message left users (and diagnostics) unable to tell whether a
+    // review, the saved metadata or the tags had changed. Name the parts instead;
+    // the wording still says nothing was written.
+    static string DescribeMismatch(DiskState disk, IReadOnlyDictionary<string, ReviewItemSnapshot> expected)
+    {
+        var changed = new List<string>();
+        foreach (var (id, wanted) in expected)
+        {
+            var actual = ReadSnapshot(disk, id);
+            if (JsonSerializer.Serialize(actual.Review, Options) != JsonSerializer.Serialize(wanted.Review, Options))
+                changed.Add("审核记录");
+            if (!SameMetadata(actual.Metadata, wanted.Metadata)) changed.Add("资料");
+            if (!Equal(new ReviewItemSnapshot { Tags = actual.Tags, AutoAmateur = actual.AutoAmateur },
+                    new ReviewItemSnapshot { Tags = wanted.Tags, AutoAmateur = wanted.AutoAmateur }))
+                changed.Add("标签");
+        }
+        return "磁盘中的" + (changed.Count == 0 ? "审核、资料或标签" : string.Join("、", changed.Distinct())) +
+            "已改变。";
+    }
+
     static bool ConfigMatches(DiskState disk, IReadOnlyDictionary<string, ReviewItemSnapshot> expected)
         => expected.All(pair => SameConfig(ReadSnapshot(disk, pair.Key), pair.Value));
 
@@ -236,7 +256,10 @@ internal static partial class ReviewTransactionStore
         {
             Review = ReadValue<AiReviewRecord>(reviews, id),
             Metadata = ReadValue<MovieMetadata>(disk.Metadata, id),
-            Tags = ReadValue<List<string>>(tags, id),
+            // The in-memory map was canonicalised when the config was loaded.
+            // Compare against the same canonical form rather than the raw file,
+            // otherwise a duplicated or untrimmed tag blocks every commit.
+            Tags = ReadValue<List<string>>(tags, id) is { } stored ? TagRules.Normalize(stored) : null,
             AutoAmateur = membership.Any(item => string.Equals(item?.GetValue<string>(), id, StringComparison.OrdinalIgnoreCase))
         };
     }

@@ -1612,7 +1612,14 @@ public partial class MainWindow : Window
         else if (target == "plugins") { CountText.Text = ""; EnsurePluginCatalog(); RenderPlugins(); }
         else if (target == "scrape") { EnsurePluginCatalog(); RefreshScrapeSourcePlugins(); }
         else if (target == "recommendations") { CountText.Text = ""; RenderRecommendations(); }
-        else if (target is "status" or "online") CountText.Text = "";
+        else if (target is "status" or "online")
+        {
+            CountText.Text = "";
+            // The status card is only fed by the chip refresh, which used to run
+            // from RenderCards. Opening 状态 first therefore claimed every file
+            // was present and kept 清理 disabled even when files were missing.
+            if (target == "status") UpdateAvailabilityChips();
+        }
         else RenderCards();
         // Switching pages used to inherit the previous page's offset, so the
         // new page opened mid-scroll. Only reset when the page really changed.
@@ -4022,9 +4029,9 @@ public partial class MainWindow : Window
                 if (!TryCommitReviewDecisionsWithPreview([review.VideoId], false, out var error)) { if (error.Length > 0) MessageBox.Show(this, "否决操作未完成：" + error + (ReviewTransactionStore.HasPending(DataDir) ? "；待恢复记录会在下次启动检查。" : ""), "审核保存失败", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
                 RefreshReviewQueue(); RenderCards(); Log($"人工否决搜刮匹配：{review.CandidateCode}");
             };
-            System.Windows.Automation.AutomationProperties.SetAutomationId(approve, "ReviewApproveButton");
-            System.Windows.Automation.AutomationProperties.SetAutomationId(reject, "ReviewRejectButton");
-            System.Windows.Automation.AutomationProperties.SetAutomationId(information, "ReviewInfoButton");
+            System.Windows.Automation.AutomationProperties.SetAutomationId(approve, "ReviewRowApprove");
+            System.Windows.Automation.AutomationProperties.SetAutomationId(reject, "ReviewRowReject");
+            System.Windows.Automation.AutomationProperties.SetAutomationId(information, "ReviewRowInfo");
             approve.IsEnabled = review.Status is "pending" or "rejected";
             reject.IsEnabled = review.Status is "pending" or "rejected";
             actions.Children.Add(information); actions.Children.Add(approve); actions.Children.Add(reject); Grid.SetColumn(actions, 3); grid.Children.Add(actions);

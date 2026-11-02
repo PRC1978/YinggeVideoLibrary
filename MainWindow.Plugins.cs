@@ -295,8 +295,12 @@ public partial class MainWindow
     // list. A plugin failure is reported, never turned into "no match".
     internal sealed record PluginSourceResult(bool Ok, string Message, int Stored, PluginQueueState State);
 
-    async Task<PluginSourceResult> RunPluginSourceAsync(VideoItem? video, PluginDescriptor plugin,
-        string query, CancellationToken cancellationToken)
+    // One plugin process call, shared by the manual scrape and the background
+    // queue. Failures are recorded on the plugin either way; the queue path
+    // turns them into a source failure so the shared pacing wrapper applies this
+    // plugin's own cool-down.
+    async Task<PluginSearchOutcome> InvokePluginAsync(PluginDescriptor plugin, string query,
+        CancellationToken cancellationToken)
     {
         var guessed = JavDbScraper.GuessCode(query);
         var parameters = new PluginSearchParameters
@@ -315,8 +319,30 @@ public partial class MainWindow
             plugin.LastErrorAt = DateTime.Now;
             PluginStateStore.RecordError(DataDir, plugin.Id, $"{outcome.ErrorCode}：{outcome.ErrorMessage}");
             RenderPlugins();
-            return new PluginSourceResult(false, $"插件调用失败：{plugin.LastError}（视频状态未改变）", 0, PluginQueueState.Failed);
         }
+        return outcome;
+    }
+
+    // Queue path: a failed call is a source state, not "no match". Throwing here
+    // is what puts the plugin into ScrapeQueueStore's per-source cool-down, and
+    // it is why a crashing plugin is not respawned for every queued video.
+    async Task<PluginSearchOutcome> InvokePluginQueueAsync(PluginDescriptor plugin, string query,
+        CancellationToken cancellationToken)
+    {
+        var outcome = await InvokePluginAsync(plugin, query, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (outcome.Ok) return outcome;
+        throw new ScrapeSourceUnavailableException(
+            $"插件 {plugin.DisplayName} 调用失败：{outcome.ErrorCode}",
+            outcome.RetryAfter is { } retryAfter ? DateTimeOffset.UtcNow.Add(retryAfter) : null);
+    }
+
+    async Task<PluginSourceResult> RunPluginSourceAsync(VideoItem? video, PluginDescriptor plugin,
+        string query, CancellationToken cancellationToken)
+    {
+        var outcome = await InvokePluginAsync(plugin, query, cancellationToken);
+        if (!outcome.Ok)
+            return new PluginSourceResult(false, $"插件调用失败：{plugin.LastError}（视频状态未改变）", 0, PluginQueueState.Failed);
         if (outcome.Candidates.Count == 0)
             return new PluginSourceResult(true, $"插件在 {outcome.ElapsedMs} ms 内没有找到候选，视频状态未改变。", 0, PluginQueueState.Failed);
         if (video is null)

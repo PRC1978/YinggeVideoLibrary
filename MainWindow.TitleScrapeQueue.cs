@@ -9,7 +9,8 @@ public partial class MainWindow
     // multiple search cards before detail requests, then enrich the first
     // three for offline comparison while one verified match enters review.
     async Task<string> ProcessTitleScrapeQueueItemAsync(
-        ScrapeQueueItem item, VideoItem video, CancellationToken cancellationToken)
+        ScrapeQueueItem item, VideoItem video, IReadOnlyList<PluginDescriptor> queuePlugins,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var title = AdditionalScrapers.CleanTitle(item.SearchTitle);
@@ -18,35 +19,85 @@ public partial class MainWindow
         if (!Regex.IsMatch(title, @"[\u3400-\u9FFF]|\p{L}{2,}"))
             throw new InvalidDataException("文件名和人物目录下的作品目录均缺少可搜索标题；请先手动补充标题后再搜刮。");
 
-        // Opt-in plugin source. It runs before the built-in title sources, and a
-        // timeout, crash or empty answer falls through to them. It never marks
-        // the video as unmatched: only the built-in path may do that.
-        if (config.PluginQueueEnabled)
+        // Opt-in plugin sources. Each call goes through the same pacing wrapper
+        // as a built-in site, keyed by that plugin's own synthetic source, so the
+        // request interval and the failure cool-down are per plugin and persist
+        // across restarts. A plugin already cooling down is skipped rather than
+        // waited for; other plugins and the built-in sources keep going. Only the
+        // built-in path may write "no match".
+        var pluginFailures = new List<string>();
+        foreach (var plugin in queuePlugins)
         {
-            var pluginId = ActiveQueuePluginId();
-            var plugin = pluginId is null ? null : pluginCatalog.FirstOrDefault(item => item.Id == pluginId);
-            if (plugin is not null)
+            cancellationToken.ThrowIfCancellationRequested();
+            var sourceKey = PluginQueueSourceKey(plugin.Id);
+            if (PluginIdFromSourceKey(sourceKey) != plugin.Id)
             {
-                var pluginResult = await RunPluginSourceAsync(video, plugin, title, cancellationToken);
-                if (pluginResult.State is PluginQueueState.Queued or PluginQueueState.KeptSelection)
-                {
-                    Log($"插件队列来源已入队：{video.Title} · {plugin.DisplayName} · {pluginResult.Stored} 条候选");
-                    return "pending";
-                }
-                Log($"插件队列来源未返回可用候选，继续内置来源：{video.Title} · {pluginResult.Message}");
-                var builtIn = PlanQueueTitleSources(
-                    TmdbEnabledBox.IsChecked == true && !string.IsNullOrWhiteSpace(config.TmdbToken),
-                    PornhubEnabledBox.IsChecked == true, tvMazeEnabledBox?.IsChecked == true,
-                    bangumiEnabledBox?.IsChecked == true, javDbTitleEnabledBox?.IsChecked == true,
-                    javDatabaseEnabledBox?.IsChecked == true, wikidataEnabledBox?.IsChecked == true,
-                    kitsuEnabledBox?.IsChecked == true, tenraiEnabledBox?.IsChecked == true,
-                    config.AnimeSourcesInQueue && mikanEnabledBox?.IsChecked == true,
-                    config.AnimeSourcesInQueue && fankuHubEnabledBox?.IsChecked == true);
-                if (builtIn.Length == 0)
-                    throw new ScrapeSourceUnavailableException(
-                        $"插件 {plugin.DisplayName} 暂时没有可用结果，且没有启用其他标题来源；任务已保留。",
-                        DateTimeOffset.UtcNow.AddMinutes(2));
+                // A key that cannot be traced back to this plugin would reserve a
+                // pacing slot for something else; never call the process then.
+                pluginFailures.Add($"{plugin.DisplayName} 来源键无效");
+                continue;
             }
+            var cooldownAt = await Task.Run(() => ScrapeQueueStore.GetSourceCooldownAt(DataDir, sourceKey),
+                cancellationToken);
+            if (cooldownAt > DateTimeOffset.UtcNow)
+            {
+                pluginFailures.Add($"{plugin.DisplayName} 冷却至 {cooldownAt.ToLocalTime():HH:mm:ss}");
+                Log($"插件队列来源冷却中，跳过：{video.Title} · {sourceKey} · 至 {cooldownAt.ToLocalTime():HH:mm:ss}");
+                continue;
+            }
+            PluginSearchOutcome outcome;
+            try
+            {
+                outcome = await RunQueueSourceAsync(sourceKey,
+                    () => InvokePluginQueueAsync(plugin, title, cancellationToken), cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (ScrapeSourceUnavailableException ex)
+            {
+                pluginFailures.Add(ex.Message);
+                Log($"插件队列来源不可用：{video.Title} · {sourceKey} · {ex.Message}");
+                continue;
+            }
+            if (outcome.Candidates.Count == 0)
+            {
+                // A well formed empty answer says nothing about the plugin's
+                // health, so it records no cool-down; it just is not a match.
+                pluginFailures.Add($"{plugin.DisplayName} 没有候选");
+                Log($"插件队列来源没有候选：{video.Title} · {sourceKey} · {outcome.ElapsedMs} ms");
+                continue;
+            }
+            var pluginResult = StorePluginCandidates(video, outcome.Candidates, plugin);
+            if (pluginResult.State is PluginQueueState.Queued or PluginQueueState.KeptSelection)
+            {
+                Log($"插件队列来源已入队：{video.Title} · {plugin.DisplayName} · {pluginResult.Stored} 条候选");
+                return "pending";
+            }
+            pluginFailures.Add($"{plugin.DisplayName}：{pluginResult.Describe((int)outcome.ElapsedMs)}");
+            Log($"插件队列来源未入队：{video.Title} · {sourceKey} · {pluginResult.State} · {pluginResult.Error}");
+        }
+
+        var builtIn = PlanQueueTitleSources(
+            TmdbEnabledBox.IsChecked == true && !string.IsNullOrWhiteSpace(config.TmdbToken),
+            PornhubEnabledBox.IsChecked == true, tvMazeEnabledBox?.IsChecked == true,
+            bangumiEnabledBox?.IsChecked == true, javDbTitleEnabledBox?.IsChecked == true,
+            javDatabaseEnabledBox?.IsChecked == true, wikidataEnabledBox?.IsChecked == true,
+            kitsuEnabledBox?.IsChecked == true, tenraiEnabledBox?.IsChecked == true,
+            config.AnimeSourcesInQueue && mikanEnabledBox?.IsChecked == true,
+            config.AnimeSourcesInQueue && fankuHubEnabledBox?.IsChecked == true);
+        if (builtIn.Length == 0 && queuePlugins.Count > 0)
+        {
+            var reason = pluginFailures.Count > 0 ? string.Join("；", pluginFailures) : "没有可用的插件";
+            if (item.Attempts + 1 >= MaxScrapeAttempts)
+                throw new InvalidDataException(
+                    $"插件来源连续 {item.Attempts + 1} 次没有可用结果（{reason}）；任务记为失败，可稍后手动重试。");
+            // Count the attempt so a permanently empty or failing plugin cannot
+            // be retried for ever, but stay out of the "no match" path: nothing
+            // was found, the task is only waiting for a healthier source.
+            item.Attempts++;
+            var wait = ScrapeRetryDelay(item.Attempts, new ScrapeSourceUnavailableException("plugin"));
+            throw new ScrapeSourceUnavailableException(
+                $"插件来源没有可用结果（{reason}），且没有启用其他标题来源；任务已保留。",
+                DateTimeOffset.UtcNow.Add(wait));
         }
 
         var firstCandidates = await SearchCandidatesAsync(title, 3, bulk: true,

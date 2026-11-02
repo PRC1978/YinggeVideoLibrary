@@ -25,35 +25,58 @@ public partial class MainWindow
     }
 
     // The queue schedules per source set, so a plugin that participates is
-    // represented by a synthetic source key. It is only added when the user
-    // opted in and the plugin is enabled and healthy.
+    // represented by a synthetic source key. A key exists only when the user
+    // opted in and the plugin is enabled and healthy, and every plugin gets its
+    // own key so one plugin's cool-down cannot silence another.
     internal const string PluginQueueSourcePrefix = "plugin:";
 
-    internal static string[] AppendPluginQueueSource(string[] sources, string? pluginId) =>
-        string.IsNullOrWhiteSpace(pluginId) ? sources : [.. sources, PluginQueueSourcePrefix + pluginId];
+    internal static string PluginQueueSourceKey(string pluginId) => PluginQueueSourcePrefix + pluginId;
 
-    internal string? ActiveQueuePluginId() =>
-        config.PluginQueueEnabled
-            ? ScrapeSourcePlugins(pluginCatalog).OrderBy(item => item.DisplayName, StringComparer.CurrentCultureIgnoreCase)
-                .Select(item => item.Id).FirstOrDefault()
+    internal static string? PluginIdFromSourceKey(string? key) =>
+        key is not null && key.StartsWith(PluginQueueSourcePrefix, StringComparison.Ordinal)
+            ? key[PluginQueueSourcePrefix.Length..]
             : null;
 
-    string[] EnabledQueueTitleSources()
+    internal static string[] AppendPluginQueueSource(string[] sources, string? pluginId) =>
+        string.IsNullOrWhiteSpace(pluginId) ? sources : [.. sources, PluginQueueSourceKey(pluginId)];
+
+    internal static string[] AppendPluginQueueSources(string[] sources, IEnumerable<string> pluginIds) =>
+        [.. sources, .. pluginIds.Select(PluginQueueSourceKey)];
+
+    // One list drives scheduling and execution. The key the queue reserves a
+    // pacing slot for is therefore always the plugin that actually runs.
+    internal IReadOnlyList<PluginDescriptor> QueuePlugins() =>
+        config.PluginQueueEnabled
+            ? ScrapeSourcePlugins(pluginCatalog)
+                .OrderBy(item => item.DisplayName, StringComparer.CurrentCultureIgnoreCase).ToList()
+            : [];
+
+    internal IReadOnlyList<string> QueuePluginSourceKeys() =>
+        QueuePlugins().Select(item => PluginQueueSourceKey(item.Id)).ToList();
+
+    internal string? ActiveQueuePluginId() => QueuePlugins().FirstOrDefault()?.Id;
+
+    string[] EnabledQueueTitleSources() => EnabledQueueTitleSources(QueuePlugins());
+
+    string[] EnabledQueueTitleSources(IReadOnlyList<PluginDescriptor> queuePlugins)
     {
-        return PlanQueueTitleSources(TmdbEnabledBox.IsChecked == true && !string.IsNullOrWhiteSpace(config.TmdbToken),
+        var builtIn = PlanQueueTitleSources(
+            TmdbEnabledBox.IsChecked == true && !string.IsNullOrWhiteSpace(config.TmdbToken),
             PornhubEnabledBox.IsChecked == true, tvMazeEnabledBox?.IsChecked == true,
             bangumiEnabledBox?.IsChecked == true, javDbTitleEnabledBox?.IsChecked == true,
             javDatabaseEnabledBox?.IsChecked == true, wikidataEnabledBox?.IsChecked == true,
             kitsuEnabledBox?.IsChecked == true, tenraiEnabledBox?.IsChecked == true,
             config.AnimeSourcesInQueue && mikanEnabledBox?.IsChecked == true,
-            config.AnimeSourcesInQueue && fankuHubEnabledBox?.IsChecked == true) is { } titleSources
-            ? AppendPluginQueueSource(titleSources, ActiveQueuePluginId())
-            : [];
+            config.AnimeSourcesInQueue && fankuHubEnabledBox?.IsChecked == true);
+        return AppendPluginQueueSources(builtIn, queuePlugins.Select(item => item.Id));
     }
 
     bool AnimeOnlyTitleSources()
     {
         var sources = EnabledQueueTitleSources();
+        // A plugin is a general purpose title source, so opting in means the
+        // batch is no longer restricted to anime videos.
+        if (sources.Any(source => PluginIdFromSourceKey(source) is not null)) return false;
         return sources.Length > 0 && sources.All(source => source is "Mikan" or "FankuHub");
     }
 
@@ -431,7 +454,10 @@ public partial class MainWindow
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var codeSources = EnabledQueueCodeSources();
-                var titleSources = EnabledQueueTitleSources();
+                // Captured once: the same list decides which keys are schedulable
+                // and which plugin processes may run for this dispatch.
+                var queuePlugins = QueuePlugins();
+                var titleSources = EnabledQueueTitleSources(queuePlugins);
                 var (item, pendingCount, hasBlocked) = await Task.Run(
                     () => ScrapeQueueStore.PeekNextFair(DataDir, codeSources, titleSources), cancellationToken);
                 if (item is null)
@@ -488,7 +514,7 @@ public partial class MainWindow
                     string status;
                     if (item.Kind == "title")
                     {
-                        status = await ProcessTitleScrapeQueueItemAsync(item, video, cancellationToken);
+                        status = await ProcessTitleScrapeQueueItemAsync(item, video, queuePlugins, cancellationToken);
                     }
                     else
                     {

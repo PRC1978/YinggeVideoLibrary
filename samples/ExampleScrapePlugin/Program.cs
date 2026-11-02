@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -59,6 +60,10 @@ internal static class Program
     static void Search(string id, JsonNode? parameters)
     {
         var query = parameters?["query"]?.GetValue<string>() ?? "";
+        // A deployment can force one failure mode without touching the query, so
+        // two copies of this sample can behave differently in one test library.
+        var forced = ForcedMode();
+        if (forced.Length > 0) query = forced + " " + query;
         var limit = parameters?["limit"]?.GetValue<int>() ?? 8;
         limit = Math.Clamp(limit, 1, 20);
 
@@ -146,6 +151,16 @@ internal static class Program
             ["v"] = ApiVersion, ["id"] = id, ["ok"] = true,
             ["result"] = new JsonObject { ["candidates"] = candidates }
         });
+    }
+
+    static string ForcedMode()
+    {
+        try
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "plugin-mode.txt");
+            return File.Exists(path) ? File.ReadAllText(path).Trim() : "";
+        }
+        catch { return ""; }
     }
 
     static void Error(string id, string code, string message, int? retryAfterSeconds = null)

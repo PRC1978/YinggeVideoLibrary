@@ -48,6 +48,18 @@ internal static class PluginQueueDiagnostics
             plain.Length == 1 && plain[0] == "TMDB" && withPlugin.Length == 2 &&
             withPlugin[1] == "plugin:com.example" && pluginOnly.SequenceEqual(["plugin:com.example"]));
 
+        // The key the queue reserves a slot for must resolve back to exactly one
+        // plugin, otherwise pacing would be charged to a different process.
+        var keys = MainWindow.AppendPluginQueueSources(["TMDB"], ["a.b", "c-d"]);
+        observed["pluginKeys"] = string.Join(",", keys);
+        Check("pluginKeyRoundTrips",
+            MainWindow.PluginIdFromSourceKey(MainWindow.PluginQueueSourceKey("a.b-c_1")) == "a.b-c_1" &&
+            MainWindow.PluginIdFromSourceKey("TMDB") is null &&
+            MainWindow.PluginIdFromSourceKey(null) is null);
+        Check("eachPluginHasItsOwnKey",
+            keys.SequenceEqual(["TMDB", "plugin:a.b", "plugin:c-d"]) &&
+            keys.Distinct(StringComparer.Ordinal).Count() == keys.Length);
+
         // --- enqueue, duplicate, restart -------------------------------------
         var data = Path.Combine(work, "queue");
         Directory.CreateDirectory(data);
@@ -93,11 +105,41 @@ internal static class PluginQueueDiagnostics
             MainWindow.ShouldRetryScrapeItem(afterReschedule[0], unavailable) &&
             MainWindow.AttemptsAfterRetry(afterReschedule[0].Attempts, unavailable) == afterReschedule[0].Attempts);
 
+        // --- per-plugin cool-down is independent of every other source --------
+        // A fresh task, because the previous one carries its own two-minute
+        // retry time and would hide what the source set contributes.
+        ScrapeQueueStore.Add(data, [new ScrapeQueueItem
+        {
+            VideoId = "video-3", Kind = "title", SearchTitle = "示例作品 3",
+            NextAttemptAt = DateTimeOffset.UtcNow.AddSeconds(-1)
+        }]);
+        ScrapeQueueStore.RecordSourceFailure(data, "plugin:a.b", "插件崩溃", false, null);
+        var backoffFile = Path.Combine(data, "scrape-source-backoff.json");
+        var backoffText = File.Exists(backoffFile) ? File.ReadAllText(backoffFile) : "";
+        observed["backoffHasPluginKey"] = backoffText.Contains("plugin:a.b", StringComparison.Ordinal);
+        Check("pluginCoolDownIsPersisted", backoffText.Contains("plugin:a.b", StringComparison.Ordinal));
+        var coolingCooldown = ScrapeQueueStore.GetSourceCooldownAt(data, "plugin:a.b");
+        Check("pluginCoolDownIsReadBack", coolingCooldown > DateTimeOffset.UtcNow);
+
+        // A cooled-down plugin must not delay a healthy built-in source, nor a
+        // second plugin: the queue picks the earliest ready source in the set.
+        var withBuiltIn = ScrapeQueueStore.PeekNextFair(data, [], ["TMDB", "plugin:a.b"]);
+        var withOtherPlugin = ScrapeQueueStore.PeekNextFair(data, [], ["plugin:a.b", "plugin:c-d"]);
+        Check("cooledPluginDoesNotBlockBuiltIn",
+            withBuiltIn.Item is not null && withBuiltIn.Item.NextAttemptAt <= DateTimeOffset.UtcNow.AddSeconds(1));
+        Check("cooledPluginDoesNotBlockOtherPlugin",
+            withOtherPlugin.Item is not null && withOtherPlugin.Item.NextAttemptAt <= DateTimeOffset.UtcNow.AddSeconds(1));
+
+        // Only the cooled plugin's own key is delayed.
+        var healthyReady = ScrapeQueueStore.GetSourceReadyAt(data, "plugin:c-d");
+        Check("healthyPluginKeepsItsOwnSchedule",
+            healthyReady <= DateTimeOffset.UtcNow.AddSeconds(1) && coolingCooldown > healthyReady);
+
         // --- cancel ------------------------------------------------------------
         var cancelled = ScrapeQueueStore.ClearPending(data);
         var afterCancel = ScrapeQueueStore.Load(data);
         observed["cleared"] = cancelled;
-        Check("cancelRemovesPendingTasks", cancelled == 1 && afterCancel.Count == 0);
+        Check("cancelRemovesPendingTasks", cancelled >= 1 && afterCancel.Count == 0, $"cleared={cancelled}");
 
         // A failed record is kept by cancel so the user can retry it later.
         ScrapeQueueStore.Add(data, [new ScrapeQueueItem { VideoId = "video-2", Kind = "title", SearchTitle = "x" }]);

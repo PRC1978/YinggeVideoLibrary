@@ -3992,6 +3992,9 @@ public partial class MainWindow : Window
                     HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
                     ToolTip = "同一视频的全部插件候选；切换只改变待审核记录指向的候选，不影响已保存的资料"
                 };
+                // Named so keyboard and UI automation can reach it without
+                // knowing the row order.
+                System.Windows.Automation.AutomationProperties.SetAutomationId(selector, "ReviewCandidateSelector");
                 for (var index = 0; index < storedCandidates.Count; index++)
                     selector.Items.Add($"候选 {index + 1}/{storedCandidates.Count} · {storedCandidates[index].Metadata.Source} · {storedCandidates[index].Metadata.Code}");
                 var current = PluginCandidateStore.IndexOf(storedCandidates, review.CandidateSourceUrl, review.CandidateCode);
@@ -4019,6 +4022,9 @@ public partial class MainWindow : Window
                 if (!TryCommitReviewDecisionsWithPreview([review.VideoId], false, out var error)) { if (error.Length > 0) MessageBox.Show(this, "否决操作未完成：" + error + (ReviewTransactionStore.HasPending(DataDir) ? "；待恢复记录会在下次启动检查。" : ""), "审核保存失败", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
                 RefreshReviewQueue(); RenderCards(); Log($"人工否决搜刮匹配：{review.CandidateCode}");
             };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(approve, "ReviewApproveButton");
+            System.Windows.Automation.AutomationProperties.SetAutomationId(reject, "ReviewRejectButton");
+            System.Windows.Automation.AutomationProperties.SetAutomationId(information, "ReviewInfoButton");
             approve.IsEnabled = review.Status is "pending" or "rejected";
             reject.IsEnabled = review.Status is "pending" or "rejected";
             actions.Children.Add(information); actions.Children.Add(approve); actions.Children.Add(reject); Grid.SetColumn(actions, 3); grid.Children.Add(actions);

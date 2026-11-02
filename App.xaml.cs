@@ -149,6 +149,36 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        if (e.Args.Length > 3 && e.Args[0] == "--diagnose-review-decision")
+        {
+            var decideWindow = new MainWindow
+            {
+                Left = -30000, Top = -30000, Width = 1224, Height = 768,
+                ShowActivated = false, ShowInTaskbar = false, Opacity = 0
+            };
+            MainWindow = decideWindow;
+            decideWindow.Show();
+            var result = await decideWindow.RunReviewDecisionProbeAsync(e.Args[1], e.Args[2],
+                e.Args[3] == "approve");
+            decideWindow.Close();
+            Shutdown(result);
+            return;
+        }
+        if (e.Args.Length > 3 && e.Args[0] == "--diagnose-review-select")
+        {
+            var selectWindow = new MainWindow
+            {
+                Left = -30000, Top = -30000, Width = 1224, Height = 768,
+                ShowActivated = false, ShowInTaskbar = false, Opacity = 0
+            };
+            MainWindow = selectWindow;
+            selectWindow.Show();
+            var result = await selectWindow.RunSelectCandidateProbeAsync(e.Args[1], e.Args[2],
+                int.Parse(e.Args[3]));
+            selectWindow.Close();
+            Shutdown(result);
+            return;
+        }
         if (e.Args.Length > 1 && e.Args[0] == "--diagnose-plugin-queue")
         {
             var queueWindow = new MainWindow

@@ -141,7 +141,7 @@ internal static class PluginLog
             var folder = Path.Combine(dataDir, "plugins", "logs");
             Directory.CreateDirectory(folder);
             var path = Path.Combine(folder, SafeName(pluginId) + ".log");
-            var line = $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} {Redact(message)}{Environment.NewLine}";
+            var line = $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff} {Redact(message)}{Environment.NewLine}";
             if (File.Exists(path) && new FileInfo(path).Length > MaxLogBytes)
                 File.Move(path, path + ".1", true);
             File.AppendAllText(path, line, new UTF8Encoding(false));

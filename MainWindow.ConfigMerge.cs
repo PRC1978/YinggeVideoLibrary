@@ -93,6 +93,7 @@ public partial class MainWindow
         ,ScrapeSourcePolicies = source.ScrapeSourcePolicies.ToDictionary(pair => pair.Key,
             pair => pair.Value.Clone(), StringComparer.OrdinalIgnoreCase)
         ,ScrapeRefreshIncompleteMetadata = source.ScrapeRefreshIncompleteMetadata
+        ,PluginQueueEnabled = source.PluginQueueEnabled
         ,CardPageSize = source.CardPageSize
         ,PosterCacheLimitMb = source.PosterCacheLimitMb
     };
@@ -188,6 +189,7 @@ public partial class MainWindow
             ScrapeSourcePolicies = MergeMap(baseline.ScrapeSourcePolicies, current.ScrapeSourcePolicies,
                 latest.ScrapeSourcePolicies, StringComparer.OrdinalIgnoreCase),
             ScrapeRefreshIncompleteMetadata = MergeScalar(baseline.ScrapeRefreshIncompleteMetadata, current.ScrapeRefreshIncompleteMetadata, latest.ScrapeRefreshIncompleteMetadata),
+            PluginQueueEnabled = MergeScalar(baseline.PluginQueueEnabled, current.PluginQueueEnabled, latest.PluginQueueEnabled),
             CardPageSize = MergeScalar(baseline.CardPageSize, current.CardPageSize, latest.CardPageSize),
             PosterCacheLimitMb = VideoItem.NormalizePosterCacheLimitMiB(
                 MergeScalar(baseline.PosterCacheLimitMb, current.PosterCacheLimitMb, latest.PosterCacheLimitMb)),

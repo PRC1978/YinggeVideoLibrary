@@ -71,6 +71,11 @@ public partial class App : System.Windows.Application
             Shutdown(await Task.Run(() => SharedCacheReadOnlyProbe.Run(e.Args[1])));
             return;
         }
+        if (e.Args.Length > 2 && e.Args[0] == "--self-test-plugin-queue")
+        {
+            Shutdown(await Task.Run(() => PluginQueueDiagnostics.RunToFile(e.Args[1], e.Args[2])));
+            return;
+        }
         if (e.Args.Length > 2 && e.Args[0] == "--self-test-missing-files")
         {
             Shutdown(await Task.Run(() => MissingFileDiagnostics.RunToFile(e.Args[1], e.Args[2])));
@@ -144,6 +149,20 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        if (e.Args.Length > 1 && e.Args[0] == "--diagnose-plugin-queue")
+        {
+            var queueWindow = new MainWindow
+            {
+                Left = -30000, Top = -30000, Width = 1224, Height = 768,
+                ShowActivated = false, ShowInTaskbar = false, Opacity = 0
+            };
+            MainWindow = queueWindow;
+            queueWindow.Show();
+            var result = await queueWindow.RunPluginQueueProbeAsync(e.Args[1]);
+            queueWindow.Close();
+            Shutdown(result);
+            return;
+        }
         if (e.Args.Length > 1 && e.Args[0] == "--diagnose-ui-startup")
         {
             var probeWindow = new MainWindow

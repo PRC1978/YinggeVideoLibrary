@@ -18,6 +18,37 @@ public partial class MainWindow
         if (!Regex.IsMatch(title, @"[\u3400-\u9FFF]|\p{L}{2,}"))
             throw new InvalidDataException("文件名和人物目录下的作品目录均缺少可搜索标题；请先手动补充标题后再搜刮。");
 
+        // Opt-in plugin source. It runs before the built-in title sources, and a
+        // timeout, crash or empty answer falls through to them. It never marks
+        // the video as unmatched: only the built-in path may do that.
+        if (config.PluginQueueEnabled)
+        {
+            var pluginId = ActiveQueuePluginId();
+            var plugin = pluginId is null ? null : pluginCatalog.FirstOrDefault(item => item.Id == pluginId);
+            if (plugin is not null)
+            {
+                var pluginResult = await RunPluginSourceAsync(video, plugin, title, cancellationToken);
+                if (pluginResult.State is PluginQueueState.Queued or PluginQueueState.KeptSelection)
+                {
+                    Log($"插件队列来源已入队：{video.Title} · {plugin.DisplayName} · {pluginResult.Stored} 条候选");
+                    return "pending";
+                }
+                Log($"插件队列来源未返回可用候选，继续内置来源：{video.Title} · {pluginResult.Message}");
+                var builtIn = PlanQueueTitleSources(
+                    TmdbEnabledBox.IsChecked == true && !string.IsNullOrWhiteSpace(config.TmdbToken),
+                    PornhubEnabledBox.IsChecked == true, tvMazeEnabledBox?.IsChecked == true,
+                    bangumiEnabledBox?.IsChecked == true, javDbTitleEnabledBox?.IsChecked == true,
+                    javDatabaseEnabledBox?.IsChecked == true, wikidataEnabledBox?.IsChecked == true,
+                    kitsuEnabledBox?.IsChecked == true, tenraiEnabledBox?.IsChecked == true,
+                    config.AnimeSourcesInQueue && mikanEnabledBox?.IsChecked == true,
+                    config.AnimeSourcesInQueue && fankuHubEnabledBox?.IsChecked == true);
+                if (builtIn.Length == 0)
+                    throw new ScrapeSourceUnavailableException(
+                        $"插件 {plugin.DisplayName} 暂时没有可用结果，且没有启用其他标题来源；任务已保留。",
+                        DateTimeOffset.UtcNow.AddMinutes(2));
+            }
+        }
+
         var firstCandidates = await SearchCandidatesAsync(title, 3, bulk: true,
             cancellationToken: cancellationToken, video: video);
         var candidates = await SearchWithFolderPersonHintAsync(video, title, 3, firstCandidates, cancellationToken, bulk: true);

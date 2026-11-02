@@ -24,6 +24,20 @@ public partial class MainWindow
             javDatabaseEnabledBox?.IsChecked == true);
     }
 
+    // The queue schedules per source set, so a plugin that participates is
+    // represented by a synthetic source key. It is only added when the user
+    // opted in and the plugin is enabled and healthy.
+    internal const string PluginQueueSourcePrefix = "plugin:";
+
+    internal static string[] AppendPluginQueueSource(string[] sources, string? pluginId) =>
+        string.IsNullOrWhiteSpace(pluginId) ? sources : [.. sources, PluginQueueSourcePrefix + pluginId];
+
+    internal string? ActiveQueuePluginId() =>
+        config.PluginQueueEnabled
+            ? ScrapeSourcePlugins(pluginCatalog).OrderBy(item => item.DisplayName, StringComparer.CurrentCultureIgnoreCase)
+                .Select(item => item.Id).FirstOrDefault()
+            : null;
+
     string[] EnabledQueueTitleSources()
     {
         return PlanQueueTitleSources(TmdbEnabledBox.IsChecked == true && !string.IsNullOrWhiteSpace(config.TmdbToken),
@@ -32,7 +46,9 @@ public partial class MainWindow
             javDatabaseEnabledBox?.IsChecked == true, wikidataEnabledBox?.IsChecked == true,
             kitsuEnabledBox?.IsChecked == true, tenraiEnabledBox?.IsChecked == true,
             config.AnimeSourcesInQueue && mikanEnabledBox?.IsChecked == true,
-            config.AnimeSourcesInQueue && fankuHubEnabledBox?.IsChecked == true);
+            config.AnimeSourcesInQueue && fankuHubEnabledBox?.IsChecked == true) is { } titleSources
+            ? AppendPluginQueueSource(titleSources, ActiveQueuePluginId())
+            : [];
     }
 
     bool AnimeOnlyTitleSources()
@@ -406,6 +422,8 @@ public partial class MainWindow
                 Log(TaskStatusText.Text);
                 return;
             }
+            // The queue may run before the plugin page was ever opened.
+            if (config.PluginQueueEnabled) EnsurePluginCatalog();
             Log("后台搜刮轮询已启动");
             List<VideoItem>? indexedVideos = null;
             Dictionary<string, VideoItem> videoById = new(StringComparer.OrdinalIgnoreCase);
@@ -581,11 +599,11 @@ public partial class MainWindow
         return true;
     }
 
-    static bool ShouldRetryScrapeItem(ScrapeQueueItem item, Exception ex) =>
+    internal static bool ShouldRetryScrapeItem(ScrapeQueueItem item, Exception ex) =>
         ex is ScrapeSourceUnavailableException ||
         IsTemporaryScrapeFailure(ex) && item.Attempts + 1 < MaxScrapeAttempts;
 
-    static int AttemptsAfterRetry(int attempts, Exception ex) =>
+    internal static int AttemptsAfterRetry(int attempts, Exception ex) =>
         ex is ScrapeSourceUnavailableException ? attempts : attempts + 1;
 
     internal static bool VerifySourceRetryPolicyForDiagnostics()

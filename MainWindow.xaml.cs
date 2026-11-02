@@ -124,6 +124,9 @@ public sealed class LibraryConfig
     [JsonPropertyName("scrapeRequestIntervalSeconds")] public double ScrapeRequestIntervalSeconds { get; set; } = 2.5;
     [JsonPropertyName("scrapeSourcePolicies")] public Dictionary<string, ScrapeSourcePolicy> ScrapeSourcePolicies { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     [JsonPropertyName("scrapeRefreshIncompleteMetadata")] public bool ScrapeRefreshIncompleteMetadata { get; set; }
+    // Opt-in: enabled, healthy scrape plugins may take part in the background
+    // queue. Off by default so upgrading never starts external calls on its own.
+    [JsonPropertyName("pluginQueueEnabled")] public bool PluginQueueEnabled { get; set; }
     [JsonPropertyName("cardPageSize")] public int CardPageSize { get; set; } = 60;
     // 0 intentionally means no in-memory poster cache limit. Disk thumbnails
     // remain under the shared user data directory either way.

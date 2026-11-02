@@ -31,6 +31,7 @@ public partial class MainWindow
     CheckBox? fankuHubEnabledBox;
     CheckBox? dmhyEnabledBox;
     CheckBox? animeQueueEnabledBox;
+    CheckBox? pluginQueueCheckBox;
 
     void InitializeCandidateSettings()
     {
@@ -96,6 +97,18 @@ public partial class MainWindow
             ToolTip = "从视频目录向上检查到已添加的库文件夹；只使用判定为人物名的目录名称，不发送完整路径。"
         };
         toggleGroup.Children.Add(folderHintBox);
+        // Opt-in queue participation. Off by default; only enabled, healthy
+        // plugins are considered, and only while the switch is on.
+        pluginQueueCheckBox = new CheckBox
+        {
+            Content = "允许已启用的搜刮插件参与后台队列（标题匹配）",
+            IsChecked = config.PluginQueueEnabled,
+            Margin = new Thickness(0, 10, 0, 10),
+            ToolTip = "开启后，后台队列会先用启用且状态正常的插件做标题匹配，再走内置标题来源；" +
+                      "插件超时、崩溃或没有结果只记录错误，不会把视频标记为“无匹配”，也不会阻塞其他来源。" +
+                      "插件返回的候选仍然进入人工审核。"
+        };
+        toggleGroup.Children.Add(pluginQueueCheckBox);
         panel.Children.Insert(panel.Children.IndexOf(TmdbEnabledBox) + 1, toggleGroup);
         var applyingSourcePreset = false;
         void SaveSourceToggles(object? _, RoutedEventArgs __)
@@ -117,10 +130,11 @@ public partial class MainWindow
             config.EnableDmhy = dmhyEnabledBox.IsChecked == true;
             config.AnimeSourcesInQueue = animeQueueEnabledBox.IsChecked == true;
             config.UseFolderPersonHint = folderHintBox.IsChecked == true;
+            if (pluginQueueCheckBox is not null) config.PluginQueueEnabled = pluginQueueCheckBox.IsChecked == true;
             SaveConfig();
             RefreshSourceDiagnostics();
         }
-        foreach (var box in new[] { JavDbEnabledBox, PornhubEnabledBox, TmdbEnabledBox, javDatabaseEnabledBox, javDbTitleEnabledBox, bangumiEnabledBox, aniListEnabledBox, tvMazeEnabledBox, wikidataEnabledBox, kitsuEnabledBox, tenraiEnabledBox, mikanEnabledBox, fankuHubEnabledBox, dmhyEnabledBox, animeQueueEnabledBox, folderHintBox })
+        foreach (var box in new[] { JavDbEnabledBox, PornhubEnabledBox, TmdbEnabledBox, javDatabaseEnabledBox, javDbTitleEnabledBox, bangumiEnabledBox, aniListEnabledBox, tvMazeEnabledBox, wikidataEnabledBox, kitsuEnabledBox, tenraiEnabledBox, mikanEnabledBox, fankuHubEnabledBox, dmhyEnabledBox, animeQueueEnabledBox, folderHintBox, pluginQueueCheckBox })
         {
             box.Checked += SaveSourceToggles;
             box.Unchecked += SaveSourceToggles;

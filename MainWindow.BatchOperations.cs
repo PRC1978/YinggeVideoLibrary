@@ -135,7 +135,9 @@ public partial class MainWindow
             else foreach (var tag in tags)
                 if (!video.Tags.Contains(tag, StringComparer.CurrentCultureIgnoreCase)) video.Tags.Add(tag);
         }
-        if (!video.Tags.Contains("素人", StringComparer.CurrentCultureIgnoreCase)) autoAmateur.Remove(video.Id);
+        // A deliberate tag edit takes ownership of the resulting tag list.
+        // If "素人" remains, a later scrape must not remove that manual choice.
+        autoAmateur.Remove(video.Id);
         video.RefreshTags();
         if (video.Tags.Count == 0) state.Tags.Remove(video.Id); else state.Tags[video.Id] = video.Tags.ToList();
     }
@@ -408,6 +410,15 @@ public partial class MainWindow
             if (tagTextRefreshes < 2 || sampleVideo.Tags.Count != 1 || sampleVideo.Tags[0] != "probe-tag" ||
                 sampleVideo.WatchStatus != "已看" || sampleVideo.Favorite || favorites.Contains(sampleVideo.Id))
                 throw new InvalidOperationException("标签、状态或收藏撤销未恢复原状态");
+
+            sampleVideo.Tags.Add("素人");
+            autoAmateur.Add(sampleVideo.Id);
+            ApplyBatchTagValue(sampleVideo, scratch, [], new HashSet<string>(), autoAmateur, false, false, false);
+            if (!sampleVideo.Tags.Contains("素人") || autoAmateur.Contains(sampleVideo.Id))
+                throw new InvalidOperationException("手动编辑保留的素人标签仍被当作自动推断");
+            sampleVideo.Tags.Remove("素人");
+            sampleVideo.RefreshTags();
+            scratch.Tags[sampleVideo.Id] = sampleVideo.Tags.ToList();
 
             Directory.CreateDirectory(temporaryDirectory);
             var path = Path.Combine(temporaryDirectory, "config.json");

@@ -3681,7 +3681,8 @@ public partial class MainWindow : Window
         if (value is null) return;
         video.Tags.Clear(); video.Tags.AddRange(ParseTags(value));
         video.RefreshTags();
-        if (!video.Tags.Contains("素人", StringComparer.CurrentCultureIgnoreCase)) config.AutoAmateurTags.RemoveAll(id => id.Equals(video.Id, StringComparison.OrdinalIgnoreCase));
+        // Explicit editing makes every retained tag manual, including "素人".
+        config.AutoAmateurTags.RemoveAll(id => id.Equals(video.Id, StringComparison.OrdinalIgnoreCase));
         if (video.Tags.Count == 0) config.Tags.Remove(video.Id); else config.Tags[video.Id] = video.Tags.ToList();
         SaveConfig(); RenderCards(); Log($"已更新标签：{video.DisplayTitle}");
     }

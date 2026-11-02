@@ -457,7 +457,7 @@ public partial class MainWindow
             if (before.Review is { Status: "approved" }) return false;
             var after = before.Clone();
             after.Review = review;
-            after = WithAutomaticAmateurTag(video, after, false);
+            after = ClearAutomaticallyInferredAmateurTag(video, after);
             var transaction = ReviewTransactionStore.Create("candidate",
                 new Dictionary<string, ReviewItemSnapshot> { [video.Id] = before },
                 new Dictionary<string, ReviewItemSnapshot> { [video.Id] = after });

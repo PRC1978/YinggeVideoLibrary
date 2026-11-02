@@ -19,7 +19,10 @@ public partial class MainWindow
                 Confidence = 0, Status = "unmatched", DecisionSource = "rules",
                 Reason = reason, Model = "local-rules"
             };
-            after = WithAutomaticAmateurTag(video, after, true);
+            // No result is evidence about the search, not about the people in
+            // the video. Retire any earlier automatically inferred tag while
+            // preserving a manually assigned one.
+            after = ClearAutomaticallyInferredAmateurTag(video, after);
             var transaction = ReviewTransactionStore.Create("unmatched",
                 new Dictionary<string, ReviewItemSnapshot> { [video.Id] = before },
                 new Dictionary<string, ReviewItemSnapshot> { [video.Id] = after });
@@ -29,6 +32,6 @@ public partial class MainWindow
         }
         finally { if (locked) ConfigWriteMutex.ReleaseMutex(); }
         if (view == "scrape") RefreshReviewQueue();
-        Log($"搜刮无匹配：{video.DisplayTitle} · {source}；已标记素人");
+        Log($"搜刮无匹配：{video.DisplayTitle} · {source}；标签未据此推断");
     }
 }

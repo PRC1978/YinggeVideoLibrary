@@ -454,6 +454,69 @@ internal static class FeatureDiagnostics
                 && noLocalCode.Verdict == "review" && noLocalCode.Confidence == 79
                 && noCodeOnDetail.Verdict == "review" && noCodeOnDetail.Confidence == 79
                 && noDetail.Verdict == "review" && noDetail.Confidence == 79;
+            evidenceVideo.Tags.AddRange(["素人", "人工标签"]);
+            var oldAuto = MainWindow.ClearAutomaticallyInferredAmateurTag(evidenceVideo,
+                new ReviewItemSnapshot { Tags = ["素人", "人工标签"], AutoAmateur = true });
+            var manual = MainWindow.ClearAutomaticallyInferredAmateurTag(evidenceVideo,
+                new ReviewItemSnapshot { Tags = ["素人", "人工标签"], AutoAmateur = false });
+            findings["scrapeOutcomeDoesNotInferAmateur"] = !oldAuto.AutoAmateur
+                && oldAuto.Tags is not null && oldAuto.Tags.SequenceEqual(["人工标签"])
+                && !manual.AutoAmateur && manual.Tags is not null
+                && manual.Tags.SequenceEqual(["素人", "人工标签"]);
+            var offlineFixture = new AiScrapeEvaluation.Fixture
+            {
+                Schema = AiScrapeEvaluation.Schema, Provenance = "synthetic", InputUsdPerMillion = 1,
+                OutputUsdPerMillion = 2,
+                Cases =
+                [
+                    new AiScrapeEvaluation.Case { Id = "match", LocalTitle = "ABC-123",
+                        Candidate = linkedJavDb, GoldSameWork = true,
+                        ProposedConfidence = 95, ProposedVerdict = "approve", ModelCalled = true,
+                        InputTokens = 100, OutputTokens = 50 },
+                    new AiScrapeEvaluation.Case { Id = "conflict", LocalTitle = "ABC-124",
+                        Candidate = linkedJavDb, GoldSameWork = false,
+                        ProposedConfidence = 100, ProposedVerdict = "approve" }
+                ]
+            };
+            var offline = AiScrapeEvaluation.Evaluate(offlineFixture);
+            findings["aiScrapeGoldMetricsAreComputed"] = offline.AutoApproved == 1
+                && offline.FalseApprovals == 0 && offline.AutoApprovalPrecision == 1
+                && offline.FalseApprovalRate == 0 && offline.ModelCalls == 1
+                && Math.Abs(offline.EstimatedUsd - 0.0002) < 0.00000001
+                && offline.SuggestedThreshold is null
+                && offline.CalibrationStatus == "synthetic-cannot-calibrate";
+            offlineFixture.Cases[0].ProposedVerdict = "review";
+            findings["aiScrapeNoApprovalHasUndefinedPrecision"] =
+                AiScrapeEvaluation.Evaluate(offlineFixture).AutoApprovalPrecision is null;
+            offlineFixture.Cases[0].ProposedVerdict = "approve";
+            offlineFixture.Cases[1].LocalTitle = "ABC-123";
+            var knownFalseApproval = AiScrapeEvaluation.Evaluate(offlineFixture);
+            findings["aiScrapeFalseApprovalIsCounted"] = knownFalseApproval.FalseApprovals == 1
+                && knownFalseApproval.FalseApprovalRate == 1
+                && knownFalseApproval.AutoApprovalPrecision == 0.5;
+            var calibrationFixture = new AiScrapeEvaluation.Fixture
+            {
+                Schema = AiScrapeEvaluation.Schema, Provenance = "human-reviewed",
+                Cases = Enumerable.Range(0, 100).Select(index => new AiScrapeEvaluation.Case
+                {
+                    Id = "calibration-" + index, LocalTitle = index < 50 ? "ABC-123" : "ABC-124",
+                    Candidate = linkedJavDb, GoldSameWork = index < 50,
+                    ProposedConfidence = 95, ProposedVerdict = "approve"
+                }).ToList()
+            };
+            var suggested = AiScrapeEvaluation.Evaluate(calibrationFixture);
+            findings["aiScrapeCalibrationIsAdvisoryOnly"] = suggested.SuggestedThreshold == 80
+                && suggested.CalibrationStatus == "advisory-only-not-trained";
+            offlineFixture.Cases[1].GoldSameWork = null;
+            try
+            {
+                AiScrapeEvaluation.Evaluate(offlineFixture);
+                findings["aiScrapeUnlabelledGoldIsRejected"] = false;
+            }
+            catch (InvalidDataException)
+            {
+                findings["aiScrapeUnlabelledGoldIsRejected"] = true;
+            }
             findings["legacyIdentityEvidenceFailsClosed"] = !JsonSerializer.Deserialize<MovieMetadata>(
                 """{"Code":"ABC-123","Title":"作品","DetailFetched":true}""")!.DetailIdentityVerified;
             findings["javDbCatalogLinkValidation"] = !JavDbScraper.TryCatalogUrl("https://javdb.com.evil.test/actors/0R1n3", out _, out _)

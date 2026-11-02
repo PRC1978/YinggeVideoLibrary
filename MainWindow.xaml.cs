@@ -1084,7 +1084,7 @@ public partial class MainWindow : Window
             "pending" => $"待审核 · {review.CandidateSource} · 可信度 {review.Confidence}%",
             "rejected" => $"{rejectionLabel} · {review.CandidateSource} · 可信度 {review.Confidence}%",
             "approved" => $"已搜刮 · {review.CandidateSource} · 可信度 {review.Confidence}%",
-            "unmatched" => $"未找到匹配 · {review.CandidateSource} · 素人",
+            "unmatched" => $"未找到匹配 · {review.CandidateSource}",
             _ => ""
         };
     }
@@ -3927,9 +3927,9 @@ public partial class MainWindow : Window
             after.Review = review;
             if (review.Status == "approved")
                 after.Metadata = MetadataRefreshPolicy.AcceptedValue(before.Metadata, review.ToMetadata());
-            after = WithAutomaticAmateurTag(video, after,
-                candidate.DetailFetched && after.Metadata is null &&
-                (review.Status is "pending" or "rejected") && review.Confidence < ReviewManualThreshold);
+            // A weak match or AI rejection does not establish that the people
+            // in this video are amateurs. Only a person may assign that tag.
+            after = ClearAutomaticallyInferredAmateurTag(video, after);
             var transaction = ReviewTransactionStore.Create(review.Status == "approved" ? "auto-approved" : "candidate",
                 new Dictionary<string, ReviewItemSnapshot> { [video.Id] = before },
                 new Dictionary<string, ReviewItemSnapshot> { [video.Id] = after });
@@ -4178,7 +4178,7 @@ public partial class MainWindow : Window
                         {
                             review.ReviewedAt = DateTime.Now;
                             proposal.Metadata = MetadataRefreshPolicy.AcceptedValue(original.Metadata, review.ToMetadata());
-                            proposal = WithAutomaticAmateurTag(video, proposal, false);
+                            proposal = ClearAutomaticallyInferredAmateurTag(video, proposal);
                         }
                     }
                     proposals[id] = proposal;
@@ -4337,7 +4337,7 @@ public partial class MainWindow : Window
                     return;
                 }
                 StoreUnmatchedScrape(video, source switch { 1 => "Pornhub", 2 => "TVmaze", 3 => "全部来源", 4 => "Bangumi", 5 => "JavDB 标题", 6 => "AniList", 7 => "JAVDatabase 标题", 8 => "Javinfo", 9 => "Wikidata", 11 => "Kitsu", 12 => "Tenrai", 13 => "Trakt", 14 => "Mikan", 15 => "FankuHub", _ => "TMDB" }, "已查询来源，没有找到候选结果。");
-                TaskStatusText.Text = "完整资料搜刮完成 · 未找到匹配，已标记素人";
+                TaskStatusText.Text = "完整资料搜刮完成 · 未找到匹配，未据此标记素人";
                 RenderCards();
                 return;
             }

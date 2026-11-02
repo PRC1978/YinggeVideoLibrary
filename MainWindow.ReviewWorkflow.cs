@@ -447,20 +447,10 @@ public partial class MainWindow
             .ToDictionary(id => id, id => CaptureReviewState(id, tracked), StringComparer.OrdinalIgnoreCase);
     }
 
-    ReviewItemSnapshot WithAutomaticAmateurTag(VideoItem video, ReviewItemSnapshot state, bool shouldTag)
+    internal static ReviewItemSnapshot ClearAutomaticallyInferredAmateurTag(VideoItem video, ReviewItemSnapshot state)
     {
         var result = state.Clone();
-        if (shouldTag)
-        {
-            // A manually assigned 素人 tag is never claimed as an automatic
-            // tag and must survive an unrelated approval or undo.
-            if (video.Tags.Contains("素人", StringComparer.CurrentCultureIgnoreCase)) return result;
-            var tags = video.Tags.ToList();
-            tags.Add("素人");
-            result.Tags = ParseTags(string.Join(",", tags));
-            result.AutoAmateur = true;
-        }
-        else if (result.AutoAmateur)
+        if (result.AutoAmateur)
         {
             result.Tags = ParseTags(string.Join(",", video.Tags.Where(tag =>
                 !tag.Equals("素人", StringComparison.CurrentCultureIgnoreCase))));

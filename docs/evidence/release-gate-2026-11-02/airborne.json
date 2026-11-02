@@ -1,0 +1,23 @@
+{
+  "passed": true,
+  "checks": {
+    "sourceFolderUnchangedAfterLoad": true,
+    "managedCopyLivesUnderDataDirectory": true,
+    "metadataNotCopiedIntoManagedCopy": true,
+    "managedCopyIsIdempotent": true,
+    "rawSourcePathRejectedBeforeLoad": true,
+    "edgeFolderIsNeverPassedToAddBrowserExtension": true,
+    "sourceUpgradeCreatesNewManagedVersion": true,
+    "metadataPrunedToTwoGenerations": true,
+    "corruptedManagedCopyIsRepairedOrRejected": true
+  },
+  "notes": [
+    "sourceFiles=5",
+    "firstCopy=C:\\Users\\yunwu\\AppData\\Local\\Temp\\YinggeAirborneTest-fce9aa1bb2474bea879952c0bbc38535\\data\\extensions\\airborne\\0b517323a8ab2aad\\1.0.0",
+    "payloadFiles=3",
+    "upgrade=C:\\Users\\yunwu\\AppData\\Local\\Temp\\YinggeAirborneTest-fce9aa1bb2474bea879952c0bbc38535\\data\\extensions\\airborne\\0b517323a8ab2aad\\1.1.0 / C:\\Users\\yunwu\\AppData\\Local\\Temp\\YinggeAirborneTest-fce9aa1bb2474bea879952c0bbc38535\\data\\extensions\\airborne\\0b517323a8ab2aad\\1.2.0",
+    "generations=1.1.0,1.2.0",
+    "repaired=C:\\Users\\yunwu\\AppData\\Local\\Temp\\YinggeAirborneTest-fce9aa1bb2474bea879952c0bbc38535\\data\\extensions\\airborne\\0b517323a8ab2aad\\1.2.0"
+  ],
+  "error": null
+}

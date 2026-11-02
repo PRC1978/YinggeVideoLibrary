@@ -1,0 +1,9 @@
+{
+  "verifiedReplacement": true,
+  "newVersionRestartedFromUpdatedPath": true,
+  "oldVersionBackupPreserved": true,
+  "passed": true,
+  "oldVersion": "1.5.4.0",
+  "newVersion": "1.6.0.0",
+  "method": "Verified replacement uses production PortableUpdateWorker.Apply; restart uses hidden --self-test-restarted instead of the visible normal-launch path."
+}

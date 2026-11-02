@@ -1,0 +1,29 @@
+{
+  "AllPassed": true,
+  "Checks": {
+    "crossDeviceRealPathIdsDiffer": true,
+    "crossDevicePlainBackupFailsClosed": true,
+    "crossDeviceSamePathSameSizeTimeButDifferentHashBlocked": true,
+    "crossDeviceTransportPackageVerifies": true,
+    "crossDevicePreviewShowsBothOriginalTagAndRatingValues": true,
+    "crossDevicePreviewMakesNoWrites": true,
+    "crossDeviceCancelMakesNoWrites": true,
+    "crossDeviceOfflineImportKeepsCurrentAndAddsMissing": true,
+    "crossDeviceSiteListMapsOnlyLocalVideoIdAndKeepsAudit": true,
+    "crossDeviceSiteListPlaybackGuardUsesTargetFingerprint": true,
+    "crossDeviceReviewHistoryRemappedAndSealed": true,
+    "crossDeviceOfflineRetryDoesNotDuplicate": true,
+    "crossDevicePreferBackupPreviewsOriginalValues": true,
+    "crossDevicePreferBackupReplacesMappedValues": true,
+    "crossDeviceUnindexedCategoryVisibleAndBlockedByDefault": true,
+    "crossDeviceExplicitlySkipOnlyUnindexedCategories": true,
+    "crossDeviceSkippedOrphansKeepOriginalPackage": true,
+    "crossDeviceDuplicateContentNeedsManualChoice": true,
+    "crossDeviceAmbiguousCannotStage": true,
+    "crossDeviceManualExactChoiceResolvesAmbiguity": true,
+    "crossDeviceSameNameDifferentContentFailsClosed": true
+  },
+  "Error": null,
+  "SourceVolume": "C:\\",
+  "TargetVolume": "C:\\"
+}

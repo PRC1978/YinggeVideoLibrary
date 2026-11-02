@@ -1,0 +1,33 @@
+{
+  "generatedAt": "2026-11-02T20:31:54.5250227\u002B08:00",
+  "passed": true,
+  "checkCount": 17,
+  "elapsedMs": 325,
+  "failedChecks": [],
+  "failureDetails": [],
+  "observed": {
+    "pluginSourceKey": "plugin:com.example",
+    "pluginKeys": "TMDB,plugin:a.b,plugin:c-d",
+    "addedFirst": 1,
+    "addedDuplicate": 0,
+    "backoffHasPluginKey": true,
+    "cleared": 2
+  },
+  "cancelKeepsFailedRecords": true,
+  "cancelRemovesPendingTasks": true,
+  "cooledPluginDoesNotBlockBuiltIn": true,
+  "cooledPluginDoesNotBlockOtherPlugin": true,
+  "duplicateEnqueueIsIgnored": true,
+  "eachPluginHasItsOwnKey": true,
+  "healthyPluginKeepsItsOwnSchedule": true,
+  "pluginCoolDownIsPersisted": true,
+  "pluginCoolDownIsReadBack": true,
+  "pluginFailureIsRetryableNotUnmatched": true,
+  "pluginKeyRoundTrips": true,
+  "pluginSourceMakesTaskSchedulable": true,
+  "pluginSourceOnlyAddedWhenActive": true,
+  "queueSurvivesRestart": true,
+  "rescheduleKeepsTask": true,
+  "taskBlockedWithoutAnySource": true,
+  "workDirectoryIsolated": true
+}

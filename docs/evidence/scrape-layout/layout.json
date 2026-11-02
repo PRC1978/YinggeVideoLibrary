@@ -1,0 +1,92 @@
+[
+  {
+    "width": 800,
+    "height": 550,
+    "page": 0,
+    "panelWidth": 606,
+    "tabWidth": 556,
+    "contentWidth": 552,
+    "viewportWidth": 689,
+    "clippedHorizontally": false
+  },
+  {
+    "width": 800,
+    "height": 550,
+    "page": 1,
+    "panelWidth": 606,
+    "tabWidth": 556,
+    "contentWidth": 552,
+    "viewportWidth": 689,
+    "clippedHorizontally": false
+  },
+  {
+    "width": 800,
+    "height": 550,
+    "page": 2,
+    "panelWidth": 606,
+    "tabWidth": 556,
+    "contentWidth": 552,
+    "viewportWidth": 689,
+    "clippedHorizontally": false
+  },
+  {
+    "width": 1240,
+    "height": 780,
+    "page": 0,
+    "panelWidth": 1063,
+    "tabWidth": 1013,
+    "contentWidth": 1009,
+    "viewportWidth": 1146,
+    "clippedHorizontally": false
+  },
+  {
+    "width": 1240,
+    "height": 780,
+    "page": 1,
+    "panelWidth": 1046,
+    "tabWidth": 996,
+    "contentWidth": 992,
+    "viewportWidth": 1129,
+    "clippedHorizontally": false
+  },
+  {
+    "width": 1240,
+    "height": 780,
+    "page": 2,
+    "panelWidth": 1046,
+    "tabWidth": 996,
+    "contentWidth": 992,
+    "viewportWidth": 1129,
+    "clippedHorizontally": false
+  },
+  {
+    "width": 1600,
+    "height": 1000,
+    "page": 0,
+    "panelWidth": 1423,
+    "tabWidth": 1373,
+    "contentWidth": 1369,
+    "viewportWidth": 1506,
+    "clippedHorizontally": false
+  },
+  {
+    "width": 1600,
+    "height": 1000,
+    "page": 1,
+    "panelWidth": 1406,
+    "tabWidth": 1356,
+    "contentWidth": 1352,
+    "viewportWidth": 1489,
+    "clippedHorizontally": false
+  },
+  {
+    "width": 1600,
+    "height": 1000,
+    "page": 2,
+    "panelWidth": 1406,
+    "tabWidth": 1356,
+    "contentWidth": 1352,
+    "viewportWidth": 1489,
+    "clippedHorizontally": false
+  }
+]

@@ -112,6 +112,20 @@ public partial class App : System.Windows.Application
             Shutdown(searchResult);
             return;
         }
+        if (e.Args.Length > 1 && e.Args[0] == "--diagnose-ui-scrape")
+        {
+            var scrapeProbe = new MainWindow
+            {
+                Left = -30000, Top = -30000, Width = 1224, Height = 780,
+                ShowActivated = false, ShowInTaskbar = false
+            };
+            MainWindow = scrapeProbe;
+            scrapeProbe.Show();
+            var scrapeResult = await scrapeProbe.WriteHiddenScrapeDiagnosticAsync(e.Args[1]);
+            scrapeProbe.Close();
+            Shutdown(scrapeResult);
+            return;
+        }
         if (e.Args.Length > 2 && e.Args[0] == "--self-test-cross-device")
         {
             Shutdown(await Task.Run(() => BackupCrossDeviceDiagnostics.RunToFile(e.Args[1], e.Args[2])));

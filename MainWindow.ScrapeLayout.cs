@@ -1,6 +1,9 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Text.Json;
+using System.IO;
 
 namespace YinggeVideoLibrary;
 
@@ -59,5 +62,53 @@ public partial class MainWindow
         pages.Items.Add(new TabItem { Header = "人工审核", Content = review, Padding = new Thickness(14, 8, 14, 8) });
         pages.Items.Add(new TabItem { Header = "来源与凭据", Content = advanced, Padding = new Thickness(14, 8, 14, 8) });
         panel.Children.Add(pages);
+    }
+
+    internal async Task<int> WriteHiddenScrapeDiagnosticAsync(string outputDirectory)
+    {
+        try
+        {
+            Directory.CreateDirectory(outputDirectory);
+            ShowView("scrape");
+            var tab = (ScrapePanel.Child as StackPanel)?.Children.OfType<System.Windows.Controls.TabControl>().Single();
+            if (tab is null) throw new InvalidOperationException("搜刮二级页面不存在");
+            var measurements = new List<object>();
+            foreach (var (width, height) in new[] { (800, 550), (1240, 780), (1600, 1000) })
+            {
+                Width = width;
+                Height = height;
+                for (var page = 0; page < tab.Items.Count; page++)
+                {
+                    tab.SelectedIndex = page;
+                    LibraryScroll.ScrollToTop();
+                    UpdateLayout();
+                    await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                    UpdateLayout();
+                    var content = (tab.Items[page] as TabItem)?.Content as FrameworkElement;
+                    measurements.Add(new
+                    {
+                        width, height, page, panelWidth = ScrapePanel.ActualWidth,
+                        tabWidth = tab.ActualWidth, contentWidth = content?.ActualWidth ?? 0,
+                        viewportWidth = LibraryScroll.ViewportWidth,
+                        clippedHorizontally = content is not null && content.ActualWidth > LibraryScroll.ViewportWidth + 1
+                    });
+                    var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+                    bitmap.Render(this);
+                    var encoder = new PngBitmapEncoder();
+                    encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                    using var output = File.Create(Path.Combine(outputDirectory, $"scrape-{width}x{height}-page{page}.png"));
+                    encoder.Save(output);
+                }
+            }
+            File.WriteAllText(Path.Combine(outputDirectory, "layout.json"),
+                JsonSerializer.Serialize(measurements, new JsonSerializerOptions { WriteIndented = true }));
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Directory.CreateDirectory(outputDirectory);
+            File.WriteAllText(Path.Combine(outputDirectory, "error.txt"), ex.ToString());
+            return 1;
+        }
     }
 }

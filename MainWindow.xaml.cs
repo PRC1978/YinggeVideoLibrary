@@ -1598,6 +1598,7 @@ public partial class MainWindow : Window
         else if (target == "settings") { CountText.Text = ""; PlayerPathBox.Text = FindPlayer() ?? ""; AutoStartBox.IsChecked = config.AutoStart; GpuBox.IsChecked = config.GpuThumbnails; AiEndpointBox.Text = config.AiEndpoint; AiModelBox.Text = config.AiModel; AiKeyBox.Password = config.AiKey; BackupInfo.Text = CacheDiagnosticSummary; }
         else if (target == "scrape") { CountText.Text = ""; ScrapeTmdbTokenBox.Password = config.TmdbToken; RefreshReviewQueue(); }
         else if (target == "plugins") { CountText.Text = ""; EnsurePluginCatalog(); RenderPlugins(); }
+        else if (target == "scrape") { EnsurePluginCatalog(); RefreshScrapeSourcePlugins(); }
         else if (target == "recommendations") { CountText.Text = ""; RenderRecommendations(); }
         else if (target is "status" or "online") CountText.Text = "";
         else RenderCards();
@@ -1731,7 +1732,7 @@ public partial class MainWindow : Window
                 return;
             }
             var populateClock = System.Diagnostics.Stopwatch.StartNew();
-            var end = Math.Min(targets.Count, next + 3);
+            var end = Math.Min(targets.Count, next + 12);
             while (next < end) items.Add(targets[next++]);
             lastSearchPopulateMaxChunkMs = Math.Max(lastSearchPopulateMaxChunkMs, populateClock.Elapsed.TotalMilliseconds);
             if (next == targets.Count) completion?.TrySetResult(true);
@@ -4203,6 +4204,30 @@ public partial class MainWindow : Window
         }
         else title = PromptText("完整资料搜刮", "输入作品标题或关键词：", suggestedTitle);
         if (string.IsNullOrWhiteSpace(title)) return;
+        // A plugin selected as the scrape source runs in its own process and
+        // only ever produces review candidates. Its failures are reported and
+        // must not mark the video as unmatched or block other sources.
+        if (ScrapeSourceBox?.SelectedItem is ComboBoxItem { Tag: PluginDescriptor pluginSource })
+        {
+            try
+            {
+                TaskStatusText.Text = $"正在调用插件来源 {pluginSource.DisplayName}…";
+                var pluginOutcome = await RunPluginSourceAsync(video, pluginSource, title, CancellationToken.None);
+                TaskStatusText.Text = "插件来源：" + pluginOutcome.Message;
+                if (!pluginOutcome.Ok)
+                    MessageBox.Show(this, pluginOutcome.Message, "插件来源", MessageBoxButton.OK, MessageBoxImage.Warning);
+                RenderCards();
+                if (view == "scrape") RefreshReviewQueue();
+            }
+            catch (Exception ex)
+            {
+                TaskStatusText.Text = "插件来源调用失败 · 视频状态未改变";
+                Log("插件来源调用失败：" + ex.Message);
+                MessageBox.Show(this, "插件来源调用失败：" + ex.Message + "\n\n视频状态没有改变，可改用其他来源。",
+                    "插件来源", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            return;
+        }
         try
         {
             if (source == 0)

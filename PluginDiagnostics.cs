@@ -229,6 +229,17 @@ internal static class PluginDiagnostics
         Check("queuedMessageSaysQueued", queued.Queued &&
             queued.Describe(120).Contains("已加入人工审核队列", StringComparison.Ordinal));
 
+        // --- only enabled, healthy plugins become a normal scrape source -------
+        var sourceCatalog = new List<PluginDescriptor>
+        {
+            new() { FolderName = "a", Manifest = new PluginManifest { Id = "a", Name = "启用", Version = "1.0.0" }, Status = PluginStatus.Ready, Enabled = true },
+            new() { FolderName = "b", Manifest = new PluginManifest { Id = "b", Name = "停用", Version = "1.0.0" }, Status = PluginStatus.Ready, Enabled = false },
+            new() { FolderName = "c", Manifest = new PluginManifest { Id = "c", Name = "异常", Version = "1.0.0" }, Status = PluginStatus.MissingEntry, Enabled = true }
+        };
+        var sourcePlugins = MainWindow.ScrapeSourcePlugins(sourceCatalog).Select(item => item.Id).ToList();
+        Check("scrapeSourceListsOnlyHealthyEnabledPlugins",
+            sourcePlugins.Count == 1 && sourcePlugins[0] == "a", string.Join(",", sourcePlugins));
+
         // --- plugin state must not claim success when the file is read-only -------
         var readOnlyDir = Path.Combine(work, "readonly-state");
         Directory.CreateDirectory(readOnlyDir);

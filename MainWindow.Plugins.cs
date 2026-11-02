@@ -51,6 +51,7 @@ public partial class MainWindow
             }
         }
         pluginCatalogLoaded = true;
+        RefreshScrapeSourcePlugins();
     }
 
     void RenderPlugins()
@@ -290,6 +291,58 @@ public partial class MainWindow
         }
     }
 
+    // One path for both the plugin page and the normal "完整资料搜刮" source
+    // list. A plugin failure is reported, never turned into "no match".
+    internal sealed record PluginSourceResult(bool Ok, string Message, int Stored, PluginQueueState State);
+
+    async Task<PluginSourceResult> RunPluginSourceAsync(VideoItem? video, PluginDescriptor plugin,
+        string query, CancellationToken cancellationToken)
+    {
+        var guessed = JavDbScraper.GuessCode(query);
+        var parameters = new PluginSearchParameters
+        {
+            Token = Guid.NewGuid().ToString("N"),
+            Query = query,
+            Kind = (guessed?.Length ?? 0) >= 4 ? "code" : "title",
+            Limit = 8
+        };
+        var outcome = await PluginProcessHost.SearchAsync(plugin, parameters, cancellationToken);
+        PluginLog.Append(DataDir, plugin.Id, $"查询「{query}」→ {PluginScrapeBridge.DescribeOutcome(outcome)}" +
+            (outcome.DroppedCandidates > 0 ? $"；丢弃 {outcome.DroppedCandidates} 条无效候选" : ""));
+        if (!outcome.Ok)
+        {
+            plugin.LastError = PluginLog.Redact(outcome.ErrorMessage);
+            plugin.LastErrorAt = DateTime.Now;
+            PluginStateStore.RecordError(DataDir, plugin.Id, $"{outcome.ErrorCode}：{outcome.ErrorMessage}");
+            RenderPlugins();
+            return new PluginSourceResult(false, $"插件调用失败：{plugin.LastError}（视频状态未改变）", 0, PluginQueueState.Failed);
+        }
+        if (outcome.Candidates.Count == 0)
+            return new PluginSourceResult(true, $"插件在 {outcome.ElapsedMs} ms 内没有找到候选，视频状态未改变。", 0, PluginQueueState.Failed);
+        if (video is null)
+            return new PluginSourceResult(true, $"插件返回 {outcome.Candidates.Count} 条候选（{outcome.ElapsedMs} ms），没有选中视频，只预览不入队。", 0, PluginQueueState.Failed);
+        var result = StorePluginCandidates(video, outcome.Candidates, plugin);
+        if (result.State == PluginQueueState.Failed)
+            Log($"插件候选未入队：{result.Error}（已保存 {result.Stored} 条）");
+        return new PluginSourceResult(true, result.Describe((int)outcome.ElapsedMs), result.Stored, result.State);
+    }
+
+    // Enabled plugins are appended to the normal scrape source list. The list is
+    // rebuilt whenever the catalog is (re)loaded so enable/disable is reflected.
+    // Only enabled, healthy plugins may appear as a scrape source.
+    internal static IEnumerable<PluginDescriptor> ScrapeSourcePlugins(IEnumerable<PluginDescriptor> catalog) =>
+        catalog.Where(item => item.Enabled && item.Status == PluginStatus.Ready);
+
+    void RefreshScrapeSourcePlugins()
+    {
+        if (ScrapeSourceBox is null) return;
+        for (var index = ScrapeSourceBox.Items.Count - 1; index >= 0; index--)
+            if (ScrapeSourceBox.Items[index] is ComboBoxItem { Tag: PluginDescriptor })
+                ScrapeSourceBox.Items.RemoveAt(index);
+        foreach (var plugin in ScrapeSourcePlugins(pluginCatalog))
+            ScrapeSourceBox.Items.Add(new ComboBoxItem { Content = "插件：" + plugin.DisplayName, Tag = plugin });
+    }
+
     async void PluginScrapeClick(object sender, RoutedEventArgs e)
     {
         if (pluginBusy) return;
@@ -313,49 +366,18 @@ public partial class MainWindow
         var clock = Stopwatch.StartNew();
         try
         {
-            var guessed = JavDbScraper.GuessCode(query);
-            var parameters = new PluginSearchParameters
+            var result = await RunPluginSourceAsync(video, plugin, query, CancellationToken.None);
+            PluginScrapeResultText.Text = result.Message;
+            if (result.State == PluginQueueState.Queued || result.State == PluginQueueState.KeptSelection)
             {
-                Token = Guid.NewGuid().ToString("N"),
-                Query = query,
-                Kind = (guessed?.Length ?? 0) >= 4 ? "code" : "title",
-                Limit = 8
-            };
-            var outcome = await PluginProcessHost.SearchAsync(plugin, parameters, CancellationToken.None);
-            PluginLog.Append(DataDir, plugin.Id, $"查询「{query}」→ {PluginScrapeBridge.DescribeOutcome(outcome)}" +
-                (outcome.DroppedCandidates > 0 ? $"；丢弃 {outcome.DroppedCandidates} 条无效候选" : ""));
-            if (!outcome.Ok)
-            {
-                plugin.LastError = PluginLog.Redact(outcome.ErrorMessage);
-                plugin.LastErrorAt = DateTime.Now;
-                PluginStateStore.RecordError(DataDir, plugin.Id, $"{outcome.ErrorCode}：{outcome.ErrorMessage}");
-                PluginScrapeResultText.Text = $"插件调用失败：{plugin.LastError}";
-                RenderPlugins();
-                return;
+                RefreshReviewQueue();
+                RenderCards();
             }
-            if (outcome.Candidates.Count == 0)
-            {
-                PluginScrapeResultText.Text = $"插件在 {outcome.ElapsedMs} ms 内没有找到候选。";
-                return;
-            }
-            if (video is null)
-            {
-                PluginScrapeResultText.Text =
-                    $"插件返回 {outcome.Candidates.Count} 条候选（{outcome.ElapsedMs} ms）。没有选中视频，因此只预览、不入队。";
-                return;
-            }
-            // The commit path updates bound VideoItem state, so it must stay on
-            // the UI thread; the file writes inside are short and journaled.
-            var result = StorePluginCandidates(video, outcome.Candidates, plugin);
-            PluginScrapeResultText.Text = result.Describe((int)outcome.ElapsedMs);
-            if (result.State == PluginQueueState.Failed)
-                Log($"插件候选未入队：{result.Error}（已保存 {result.Stored} 条）");
-            RefreshReviewQueue();
         }
         catch (Exception ex)
         {
-            PluginScrapeResultText.Text = "插件调用异常：" + ex.Message;
-            PluginLog.Append(DataDir, plugin.Id, "调用异常：" + ex.Message);
+            PluginScrapeResultText.Text = "插件调用失败：" + PluginLog.Redact(ex.Message);
+            Log("插件搜刮异常：" + ex.Message);
         }
         finally
         {

@@ -440,6 +440,20 @@ public static partial class JavDbScraper
         return normal.Success ? normal.Groups[1].Value.ToUpperInvariant() + "-" + normal.Groups[2].Value : null;
     }
 
+    public static IReadOnlyList<string> GuessCodes(string filename)
+    {
+        var codes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Match match in Regex.Matches(filename, @"FC2[-_ ]?PPV[-_ ]?(\d{5,8})", RegexOptions.IgnoreCase))
+            codes.Add("FC2-PPV-" + match.Groups[1].Value);
+        var withoutFc2 = Regex.Replace(filename, @"FC2[-_ ]?PPV[-_ ]?\d{5,8}", " ", RegexOptions.IgnoreCase);
+        foreach (Match match in FileCode.Matches(withoutFc2))
+        {
+            var code = match.Groups[1].Value.ToUpperInvariant() + "-" + match.Groups[2].Value;
+            codes.Add(code);
+        }
+        return codes.ToArray();
+    }
+
     // Title searches return review candidates only. They never download a cover
     // or accept a match automatically: a title alone cannot prove identity.
     public static async Task<List<MovieMetadata>> SearchTitleAsync(string query, CancellationToken cancellationToken = default)

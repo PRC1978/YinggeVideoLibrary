@@ -410,6 +410,21 @@ internal static class FeatureDiagnostics
                 && linkedJavDb.CatalogLinks.Any(link => link.Kind == "标签" && link.Url == "https://javdb.com/tags?c7=11")
                 && linkedJavDb.CatalogLinks.Any(link => link.Kind == "系列" && link.Url == "https://javdb.com/series/P899");
             var exactCode = ScrapeIdentityPolicy.Apply("ABC-123 作品.mp4", linkedJavDb, 100, "approve", "AI 声称已通过");
+            var twoCodes = ScrapeIdentityPolicy.Apply("ABC-123 DEF-456 作品.mp4", linkedJavDb, 100, "approve", "AI 声称已通过");
+            findings["multipleCodesCannotAutoApprove"] = twoCodes.Verdict == "review" && twoCodes.Confidence == 79
+                && twoCodes.Reason.Contains("多个不同番号")
+                && JavDbScraper.GuessCodes("FC2-PPV-1234567").SequenceEqual(["FC2-PPV-1234567"]);
+            var conflicted = linkedJavDb.Clone();
+            conflicted.SourceConflictFields.Add("Title");
+            var sourceConflict = ScrapeIdentityPolicy.Apply("ABC-123 作品.mp4", conflicted, 100, "approve", "AI 声称已通过");
+            findings["sourceConflictCannotAutoApprove"] = sourceConflict.Verdict == "review" && sourceConflict.Confidence == 79;
+            var evidenceVideo = new VideoItem { Id = "sample", Path = @"C:\private\actor\ABC-123.mp4", Title = "ABC-123", Folder = @"C:\private\actor", Size = 1, Modified = DateTime.Now };
+            var evidence = AiScrapeEvidence.Build(evidenceVideo, linkedJavDb, [@"C:\private"], true);
+            using (var evidenceJson = JsonDocument.Parse(evidence))
+                findings["aiScrapeStructuredEvidenceNoLocalPath"] = evidenceJson.RootElement.GetProperty("schema").GetString() == "yingge.ai-scrape-evidence.v1"
+                    && evidenceJson.RootElement.GetProperty("local").GetProperty("codes")[0].GetString() == "ABC-123"
+                    && evidenceJson.RootElement.GetProperty("candidate").GetProperty("identityVerified").GetBoolean()
+                    && !evidence.Contains(@"C:\private", StringComparison.OrdinalIgnoreCase);
             var codeConflict = ScrapeIdentityPolicy.Apply("ABC-124 作品.mp4", linkedJavDb, 100, "approve", "AI 声称已通过");
             var noLocalCode = ScrapeIdentityPolicy.Apply("作品名称.mp4", linkedJavDb, 100, "approve", "AI 声称已通过");
             var noCodeOnDetail = ScrapeIdentityPolicy.Apply("ABC-123 作品.mp4", javdb, 100, "approve", "AI 声称已通过");

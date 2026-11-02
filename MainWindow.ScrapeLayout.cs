@@ -29,32 +29,35 @@ public partial class MainWindow
         panel.Children.Clear();
         var advanced = new StackPanel();
         foreach (var item in advancedItems) advanced.Children.Add(item);
-        panel.Children.Add(new TextBlock
+        ScrapePanel.MaxWidth = double.PositiveInfinity;
+        panel.MaxWidth = double.PositiveInfinity;
+        var tasks = new StackPanel();
+        tasks.Children.Add(new TextBlock
         {
             Text = "搜刮任务", FontSize = 18, FontWeight = FontWeights.SemiBold,
             Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(38, 51, 71)),
             Margin = new Thickness(0, 0, 0, 6)
         });
-        panel.Children.Add(actions);
-        panel.Children.Add(queue);
-        panel.Children.Add(sourceLabel);
+        tasks.Children.Add(actions);
+        tasks.Children.Add(queue);
+        tasks.Children.Add(sourceLabel);
         ScrapeSourceBox.Margin = new Thickness(0, 8, 0, 6);
-        panel.Children.Add(ScrapeSourceBox);
+        tasks.Children.Add(ScrapeSourceBox);
         ScrapeSourceResultText.Margin = new Thickness(0, 0, 0, 6);
-        panel.Children.Add(ScrapeSourceResultText);
-        panel.Children.Add(new Expander
+        tasks.Children.Add(ScrapeSourceResultText);
+        tasks.Children.Add(new Expander
         {
             Header = "筛选与跳过条件", Content = filters, IsExpanded = false,
             Margin = new Thickness(0, 0, 0, 10),
             Padding = new Thickness(0, 8, 0, 4)
         });
-        panel.Children.Add(new Expander
-        {
-            Header = "来源与高级设置", Content = advanced, IsExpanded = false,
-            Margin = new Thickness(0, 0, 0, 18),
-            Padding = new Thickness(0, 8, 0, 4)
-        });
+        var review = new StackPanel();
         if (items[reviewStart] is TextBlock reviewHeading) reviewHeading.Text = "审核队列";
-        foreach (var item in items.Skip(reviewStart)) panel.Children.Add(item);
+        foreach (var item in items.Skip(reviewStart)) review.Children.Add(item);
+        var pages = new System.Windows.Controls.TabControl { BorderThickness = new Thickness(0), Background = System.Windows.Media.Brushes.Transparent };
+        pages.Items.Add(new TabItem { Header = "任务与队列", Content = tasks, Padding = new Thickness(14, 8, 14, 8) });
+        pages.Items.Add(new TabItem { Header = "人工审核", Content = review, Padding = new Thickness(14, 8, 14, 8) });
+        pages.Items.Add(new TabItem { Header = "来源与凭据", Content = advanced, Padding = new Thickness(14, 8, 14, 8) });
+        panel.Children.Add(pages);
     }
 }

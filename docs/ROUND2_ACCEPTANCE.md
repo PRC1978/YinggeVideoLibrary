@@ -29,7 +29,7 @@
  "phase5":{"entries":6,"missing":2,"pendingCleared":true,"rolledBack":true}}
 ```
 
-自检：`--self-test-missing-files` **21/21 通过**（`fix2/ev/missing-files.json`）。
+自检：`--self-test-missing-files` **25/25 通过**（含写入失败注入，见第七节；`fix2/ev/fault-missing.json`）。
 
 ## 二、UI 与性能
 
@@ -78,7 +78,7 @@
 | 真正的字节/字符上限 | 新增逐字符读取器，达到 256 KB 立即停止并终止进程 | 自检 `boundedReaderStopsAtCap`：8 M 字符输入只读取 262 145 个 | 已实现 |
 | 持续超大输出 | 示例插件新增 `stream` 模式（8 MB 无换行） | 自检 `streamingResponseIsCutOff` 294 ms、无残留进程 | 已实现 |
 | 启停先保存再改界面 | 克隆状态 → 写盘成功后才替换内存与界面；失败弹窗且状态不变 | 自检 `stateSaveFailsWhenReadOnly`（只读文件写入失败、内容不变） | 已实现 |
-| 保留既有测试 | 崩溃/超时/权限变化/身份核对/人工审核门禁断言全部保留 | `fix2/ev/plugins-after.json` **38/38 通过** | 已实现 |
+| 保留既有测试 | 崩溃/超时/权限变化/身份核对/人工审核门禁断言全部保留 | `fix2/ev/fault-plugins.json` **41/41 通过** | 已实现 |
 | 不要写成已接入搜刮下拉/队列 | 文档与报告均标注未接入 | `docs/PLUGINS.md` 已知限制第 3 条 | 已遵守 |
 
 ## 四、截图与原始数据位置
@@ -115,3 +115,21 @@ bin/Release/net9.0-windows/映格视频库.exe --self-test-plugins ^
 
 # 界面：见 docs/PLUGIN_BATCH1_ACCEPTANCE.md 的隔离库准备；状态页可预览并清理、撤销
 ```
+
+## 七、返修：写入失败时的一致性（复核反馈）
+
+复核指出四处「日志/索引写失败仍继续」的问题，已按「先日志、后索引、失败必回滚」的顺序重写，并补了故障注入测试。
+
+| 问题 | 返修 | 故障注入断言 |
+| --- | --- | --- |
+| 清理日志写失败仍移除索引，导致无法撤销 | `MissingCleanupStore.Begin` 返回 `null`；新增 `MissingCleanupCoordinator.CleanupAsync`，日志写失败直接返回 `JournalFailed`，**不调用索引写入** | `cleanupStopsWhenJournalCannotBeWritten`（只读日志文件，写入函数未被调用）、`failedJournalLeavesNoPending` |
+| 撤销先标「已撤销」再写索引，写失败后失去撤销机会 | 撤销改为两阶段：`BeginUndo` 记意图 → 写索引 → `CompleteUndo`；索引失败则 `AbortUndo`，记录仍可撤销 | `undoKeepsJournalWhenIndexWriteFails`、`undoStopsWhenJournalCannotBeWritten`、`undoConsumesJournalAfterIndexWrite` |
+| 中断恢复即使索引写失败也清掉待恢复标记 | `RecoverAsync` 只有在索引写成功后才 `MarkRolledBack`，失败保留 pending，下次启动重试 | `recoveryKeepsPendingWhenIndexWriteFails`、`recoveryClearsPendingAfterIndexWrite` |
+| 候选已保存但审核写入失败，界面仍报「已入队」 | `PluginCandidateStore.Add` 返回 `(Count, Saved)`；`StorePluginCandidates` 返回 `PluginCandidateSaveResult`，只有真正写入审核记录才是 `Queued` | `candidateStoreReportsWriteFailure`、`failedQueueIsNotReportedAsQueued`、`queuedMessageSaysQueued` |
+| 撤销过程中崩溃留下 `undoingId` | 启动时 `ResolveInterruptedUndo` 清除意图，撤销保持可用；重复执行会跳过已存在的行 | `interruptedUndoStaysAvailable`、`interruptedUndoIsResolvedOnStart` |
+
+额外覆盖：`cleanupReportsIndexFailure`、`cleanupCompletesAndBecomesUndoable`、`damagedJournalDoesNotThrow`。
+
+结果：`--self-test-missing-files` **25/25**、`--self-test-plugins` **41/41**；`fix2/it2/ev/integration.json` 的五个阶段（删除 / 拔盘 / 重连 / 中断 / 恢复）在返修后重跑仍然全部通过。
+
+**证据边界**：上述故障注入作用于真实的产品函数（`MissingCleanupCoordinator`、`MissingCleanupStore`、`PluginCandidateStore`）与真实文件属性，但**界面层**的失败对话框没有做自动化点击验证——本轮尝试时窗口/导航自动化不稳定，未采到可用截图。界面只负责把 outcome 映射成文案，未被自动化覆盖的部分在第八节标明。

@@ -116,31 +116,55 @@ public partial class MainWindow
 
     async Task PerformMissingCleanupAsync(List<VideoItem> targets)
     {
-        var record = MissingCleanupStore.Begin(DataDir, targets.Select(item => new MissingCleanupEntry
+        var entries = targets.Select(item => new MissingCleanupEntry
         {
             Path = item.Path, Size = item.Size, ModifiedTicks = item.Modified.Ticks
-        }));
+        }).ToList();
         var removed = new List<VideoItem>();
-        try
+        var outcome = await MissingCleanupCoordinator.CleanupAsync(DataDir, entries, async () =>
         {
             foreach (var item in targets)
             {
                 if (videos.Remove(item)) removed.Add(item);
                 selectedVideoIds.Remove(item.Id);
             }
-            await SaveIndexAsync(videos, NormalizeRoots(config.Folders));
-            MissingCleanupStore.Complete(DataDir, record);
-            Log($"已清除 {removed.Count} 条不在本地的索引记录（未删除任何文件），可在状态页撤销。");
-            TaskStatusText.Text = $"已清除 {removed.Count} 条不在本地的记录";
-        }
-        catch (Exception ex)
+            try
+            {
+                await SaveIndexAsync(videos, NormalizeRoots(config.Folders));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // The index still holds the rows, so the list must show them too.
+                Log("清理不在本地记录失败：" + ex.Message);
+                foreach (var item in removed) if (videos.All(existing => existing.Id != item.Id)) videos.Add(item);
+                removed.Clear();
+                return false;
+            }
+        });
+        switch (outcome)
         {
-            // Nothing was deleted on disk; put the rows back and roll the log back
-            // so the state matches what the index actually contains.
-            foreach (var item in removed) if (videos.All(existing => existing.Id != item.Id)) videos.Add(item);
-            MissingCleanupStore.MarkRolledBack(DataDir, record.Id);
-            Log("清理不在本地记录失败：" + ex.Message);
-            MessageBox.Show(this, "清理失败，索引没有变化：" + ex.Message, "清理不在本地记录", MessageBoxButton.OK, MessageBoxImage.Warning);
+            case CleanupWriteOutcome.Done:
+                Log($"已清除 {removed.Count} 条不在本地的索引记录（未删除任何文件），可在状态页撤销。");
+                TaskStatusText.Text = $"已清除 {removed.Count} 条不在本地的记录";
+                break;
+            case CleanupWriteOutcome.DoneButJournalUnmarked:
+                Log($"已清除 {removed.Count} 条记录，但清理日志未能标记完成；重启后这些记录可能被恢复。");
+                TaskStatusText.Text = "已清除记录，但清理日志未能标记";
+                MessageBox.Show(this,
+                    "索引记录已清除，但清理日志无法写入完成标记。重启后这些记录可能重新出现，届时可以再次清理；本次没有删除任何文件。",
+                    "清理不在本地记录", MessageBoxButton.OK, MessageBoxImage.Warning);
+                break;
+            case CleanupWriteOutcome.JournalFailed:
+                Log("清理日志无法写入，已取消清理。");
+                MessageBox.Show(this, "清理日志无法写入（数据目录或插件状态目录可能只读），索引没有任何变化。",
+                    "清理不在本地记录", MessageBoxButton.OK, MessageBoxImage.Warning);
+                break;
+            case CleanupWriteOutcome.IndexFailed:
+                Log("索引写入失败，清理未生效。");
+                MessageBox.Show(this, "索引写入失败，清理没有生效，清理日志已回滚，可以稍后重试。",
+                    "清理不在本地记录", MessageBoxButton.OK, MessageBoxImage.Warning);
+                break;
         }
         RenderCards();
         UpdateAvailabilityChips();
@@ -148,67 +172,91 @@ public partial class MainWindow
 
     async void UndoMissingCleanup(object sender, RoutedEventArgs e)
     {
-        var record = MissingCleanupStore.UndoLast(DataDir);
-        if (record is null)
+        var added = new List<VideoItem>();
+        var outcome = await MissingCleanupCoordinator.UndoAsync(DataDir, async entries =>
         {
-            MessageBox.Show(this, "没有可撤销的清理记录。", "撤销清理", MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
-        var restored = new List<VideoItem>();
-        foreach (var entry in record.Entries)
-        {
-            if (videos.Any(item => string.Equals(item.Path, entry.Path, StringComparison.OrdinalIgnoreCase))) continue;
-            var item = new VideoItem
+            foreach (var entry in entries)
             {
-                Id = IdFor(entry.Path), Path = entry.Path, Title = Path.GetFileNameWithoutExtension(entry.Path),
-                Folder = Path.GetDirectoryName(entry.Path) ?? "", Size = Math.Max(0, entry.Size),
-                Modified = entry.ModifiedTicks is > 0 and var ticks ? new DateTime(ticks, DateTimeKind.Local) : DateTime.MinValue,
-                Availability = VideoAvailability.Missing
-            };
-            videos.Add(item);
-            restored.Add(item);
-        }
-        ApplySavedFields(restored);
-        try
+                if (videos.Any(item => string.Equals(item.Path, entry.Path, StringComparison.OrdinalIgnoreCase))) continue;
+                var item = RestoredVideo(entry);
+                videos.Add(item);
+                added.Add(item);
+            }
+            ApplySavedFields(added);
+            try
+            {
+                await SaveIndexAsync(videos, NormalizeRoots(config.Folders));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log("撤销清理写入索引失败：" + ex.Message);
+                return false;
+            }
+        });
+        switch (outcome)
         {
-            await SaveIndexAsync(videos, NormalizeRoots(config.Folders));
-            Log($"已撤销清理，恢复 {restored.Count} 条索引记录。");
-            TaskStatusText.Text = $"已恢复 {restored.Count} 条记录";
-        }
-        catch (Exception ex)
-        {
-            Log("撤销清理写入索引失败：" + ex.Message);
-            MessageBox.Show(this, "已恢复内存中的记录，但写回索引失败：" + ex.Message, "撤销清理", MessageBoxButton.OK, MessageBoxImage.Warning);
+            case CleanupWriteOutcome.Done:
+                Log($"已撤销清理，恢复 {added.Count} 条索引记录。");
+                TaskStatusText.Text = $"已恢复 {added.Count} 条记录";
+                break;
+            case CleanupWriteOutcome.DoneButJournalUnmarked:
+                Log($"已恢复 {added.Count} 条记录，但撤销标记未能写入；可再次点击撤销（重复恢复会被跳过）。");
+                TaskStatusText.Text = "已恢复记录，但撤销标记未写入";
+                break;
+            case CleanupWriteOutcome.NothingToDo:
+                MessageBox.Show(this, "没有可撤销的清理记录。", "撤销清理", MessageBoxButton.OK, MessageBoxImage.Information);
+                break;
+            case CleanupWriteOutcome.JournalFailed:
+                MessageBox.Show(this, "清理日志无法写入，未做任何更改。", "撤销清理", MessageBoxButton.OK, MessageBoxImage.Warning);
+                break;
+            case CleanupWriteOutcome.IndexFailed:
+                // The rows only existed in memory; put the list back in sync with disk.
+                foreach (var item in added) videos.Remove(item);
+                MessageBox.Show(this, "索引写入失败，撤销没有生效；清理记录仍然可以撤销，请稍后重试。",
+                    "撤销清理", MessageBoxButton.OK, MessageBoxImage.Warning);
+                break;
         }
         RenderCards();
         UpdateAvailabilityChips();
     }
 
+    VideoItem RestoredVideo(MissingCleanupEntry entry) => new()
+    {
+        Id = IdFor(entry.Path), Path = entry.Path, Title = Path.GetFileNameWithoutExtension(entry.Path),
+        Folder = Path.GetDirectoryName(entry.Path) ?? "", Size = Math.Max(0, entry.Size),
+        Modified = entry.ModifiedTicks is > 0 and var ticks ? new DateTime(ticks, DateTimeKind.Local) : DateTime.MinValue,
+        Availability = VideoAvailability.Missing
+    };
+
     // A cleanup interrupted between "journal written" and "index saved" must not
-    // leave the library short of rows. Restore them once per session.
+    // leave the library short of rows. Restore them once per session; a failed
+    // write keeps the pending marker so the next start retries.
     async Task RecoverInterruptedCleanupAsync()
     {
-        var pending = MissingCleanupStore.Pending(DataDir);
-        if (pending is null) return;
-        var restored = 0;
-        foreach (var entry in pending.Entries)
+        var outcome = await MissingCleanupCoordinator.RecoverAsync(DataDir, async pending =>
         {
-            if (videos.Any(item => string.Equals(item.Path, entry.Path, StringComparison.OrdinalIgnoreCase))) continue;
-            videos.Add(new VideoItem
+            var restored = 0;
+            foreach (var entry in pending.Entries)
             {
-                Id = IdFor(entry.Path), Path = entry.Path, Title = Path.GetFileNameWithoutExtension(entry.Path),
-                Folder = Path.GetDirectoryName(entry.Path) ?? "", Size = Math.Max(0, entry.Size),
-                Modified = entry.ModifiedTicks is > 0 and var ticks ? new DateTime(ticks, DateTimeKind.Local) : DateTime.MinValue,
-                Availability = VideoAvailability.Missing
-            });
-            restored++;
-        }
-        if (restored > 0)
-        {
-            try { await SaveIndexAsync(videos, NormalizeRoots(config.Folders)); }
-            catch (Exception ex) { Log("恢复中断清理的索引失败：" + ex.Message); }
-        }
-        MissingCleanupStore.MarkRolledBack(DataDir, pending.Id);
-        Log($"上次清理未完成，已回滚并恢复 {restored} 条记录。");
+                if (videos.Any(item => string.Equals(item.Path, entry.Path, StringComparison.OrdinalIgnoreCase))) continue;
+                videos.Add(RestoredVideo(entry));
+                restored++;
+            }
+            if (restored == 0) return true;
+            try
+            {
+                await SaveIndexAsync(videos, NormalizeRoots(config.Folders));
+                Log($"上次清理未完成，已回滚并恢复 {restored} 条记录。");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log("恢复中断清理的索引失败，已保留待恢复标记：" + ex.Message);
+                return false;
+            }
+        });
+        if (outcome == CleanupWriteOutcome.IndexFailed)
+            Log("上次清理未完成，但索引写入失败；下次启动会再次尝试恢复。");
     }
 }

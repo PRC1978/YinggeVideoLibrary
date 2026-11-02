@@ -120,32 +120,117 @@ internal static class MissingFileDiagnostics
         Check("missingFlagRoundTripsIndex", reloaded is not null && reloaded.Entries.Count == 2 &&
             reloaded.Entries[0].Missing && !reloaded.Entries[1].Missing);
 
-        // --- cleanup journal -------------------------------------------------
-        var dataDir = Path.Combine(work, "data");
-        Directory.CreateDirectory(dataDir);
+        // --- cleanup journal: normal flow and injected write failures --------
+        string NewDir(string name)
+        {
+            var path = Path.Combine(work, name);
+            Directory.CreateDirectory(path);
+            return path;
+        }
+        // A read-only file can still be read (the store loads it) but cannot be
+        // replaced, which is exactly the write failure being injected.
+        static void MakeReadOnly(string path) => File.SetAttributes(path, FileAttributes.ReadOnly);
+        static void MakeWritable(string path) => File.SetAttributes(path, FileAttributes.Normal);
         var entries = new[]
         {
-            new MissingCleanupEntry { Path = files[0], Size = 1, ModifiedTicks = DateTime.Now.Ticks },
-            new MissingCleanupEntry { Path = files[1], Size = 1, ModifiedTicks = DateTime.Now.Ticks }
+            new MissingCleanupEntry { Path = files[1], Size = 1, ModifiedTicks = DateTime.Now.Ticks },
+            new MissingCleanupEntry { Path = files[2], Size = 1, ModifiedTicks = DateTime.Now.Ticks }
         };
-        var record = MissingCleanupStore.Begin(dataDir, entries);
-        Check("cleanupBeginLeavesPending", MissingCleanupStore.Pending(dataDir)?.Id == record.Id);
-        Check("cleanupJournalKeepsPaths", MissingCleanupStore.Pending(dataDir)?.Entries.Count == 2);
 
-        MissingCleanupStore.Complete(dataDir, record);
-        Check("cleanupCompleteClearsPending", MissingCleanupStore.Pending(dataDir) is null);
-        Check("cleanupBecomesUndoable", MissingCleanupStore.HasUndoable(dataDir));
-        var undone = MissingCleanupStore.UndoLast(dataDir);
-        Check("cleanupUndoReturnsRecord", undone is not null && undone.Id == record.Id && undone.Entries.Count == 2);
-        Check("cleanupUndoIsSingleUse", !MissingCleanupStore.HasUndoable(dataDir));
+        var journalDir = NewDir("journal-fail");
+        MissingCleanupStore.Save(journalDir, new MissingCleanupState());
+        var journalPath = Path.Combine(journalDir, MissingCleanupStore.FileName);
+        var writerCalled = false;
+        CleanupWriteOutcome journalOutcome;
+        MakeReadOnly(journalPath);
+        try
+        {
+            journalOutcome = MissingCleanupCoordinator.CleanupAsync(journalDir, entries, () =>
+            {
+                writerCalled = true;
+                return Task.FromResult(true);
+            }).GetAwaiter().GetResult();
+        }
+        finally { MakeWritable(journalPath); }
+        Check("cleanupStopsWhenJournalCannotBeWritten",
+            journalOutcome == CleanupWriteOutcome.JournalFailed && !writerCalled,
+            $"outcome={journalOutcome} writerCalled={writerCalled}");
+        Check("failedJournalLeavesNoPending", MissingCleanupStore.Pending(journalDir) is null &&
+            !MissingCleanupStore.HasUndoable(journalDir));
 
-        var interrupted = MissingCleanupStore.Begin(dataDir, entries);
-        MissingCleanupStore.MarkRolledBack(dataDir, interrupted.Id);
-        Check("interruptedCleanupRollsBack", MissingCleanupStore.Pending(dataDir) is null &&
-            !MissingCleanupStore.HasUndoable(dataDir));
+        var indexFailDir = NewDir("index-fail");
+        var indexFailOutcome = MissingCleanupCoordinator.CleanupAsync(indexFailDir, entries, () => Task.FromResult(false))
+            .GetAwaiter().GetResult();
+        Check("cleanupReportsIndexFailure", indexFailOutcome == CleanupWriteOutcome.IndexFailed &&
+            MissingCleanupStore.Pending(indexFailDir) is null && !MissingCleanupStore.HasUndoable(indexFailDir),
+            $"outcome={indexFailOutcome}");
 
-        File.WriteAllText(Path.Combine(dataDir, MissingCleanupStore.FileName), "{ broken");
-        var recovered = MissingCleanupStore.Load(dataDir);
+        var okDir = NewDir("undo");
+        var okOutcome = MissingCleanupCoordinator.CleanupAsync(okDir, entries, () => Task.FromResult(true))
+            .GetAwaiter().GetResult();
+        Check("cleanupCompletesAndBecomesUndoable", okOutcome == CleanupWriteOutcome.Done &&
+            MissingCleanupStore.Pending(okDir) is null && MissingCleanupStore.HasUndoable(okDir));
+
+        var undoFailOutcome = MissingCleanupCoordinator.UndoAsync(okDir, _ => Task.FromResult(false))
+            .GetAwaiter().GetResult();
+        Check("undoKeepsJournalWhenIndexWriteFails", undoFailOutcome == CleanupWriteOutcome.IndexFailed &&
+            MissingCleanupStore.HasUndoable(okDir), $"outcome={undoFailOutcome}");
+
+        var undoOkOutcome = MissingCleanupCoordinator.UndoAsync(okDir, _ => Task.FromResult(true))
+            .GetAwaiter().GetResult();
+        Check("undoConsumesJournalAfterIndexWrite", undoOkOutcome == CleanupWriteOutcome.Done &&
+            !MissingCleanupStore.HasUndoable(okDir));
+
+        var undoJournalDir = NewDir("undo-journal-fail");
+        var undoJournalCleanup = MissingCleanupCoordinator.CleanupAsync(undoJournalDir, entries, () => Task.FromResult(true))
+            .GetAwaiter().GetResult();
+        var undoJournalState = MissingCleanupStore.Load(undoJournalDir);
+        observed["undoJournalCleanup"] = undoJournalCleanup.ToString();
+        observed["undoJournalHistory"] = undoJournalState.History.Count;
+        observed["undoJournalCompleted"] = undoJournalState.History.Count(item => item.CompletedAt is not null);
+        observed["undoJournalPending"] = undoJournalState.PendingId;
+        observed["undoJournalUndoable"] = MissingCleanupStore.HasUndoable(undoJournalDir);
+        var undoJournalPath = Path.Combine(undoJournalDir, MissingCleanupStore.FileName);
+        var undoWriterCalled = false;
+        UndoBeginResult undoJournalBegin;
+        MakeReadOnly(undoJournalPath);
+        try
+        {
+            undoJournalBegin = MissingCleanupStore.BeginUndo(undoJournalDir, out _);
+            if (undoJournalBegin == UndoBeginResult.Started)
+                MissingCleanupCoordinator.UndoAsync(undoJournalDir, _ =>
+                {
+                    undoWriterCalled = true;
+                    return Task.FromResult(true);
+                }).GetAwaiter().GetResult();
+        }
+        finally { MakeWritable(undoJournalPath); }
+        Check("undoStopsWhenJournalCannotBeWritten",
+            undoJournalBegin == UndoBeginResult.JournalFailed && !undoWriterCalled &&
+            MissingCleanupStore.HasUndoable(undoJournalDir), $"begin={undoJournalBegin}");
+
+        var recoverDir = NewDir("recover");
+        MissingCleanupStore.Begin(recoverDir, entries);
+        var recoverFail = MissingCleanupCoordinator.RecoverAsync(recoverDir, _ => Task.FromResult(false))
+            .GetAwaiter().GetResult();
+        Check("recoveryKeepsPendingWhenIndexWriteFails",
+            recoverFail == CleanupWriteOutcome.IndexFailed && MissingCleanupStore.Pending(recoverDir) is not null);
+        var recoverOk = MissingCleanupCoordinator.RecoverAsync(recoverDir, _ => Task.FromResult(true))
+            .GetAwaiter().GetResult();
+        Check("recoveryClearsPendingAfterIndexWrite",
+            recoverOk == CleanupWriteOutcome.Done && MissingCleanupStore.Pending(recoverDir) is null);
+
+        var interruptedUndoDir = NewDir("undo-interrupted");
+        MissingCleanupCoordinator.CleanupAsync(interruptedUndoDir, entries, () => Task.FromResult(true))
+            .GetAwaiter().GetResult();
+        MissingCleanupStore.BeginUndo(interruptedUndoDir, out _);
+        Check("interruptedUndoStaysAvailable", MissingCleanupStore.HasUndoable(interruptedUndoDir));
+        MissingCleanupStore.ResolveInterruptedUndo(interruptedUndoDir);
+        Check("interruptedUndoIsResolvedOnStart", MissingCleanupStore.HasUndoable(interruptedUndoDir) &&
+            MissingCleanupStore.Load(interruptedUndoDir).UndoingId is null);
+
+        File.WriteAllText(Path.Combine(NewDir("damaged"), MissingCleanupStore.FileName), "{ broken");
+        var recovered = MissingCleanupStore.Load(Path.Combine(work, "damaged"));
         Check("damagedJournalDoesNotThrow", recovered.History.Count == 0 && recovered.PendingId is null);
 
         // The product code under test must never remove a video file.

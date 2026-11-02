@@ -202,11 +202,32 @@ internal static class PluginDiagnostics
         var duplicateCount = PluginCandidateStore.Add(candidateDir, "video-1", Candidate("https://example.com/1", "EX-1"));
         var secondCount = PluginCandidateStore.Add(candidateDir, "video-1", Candidate("https://example.com/2", "EX-2"));
         var reloadedCandidates = PluginCandidateStore.Load(candidateDir).Videos["video-1"];
-        observed["candidatesForVideo"] = secondCount;
-        Check("candidateStoreKeepsAll", firstCount == 1 && secondCount == 2);
-        Check("candidateStoreDedupes", duplicateCount == 1);
+        observed["candidatesForVideo"] = secondCount.Count;
+        Check("candidateStoreKeepsAll", firstCount.Count == 1 && secondCount.Count == 2 && secondCount.Saved);
+        Check("candidateStoreDedupes", duplicateCount.Count == 1 && duplicateCount.Saved);
         Check("candidateStoreSurvivesReload", reloadedCandidates.Count == 2 &&
             PluginCandidateStore.CountFor(candidateDir, "video-1") == 2);
+
+        // A read-only candidate file must be reported as "not saved" instead of
+        // silently returning a count, otherwise the UI claims a queue entry that
+        // does not exist.
+        var readOnlyCandidateDir = Path.Combine(work, "candidates-readonly");
+        PluginCandidateStore.Add(readOnlyCandidateDir, "video-1", Candidate("https://example.com/1", "EX-1"));
+        var candidatePath = Path.Combine(readOnlyCandidateDir, PluginCandidateStore.FileName);
+        File.SetAttributes(candidatePath, FileAttributes.ReadOnly);
+        var rejected = PluginCandidateStore.Add(readOnlyCandidateDir, "video-1", Candidate("https://example.com/9", "EX-9"));
+        File.SetAttributes(candidatePath, FileAttributes.Normal);
+        Check("candidateStoreReportsWriteFailure", !rejected.Saved && rejected.Count == 1,
+            $"saved={rejected.Saved} count={rejected.Count}");
+
+        var failedQueue = new PluginCandidateSaveResult(3, PluginQueueState.Failed, "审核记录写入失败");
+        var queued = new PluginCandidateSaveResult(3, PluginQueueState.Queued);
+        observed["failedQueueMessage"] = failedQueue.Describe(120);
+        Check("failedQueueIsNotReportedAsQueued", !failedQueue.Queued &&
+            failedQueue.Describe(120).Contains("但", StringComparison.Ordinal) &&
+            failedQueue.Describe(120).Contains("失败", StringComparison.Ordinal));
+        Check("queuedMessageSaysQueued", queued.Queued &&
+            queued.Describe(120).Contains("已加入人工审核队列", StringComparison.Ordinal));
 
         // --- plugin state must not claim success when the file is read-only -------
         var readOnlyDir = Path.Combine(work, "readonly-state");

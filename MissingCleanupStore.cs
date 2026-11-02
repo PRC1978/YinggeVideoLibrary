@@ -27,8 +27,14 @@ internal sealed class MissingCleanupState
 {
     [JsonPropertyName("schemaVersion")] public int SchemaVersion { get; set; } = 1;
     [JsonPropertyName("pendingId")] public string? PendingId { get; set; }
+    // Undo intent is recorded before the index is rewritten. A crash between
+    // the two leaves this set; the undo simply stays available and retrying is
+    // idempotent because restored rows are skipped when already present.
+    [JsonPropertyName("undoingId")] public string? UndoingId { get; set; }
     [JsonPropertyName("history")] public List<MissingCleanupRecord> History { get; set; } = [];
 }
+
+internal enum UndoBeginResult { Started, NothingToUndo, JournalFailed }
 
 // Only index records are removed. No file is ever deleted here: the store keeps
 // the removed paths so a cleanup can be undone and an interrupted one rolled
@@ -79,7 +85,10 @@ internal static class MissingCleanupStore
         }
     }
 
-    internal static MissingCleanupRecord Begin(string dataDir, IEnumerable<MissingCleanupEntry> entries)
+    // Returns null when the journal could not be written. The caller must not
+    // touch the index in that case, otherwise a cleanup would exist with no
+    // record of what was removed.
+    internal static MissingCleanupRecord? Begin(string dataDir, IEnumerable<MissingCleanupEntry> entries)
     {
         var state = Load(dataDir);
         var record = new MissingCleanupRecord
@@ -90,18 +99,20 @@ internal static class MissingCleanupStore
         };
         state.History.Insert(0, record);
         state.PendingId = record.Id;
-        Save(dataDir, state);
-        return record;
+        return Save(dataDir, state) ? record : null;
     }
 
-    internal static void Complete(string dataDir, MissingCleanupRecord record)
+    // Returns false when the "completed" marker could not be written; the
+    // record then stays pending and the next start restores the rows, which is
+    // safe because the index rows are the only thing that changed.
+    internal static bool Complete(string dataDir, MissingCleanupRecord record)
     {
         var state = Load(dataDir);
         var stored = state.History.FirstOrDefault(item => item.Id == record.Id) ?? record;
         stored.CompletedAt = DateTimeOffset.Now;
         if (!state.History.Contains(stored)) state.History.Insert(0, stored);
         if (state.PendingId == record.Id) state.PendingId = null;
-        Save(dataDir, state);
+        return Save(dataDir, state);
     }
 
     internal static MissingCleanupRecord? Pending(string dataDir)
@@ -111,25 +122,62 @@ internal static class MissingCleanupStore
         return state.History.FirstOrDefault(item => item.Id == state.PendingId);
     }
 
-    internal static void MarkRolledBack(string dataDir, string recordId)
+    internal static bool MarkRolledBack(string dataDir, string recordId)
     {
         var state = Load(dataDir);
         var record = state.History.FirstOrDefault(item => item.Id == recordId);
         if (record is not null) record.RolledBack = true;
         if (state.PendingId == recordId) state.PendingId = null;
-        Save(dataDir, state);
+        return Save(dataDir, state);
     }
 
     internal static bool HasUndoable(string dataDir) =>
         Load(dataDir).History.Any(item => item.CompletedAt is not null && item.UndoneAt is null && !item.RolledBack);
 
-    internal static MissingCleanupRecord? UndoLast(string dataDir)
+    // Undo is two-phase: record the intent first, mark it done only after the
+    // index was written. If the index write fails the intent is aborted, so the
+    // cleanup stays undoable instead of losing its only chance.
+    internal static UndoBeginResult BeginUndo(string dataDir, out MissingCleanupRecord? record)
+    {
+        record = null;
+        var state = Load(dataDir);
+        record = state.History.FirstOrDefault(item => item.CompletedAt is not null && item.UndoneAt is null && !item.RolledBack);
+        if (record is null) return UndoBeginResult.NothingToUndo;
+        if (state.UndoingId is not null) return UndoBeginResult.JournalFailed;
+        state.UndoingId = record.Id;
+        if (!Save(dataDir, state))
+        {
+            record = null;
+            return UndoBeginResult.JournalFailed;
+        }
+        return UndoBeginResult.Started;
+    }
+
+    internal static bool CompleteUndo(string dataDir, string recordId)
     {
         var state = Load(dataDir);
-        var record = state.History.FirstOrDefault(item => item.CompletedAt is not null && item.UndoneAt is null && !item.RolledBack);
-        if (record is null) return null;
+        var record = state.History.FirstOrDefault(item => item.Id == recordId);
+        if (record is null) return false;
         record.UndoneAt = DateTimeOffset.Now;
+        if (state.UndoingId == recordId) state.UndoingId = null;
+        return Save(dataDir, state);
+    }
+
+    internal static bool AbortUndo(string dataDir, string recordId)
+    {
+        var state = Load(dataDir);
+        if (state.UndoingId != recordId) return true;
+        state.UndoingId = null;
+        return Save(dataDir, state);
+    }
+
+    // A crash during undo leaves the intent behind. Clearing it keeps the
+    // action available; rows already restored are skipped on the retry.
+    internal static void ResolveInterruptedUndo(string dataDir)
+    {
+        var state = Load(dataDir);
+        if (state.UndoingId is null) return;
+        state.UndoingId = null;
         Save(dataDir, state);
-        return record;
     }
 }

@@ -346,10 +346,10 @@ public partial class MainWindow
             }
             // The commit path updates bound VideoItem state, so it must stay on
             // the UI thread; the file writes inside are short and journaled.
-            var stored = StorePluginCandidates(video, outcome.Candidates, plugin);
-            PluginScrapeResultText.Text = stored == 0
-                ? "候选未能保存，未入队。"
-                : $"该视频现有 {stored} 条候选已保存到人工审核队列（{outcome.ElapsedMs} ms）。原始资料没有被修改。";
+            var result = StorePluginCandidates(video, outcome.Candidates, plugin);
+            PluginScrapeResultText.Text = result.Describe((int)outcome.ElapsedMs);
+            if (result.State == PluginQueueState.Failed)
+                Log($"插件候选未入队：{result.Error}（已保存 {result.Stored} 条）");
             RefreshReviewQueue();
         }
         catch (Exception ex)
@@ -368,11 +368,12 @@ public partial class MainWindow
     // Every candidate is persisted first. The review record only points at one
     // of them, and the number reported to the user is the number the store will
     // show again after a restart.
-    int StorePluginCandidates(VideoItem video, IReadOnlyList<PluginCandidate> candidates, PluginDescriptor plugin)
+    PluginCandidateSaveResult StorePluginCandidates(VideoItem video, IReadOnlyList<PluginCandidate> candidates, PluginDescriptor plugin)
     {
+        var count = 0;
         foreach (var candidate in candidates)
         {
-            PluginCandidateStore.Add(DataDir, video.Id, new PluginCandidateRecord
+            var (saved, written) = PluginCandidateStore.Add(DataDir, video.Id, new PluginCandidateRecord
             {
                 PluginId = plugin.Id,
                 SavedAt = DateTimeOffset.Now,
@@ -380,17 +381,20 @@ public partial class MainWindow
                 Evidence = candidate.Evidence,
                 Metadata = PluginScrapeBridge.ToMetadata(candidate, plugin)
             });
+            if (!written) return new PluginCandidateSaveResult(count, PluginQueueState.Failed, "候选文件无法写入");
+            count = saved;
         }
         var stored = PluginCandidateStore.Get(DataDir, video.Id);
-        if (stored.Count == 0) return 0;
+        if (stored.Count == 0) return new PluginCandidateSaveResult(0, PluginQueueState.Failed, "候选未能保存");
         var existing = config.AiReviews.GetValueOrDefault(video.Id);
         // Never replace an approved record, and never silently move a pending
         // plugin review away from the candidate the user already selected.
-        if (existing is { Status: "approved" }) return stored.Count;
-        if (existing is { DecisionSource: "plugin", Status: "pending" }) return stored.Count;
-        CommitPluginCandidate(video, stored[0], plugin);
+        if (existing is { Status: "approved" }) return new PluginCandidateSaveResult(stored.Count, PluginQueueState.AlreadyApproved);
+        if (existing is { DecisionSource: "plugin", Status: "pending" }) return new PluginCandidateSaveResult(stored.Count, PluginQueueState.KeptSelection);
+        if (!CommitPluginCandidate(video, stored[0], plugin))
+            return new PluginCandidateSaveResult(stored.Count, PluginQueueState.Failed, "审核记录写入失败");
         RenderCards();
-        return stored.Count;
+        return new PluginCandidateSaveResult(stored.Count, PluginQueueState.Queued);
     }
 
     bool CommitPluginCandidate(VideoItem video, PluginCandidateRecord record, PluginDescriptor plugin)

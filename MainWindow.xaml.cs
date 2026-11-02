@@ -1643,6 +1643,7 @@ public partial class MainWindow : Window
         searchRenderVersion++;
         categoryCardPopulationCompletion?.TrySetResult(false);
         categoryCardRenderRequest++;
+        var reusableCards = ReferenceEquals(Cards.ItemsSource, categoryCardItems) ? categoryCardItems : null;
         categoryCardItems = null;
         categoryCardTargets = null;
         categoryCardPopulationScheduled = false;
@@ -1712,7 +1713,7 @@ public partial class MainWindow : Window
         // Realize the whole page over successive dispatcher turns. A single
         // 60-card binding/layout pass can block input for hundreds of ms.
         categoryCardTargets = visible;
-        categoryCardItems = new System.Collections.ObjectModel.ObservableCollection<VideoItem>();
+        categoryCardItems = reusableCards ?? new System.Collections.ObjectModel.ObservableCollection<VideoItem>();
         categoryCardPopulationCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Cards.ItemsSource = categoryCardItems;
         lastSearchRenderBindingMs = renderClock.Elapsed.TotalMilliseconds - lastSearchRenderFilterMs;
@@ -1762,9 +1763,22 @@ public partial class MainWindow : Window
             }
             var populateClock = System.Diagnostics.Stopwatch.StartNew();
             var end = Math.Min(targets.Count, next + CardPopulationBatchSize);
-            while (next < end) items.Add(targets[next++]);
+            while (next < end)
+            {
+                if (next < items.Count)
+                {
+                    if (!ReferenceEquals(items[next], targets[next])) items[next] = targets[next];
+                }
+                else items.Add(targets[next]);
+                next++;
+            }
+            if (next == targets.Count)
+            {
+                for (var removed = 0; removed < CardPopulationBatchSize && items.Count > targets.Count; removed++)
+                    items.RemoveAt(items.Count - 1);
+            }
             lastSearchPopulateMaxChunkMs = Math.Max(lastSearchPopulateMaxChunkMs, populateClock.Elapsed.TotalMilliseconds);
-            if (next == targets.Count) completion?.TrySetResult(true);
+            if (next == targets.Count && items.Count == targets.Count) completion?.TrySetResult(true);
             else Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(AddChunk));
         }
         Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(AddChunk));

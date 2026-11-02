@@ -94,28 +94,11 @@ public partial class MainWindow
             !ReferenceEquals(source, videos) || targetView != view ||
             category != selectedCategory || tag != activeTagFilter ||
             sort != SortBox.SelectedIndex || query != SearchBox.Text.Trim()) return;
-        // Replacing a populated ItemsSource tears down every card in one UI
-        // turn. Retire the old page in small batches before binding the new one.
-        var oldCards = categoryCardItems;
+        // RenderCards keeps the existing page collection and rebinds its cards
+        // in small chunks. Retiring all visuals first causes needless layout
+        // passes and a blank page while the new search result arrives.
         lastSearchRetireMaxChunkMs = 0;
         lastSearchPopulateMaxChunkMs = 0;
-        if (oldCards is not null && ReferenceEquals(Cards.ItemsSource, oldCards))
-        {
-            categoryCardRenderRequest++;
-            categoryCardPopulationCompletion?.TrySetResult(false);
-            while (oldCards.Count > 0)
-            {
-                var retireClock = Stopwatch.StartNew();
-                for (var n = 0; n < 3 && oldCards.Count > 0; n++)
-                    oldCards.RemoveAt(oldCards.Count - 1);
-                lastSearchRetireMaxChunkMs = Math.Max(lastSearchRetireMaxChunkMs, retireClock.Elapsed.TotalMilliseconds);
-                await Dispatcher.Yield(DispatcherPriority.Background);
-                if (isClosing || request != searchQueryVersion || render != searchRenderVersion ||
-                    !ReferenceEquals(source, videos) || targetView != view ||
-                    category != selectedCategory || tag != activeTagFilter ||
-                    sort != SortBox.SelectedIndex || query != SearchBox.Text.Trim()) return;
-            }
-        }
         preparedSearch = new PreparedSearch(query, targetView, category, tag, sort, source,
             result.Items, result.HitCount, result.Fields);
         var applyClock = Stopwatch.StartNew();

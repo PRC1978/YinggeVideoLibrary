@@ -51,6 +51,7 @@ public partial class MainWindow
             report["note"] = "合成库：条目路径不存在、无缩略图；本组数字不含海报解码与磁盘 I/O。";
 
             report["search"] = await MeasureSearchAsync();
+            report["cardRebind"] = await VerifyCardRebindAsync();
             report["pagination"] = await MeasurePaginationAsync();
             report["selection"] = await MeasureSelectionAsync();
             report["folderPage"] = await MeasureFolderPageAsync();
@@ -101,6 +102,77 @@ public partial class MainWindow
             catch { }
             return 1;
         }
+    }
+
+    async Task<object> VerifyCardRebindAsync()
+    {
+        SearchBox.Text = "夜行城市";
+        searchRefreshTimer.Stop();
+        await RenderSearchAsync();
+        if (categoryCardPopulationCompletion is { } firstPopulation)
+            await firstPopulation.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        if (pageItems.Count == 0) throw new InvalidOperationException("卡片复用诊断缺少第一组视频");
+
+        var first = pageItems[0];
+        var priorPoster = first.Poster;
+        var priorSelection = first.IsSelected;
+        var testPoster = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+            "YinggeCardRebind-" + Guid.NewGuid().ToString("N") + ".png");
+        try
+        {
+            // A tiny synthetic PNG proves that an old image and selection do
+            // not remain on a reused card when the search changes its item.
+            File.WriteAllBytes(testPoster, Convert.FromBase64String(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/RkUAAAAASUVORK5CYII="));
+            await Task.Run(() => VideoItem.PreloadPoster(testPoster));
+            first.Poster = testPoster;
+            first.IsSelected = true;
+            await Dispatcher.InvokeAsync(UpdateLayout, DispatcherPriority.Render);
+            var firstCard = (System.Windows.FrameworkElement)Cards.Children[0];
+            var firstImage = FindCardChild<System.Windows.Controls.Image>(firstCard);
+            var firstCheck = FindCardChild<System.Windows.Controls.CheckBox>(firstCard);
+            var oldVisualsSet = firstImage?.Source is not null && firstCheck?.IsChecked == true;
+
+            SearchBox.Text = "Morning Light";
+            searchRefreshTimer.Stop();
+            await RenderSearchAsync();
+            if (categoryCardPopulationCompletion is { } secondPopulation)
+                await secondPopulation.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await Dispatcher.InvokeAsync(UpdateLayout, DispatcherPriority.Render);
+            if (pageItems.Count == 0) throw new InvalidOperationException("卡片复用诊断缺少第二组视频");
+            var second = pageItems[0];
+            var secondCard = (System.Windows.FrameworkElement)Cards.Children[0];
+            var secondImage = FindCardChild<System.Windows.Controls.Image>(secondCard);
+            var secondCheck = FindCardChild<System.Windows.Controls.CheckBox>(secondCard);
+            return new Dictionary<string, object?>
+            {
+                ["oldVisualsSet"] = oldVisualsSet,
+                ["sameCardReused"] = ReferenceEquals(firstCard, secondCard),
+                ["differentVideo"] = first.Id != second.Id,
+                ["oldPosterCleared"] = second.Poster is null && secondImage?.Source is null,
+                ["oldSelectionCleared"] = !second.IsSelected && secondCheck?.IsChecked == false
+            };
+        }
+        finally
+        {
+            first.Poster = priorPoster;
+            first.IsSelected = priorSelection;
+            try { File.Delete(testPoster); } catch { }
+            SearchBox.Text = "";
+            searchRefreshTimer.Stop();
+            RenderCards();
+        }
+    }
+
+    static T? FindCardChild<T>(System.Windows.DependencyObject root) where T : System.Windows.FrameworkElement
+    {
+        for (var i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is T match) return match;
+            if (FindCardChild<T>(child) is { } nested) return nested;
+        }
+        return null;
     }
 
     /// <summary>
@@ -191,6 +263,11 @@ public partial class MainWindow
                 finally { pulse.Stop(); }
                 var asyncTotalMs = asyncClock.Elapsed.TotalMilliseconds;
                 var sameResults = expectedIds.SequenceEqual(currentFilteredVideos.Select(video => video.Id));
+                var visibleCount = Math.Min(currentFilteredVideos.Count, config.CardPageSize is 30 or 60 or 90 ? config.CardPageSize : 60);
+                var sameVisualCards = Cards.VisibleCardCount == visibleCount &&
+                    Cards.Children.Count >= visibleCount &&
+                    Enumerable.Range(0, visibleCount).All(index =>
+                        ReferenceEquals((Cards.Children[index] as System.Windows.FrameworkElement)?.DataContext, pageItems[index]));
                 rows.Add(new Dictionary<string, object?>
                 {
                     ["label"] = label,
@@ -209,6 +286,7 @@ public partial class MainWindow
                     ["syncTotalP95Ms"] = UiDiagPercentile(totalSorted, .95),
                     ["syncTotalMaxMs"] = Math.Round(totalSorted[^1], 2),
                     ["asyncResultsEqual"] = sameResults,
+                    ["asyncVisualCardsEqual"] = sameVisualCards,
                     ["asyncTotalMs"] = Math.Round(asyncTotalMs, 2),
                     ["asyncMaxUiGapMs"] = Math.Round(maxUiGapMs, 2),
                     ["asyncEligibilityMs"] = Math.Round(lastSearchEligibilityMs, 2),

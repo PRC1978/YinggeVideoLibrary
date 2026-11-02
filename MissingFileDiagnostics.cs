@@ -229,6 +229,70 @@ internal static class MissingFileDiagnostics
         Check("interruptedUndoIsResolvedOnStart", MissingCleanupStore.HasUndoable(interruptedUndoDir) &&
             MissingCleanupStore.Load(interruptedUndoDir).UndoingId is null);
 
+        // --- a protected mismatched index is not a successful write ----------
+        var preserveDir = NewDir("preserve");
+        var folderA = Path.Combine(work, "root-a");
+        var folderB = Path.Combine(work, "root-b");
+        Directory.CreateDirectory(folderA);
+        Directory.CreateDirectory(folderB);
+        var preserveIndex = Path.Combine(preserveDir, "library-index.json");
+        var oneEntry = new LibraryIndex
+        {
+            Folders = [folderA],
+            Entries = [new IndexEntry { Path = Path.Combine(folderA, "a.mp4"), Size = 1, ModifiedTicks = DateTime.Now.Ticks }]
+        };
+        MainWindow.WriteIndexSnapshotAtPath(preserveIndex, oneEntry);
+        var preserved = MainWindow.WriteIndexSnapshotAtPath(preserveIndex, new LibraryIndex { Folders = [folderB], Entries = [] });
+        var preservedOnDisk = JsonSerializer.Deserialize<LibraryIndex>(File.ReadAllText(preserveIndex))!;
+        Check("mismatchedIndexIsNotReportedAsWritten",
+            preserved.PreservedMismatchedIndex && !preserved.Written && preservedOnDisk.Entries.Count == 1);
+
+        var sameRoot = MainWindow.WriteIndexSnapshotAtPath(preserveIndex, new LibraryIndex { Folders = [folderA], Entries = [] });
+        var sameRootOnDisk = JsonSerializer.Deserialize<LibraryIndex>(File.ReadAllText(preserveIndex))!;
+        Check("matchingFolderSetIsWritten", sameRoot.Written && !sameRoot.PreservedMismatchedIndex &&
+            sameRootOnDisk.Entries.Count == 0);
+
+        // Cleanup whose index write would be swallowed by the protection must
+        // fail, roll the journal back, and leave the disk index untouched.
+        var preserveData = NewDir("preserve-cleanup");
+        MainWindow.WriteIndexSnapshotAtPath(preserveIndex, oneEntry);
+        Task<bool> RefusedWrite()
+        {
+            var result = MainWindow.WriteIndexSnapshotAtPath(preserveIndex, new LibraryIndex { Folders = [folderB], Entries = [] });
+            return Task.FromResult(result.Written);
+        }
+        var refusedOutcome = MissingCleanupCoordinator.CleanupAsync(preserveData, entries, RefusedWrite)
+            .GetAwaiter().GetResult();
+        var afterRefused = JsonSerializer.Deserialize<LibraryIndex>(File.ReadAllText(preserveIndex))!;
+        Check("cleanupFailsWhenIndexIsProtected",
+            refusedOutcome == CleanupWriteOutcome.IndexFailed &&
+            MissingCleanupStore.Pending(preserveData) is null &&
+            !MissingCleanupStore.HasUndoable(preserveData) &&
+            afterRefused.Entries.Count == 1, $"outcome={refusedOutcome}");
+
+        // Simulate the next start: same refusal, same on-disk state, no journal.
+        var refusedAgain = MissingCleanupCoordinator.CleanupAsync(preserveData, entries, RefusedWrite)
+            .GetAwaiter().GetResult();
+        var afterSecond = JsonSerializer.Deserialize<LibraryIndex>(File.ReadAllText(preserveIndex))!;
+        var restartState = MissingCleanupStore.Load(preserveData);
+        Check("protectedIndexStaysConsistentAfterRestart",
+            refusedAgain == CleanupWriteOutcome.IndexFailed && afterSecond.Entries.Count == 1 &&
+            restartState.PendingId is null && !MissingCleanupStore.HasUndoable(preserveData) &&
+            restartState.History.All(item => item.CompletedAt is null));
+
+        // Control: with a matching folder set the same cleanup is written and the
+        // journal completes, so the refusal above is about the protection only.
+        var okPreserveData = NewDir("preserve-cleanup-ok");
+        MainWindow.WriteIndexSnapshotAtPath(preserveIndex, oneEntry);
+        var okPreserve = MissingCleanupCoordinator.CleanupAsync(okPreserveData, entries, () =>
+        {
+            var result = MainWindow.WriteIndexSnapshotAtPath(preserveIndex, new LibraryIndex { Folders = [folderA], Entries = [] });
+            return Task.FromResult(result.Written);
+        }).GetAwaiter().GetResult();
+        var afterOk = JsonSerializer.Deserialize<LibraryIndex>(File.ReadAllText(preserveIndex))!;
+        Check("cleanupWritesWhenFolderSetMatches", okPreserve == CleanupWriteOutcome.Done &&
+            afterOk.Entries.Count == 0 && MissingCleanupStore.HasUndoable(okPreserveData));
+
         File.WriteAllText(Path.Combine(NewDir("damaged"), MissingCleanupStore.FileName), "{ broken");
         var recovered = MissingCleanupStore.Load(Path.Combine(work, "damaged"));
         Check("damagedJournalDoesNotThrow", recovered.History.Count == 0 && recovered.PendingId is null);

@@ -5,7 +5,10 @@ namespace YinggeVideoLibrary;
 
 public partial class MainWindow
 {
-    internal readonly record struct IndexSaveResult(bool PreservedMismatchedIndex, int PreviousEntryCount);
+    // Written is false whenever the on-disk index was intentionally left alone
+    // (a protected mismatched index, or no configured folders at all). Callers
+    // that mutate the library must check it instead of assuming success.
+    internal readonly record struct IndexSaveResult(bool PreservedMismatchedIndex, int PreviousEntryCount, bool Written);
 
     // An empty scan of a different folder set is not proof that the old
     // library was deleted. Keep the existing on-disk index as a recovery
@@ -25,7 +28,7 @@ public partial class MainWindow
         if (hasValidPrevious && ShouldPreserveMismatchedIndex(previous, incoming, explicitlyClearedByUser))
         {
             PreserveGoodIndexSnapshot(indexPath);
-            return new IndexSaveResult(true, previous!.Entries.Count);
+            return new IndexSaveResult(true, previous!.Entries.Count, false);
         }
         if (!hasValidPrevious && !explicitlyClearedByUser && incoming.Entries.Count == 0)
         {
@@ -35,7 +38,7 @@ public partial class MainWindow
             foreach (var recovery in new[] { indexPath + ".bak", indexPath + ".last-good" })
                 if (TryReadLibraryIndex(recovery, out var recovered) &&
                     ShouldPreserveMismatchedIndex(recovered, incoming))
-                    return new IndexSaveResult(true, recovered!.Entries.Count);
+                    return new IndexSaveResult(true, recovered!.Entries.Count, false);
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(indexPath))!);
@@ -46,7 +49,7 @@ public partial class MainWindow
             if (hasValidPrevious) File.Replace(temporary, indexPath, indexPath + ".bak");
             else File.Move(temporary, indexPath, true);
             if (incoming.Entries.Count > 0) PreserveGoodIndexSnapshot(indexPath);
-            return default;
+            return new IndexSaveResult(false, 0, true);
         }
         finally { try { if (File.Exists(temporary)) File.Delete(temporary); } catch { } }
     }

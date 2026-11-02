@@ -121,6 +121,7 @@ public partial class MainWindow
             Path = item.Path, Size = item.Size, ModifiedTicks = item.Modified.Ticks
         }).ToList();
         var removed = new List<VideoItem>();
+        var indexPreserved = false;
         var outcome = await MissingCleanupCoordinator.CleanupAsync(DataDir, entries, async () =>
         {
             foreach (var item in targets)
@@ -130,8 +131,9 @@ public partial class MainWindow
             }
             try
             {
-                await SaveIndexAsync(videos, NormalizeRoots(config.Folders));
-                return true;
+                var saved = await SaveIndexAsync(videos, NormalizeRoots(config.Folders));
+                indexPreserved = !saved.Written && saved.PreservedMismatchedIndex;
+                return saved.Written;
             }
             catch (Exception ex)
             {
@@ -161,8 +163,12 @@ public partial class MainWindow
                     "清理不在本地记录", MessageBoxButton.OK, MessageBoxImage.Warning);
                 break;
             case CleanupWriteOutcome.IndexFailed:
-                Log("索引写入失败，清理未生效。");
-                MessageBox.Show(this, "索引写入失败，清理没有生效，清理日志已回滚，可以稍后重试。",
+                Log(indexPreserved
+                    ? "清理未生效：旧索引与当前文件夹不一致，已保护旧索引。"
+                    : "索引写入失败，清理未生效。");
+                MessageBox.Show(this, indexPreserved
+                        ? "当前文件夹设置与磁盘上的旧索引不一致，程序保护了旧索引，本次清理没有生效。请先在“视频文件夹”里重新扫描，再执行清理。"
+                        : "索引写入失败，清理没有生效，清理日志已回滚，可以稍后重试。",
                     "清理不在本地记录", MessageBoxButton.OK, MessageBoxImage.Warning);
                 break;
         }
@@ -173,6 +179,7 @@ public partial class MainWindow
     async void UndoMissingCleanup(object sender, RoutedEventArgs e)
     {
         var added = new List<VideoItem>();
+        var undoIndexPreserved = false;
         var outcome = await MissingCleanupCoordinator.UndoAsync(DataDir, async entries =>
         {
             foreach (var entry in entries)
@@ -185,8 +192,9 @@ public partial class MainWindow
             ApplySavedFields(added);
             try
             {
-                await SaveIndexAsync(videos, NormalizeRoots(config.Folders));
-                return true;
+                var saved = await SaveIndexAsync(videos, NormalizeRoots(config.Folders));
+                undoIndexPreserved = !saved.Written && saved.PreservedMismatchedIndex;
+                return saved.Written;
             }
             catch (Exception ex)
             {
@@ -213,7 +221,9 @@ public partial class MainWindow
             case CleanupWriteOutcome.IndexFailed:
                 // The rows only existed in memory; put the list back in sync with disk.
                 foreach (var item in added) videos.Remove(item);
-                MessageBox.Show(this, "索引写入失败，撤销没有生效；清理记录仍然可以撤销，请稍后重试。",
+                MessageBox.Show(this, undoIndexPreserved
+                        ? "当前文件夹设置与磁盘上的旧索引不一致，程序保护了旧索引，撤销没有生效；清理记录仍然可以撤销。请先重新扫描后再试。"
+                        : "索引写入失败，撤销没有生效；清理记录仍然可以撤销，请稍后重试。",
                     "撤销清理", MessageBoxButton.OK, MessageBoxImage.Warning);
                 break;
         }
@@ -246,7 +256,12 @@ public partial class MainWindow
             if (restored == 0) return true;
             try
             {
-                await SaveIndexAsync(videos, NormalizeRoots(config.Folders));
+                var saved = await SaveIndexAsync(videos, NormalizeRoots(config.Folders));
+                if (!saved.Written)
+                {
+                    Log("恢复中断清理时索引未写入（旧索引受保护或没有配置文件夹），已保留待恢复标记。");
+                    return false;
+                }
                 Log($"上次清理未完成，已回滚并恢复 {restored} 条记录。");
                 return true;
             }

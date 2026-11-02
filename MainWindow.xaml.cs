@@ -1016,7 +1016,7 @@ public partial class MainWindow : Window
         if (roots.Length == 0 && items.Count == 0 && !config.FoldersClearedByUser)
         {
             Log("没有已配置文件夹，保留已有共享索引");
-            return default;
+            return new IndexSaveResult(false, 0, false);
         }
         var index = new LibraryIndex { Folders = NormalizeRoots(roots), Entries = items.Select(v => new IndexEntry { Path = v.Path, Size = v.Size, ModifiedTicks = v.Modified.Ticks, Missing = v.IsMissing }).ToList() };
         await IndexWriteGate.WaitAsync();

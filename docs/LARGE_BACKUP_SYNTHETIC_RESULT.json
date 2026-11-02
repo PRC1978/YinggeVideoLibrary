@@ -1,0 +1,15 @@
+{
+  "fixtureVideos": 32909,
+  "fixtureCategoryLeaves": 15730,
+  "fixtureMs": 912,
+  "backupApplied": true,
+  "backupError": "",
+  "backupVerified": true,
+  "backupMs": 2635,
+  "restored": true,
+  "restoreError": "",
+  "restoreMs": 35486,
+  "filesMatchBackup": true,
+  "restoredVideos": 32909,
+  "passed": true
+}

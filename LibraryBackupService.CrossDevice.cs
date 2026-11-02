@@ -172,9 +172,14 @@ internal static partial class LibraryBackupService
             if (!targetPaths.TryGetValue(path, out var target)
                 || target.Size != entry.Size || target.ModifiedTicks != entry.ModifiedTicks)
                 return false;
-            RejectReparseAncestors(path);
             var info = new FileInfo(path);
-            if (!info.Exists || info.Length != entry.Size || info.LastWriteTime.Ticks != entry.ModifiedTicks)
+            // A same-library restore must remain possible while a scan root is
+            // disconnected or a video is missing. No media is copied here; the
+            // index identity above still has to match exactly. Verify content
+            // only for files that are actually available now.
+            if (!info.Exists) continue;
+            RejectReparseAncestors(path);
+            if (info.Length != entry.Size || info.LastWriteTime.Ticks != entry.ModifiedTicks)
                 return false;
             if (fingerprints is not null)
             {

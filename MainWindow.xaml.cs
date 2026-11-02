@@ -3801,7 +3801,7 @@ public partial class MainWindow : Window
                 new { role = "user", content = AiScrapeEvidence.Build(video, candidate, config.Folders, config.UseFolderPersonHint) }
             },
             temperature = 0.1,
-            max_tokens = config.AiMaxOutputTokens
+            max_tokens = Math.Min(config.AiMaxOutputTokens, AiScrapePolicy.ReviewOutputTokenLimit)
         };
         using var document = await AiRequestQueue.SendAsync(config, GetAiChatEndpoint(), payload, DataDir);
         var content = ExtractAiMessageContent(document);
@@ -3833,7 +3833,7 @@ public partial class MainWindow : Window
         var verdict = confidence >= ReviewManualThreshold ? "approve" : confidence < ReviewRejectThreshold ? "reject" : "review";
         var model = "local-rules";
         var decisionSource = "rules";
-        if (!forcePending && AiRequestQueue.CanUse(config))
+        if (AiScrapePolicy.ShouldAutoAssess(video, candidate, forcePending) && AiRequestQueue.CanUse(config))
         {
             try
             {

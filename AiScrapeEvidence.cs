@@ -32,7 +32,7 @@ internal static class AiScrapeEvidence
                 releaseDate = Limit(candidate.ReleaseDate),
                 detailFetched = candidate.DetailFetched,
                 identityVerified = candidate.DetailIdentityVerified,
-                conflictFields = candidate.SourceConflictFields.Take(12).Select(Limit).ToArray()
+                conflictFields = (candidate.SourceConflictFields ?? []).Take(12).Select(Limit).ToArray()
             }
         });
     }

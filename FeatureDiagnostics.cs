@@ -419,6 +419,10 @@ internal static class FeatureDiagnostics
             var sourceConflict = ScrapeIdentityPolicy.Apply("ABC-123 作品.mp4", conflicted, 100, "approve", "AI 声称已通过");
             findings["sourceConflictCannotAutoApprove"] = sourceConflict.Verdict == "review" && sourceConflict.Confidence == 79;
             var evidenceVideo = new VideoItem { Id = "sample", Path = @"C:\private\actor\ABC-123.mp4", Title = "ABC-123", Folder = @"C:\private\actor", Size = 1, Modified = DateTime.Now };
+            findings["aiScrapeSkipsIdentityConflicts"] = AiScrapePolicy.ShouldAutoAssess(evidenceVideo, linkedJavDb, false)
+                && !AiScrapePolicy.ShouldAutoAssess(evidenceVideo, conflicted, false)
+                && !AiScrapePolicy.ShouldAutoAssess(evidenceVideo, linkedJavDb, true)
+                && AiScrapePolicy.ReviewOutputTokenLimit <= 256;
             var evidence = AiScrapeEvidence.Build(evidenceVideo, linkedJavDb, [@"C:\private"], true);
             using (var evidenceJson = JsonDocument.Parse(evidence))
                 findings["aiScrapeStructuredEvidenceNoLocalPath"] = evidenceJson.RootElement.GetProperty("schema").GetString() == "yingge.ai-scrape-evidence.v1"

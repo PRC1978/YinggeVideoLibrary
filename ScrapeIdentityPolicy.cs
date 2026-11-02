@@ -22,7 +22,7 @@ internal static class ScrapeIdentityPolicy
             return Pending(confidence, verdict, reason, "尚未取得详情，搜索摘要不能自动通过");
         if (!candidate.DetailIdentityVerified)
             return Pending(confidence, verdict, reason, "详情未独立核对作品编号或来源 ID");
-        if (candidate.SourceConflictFields.Count > 0)
+        if (candidate.SourceConflictFields?.Count > 0)
             return Pending(confidence, verdict, reason, "多个来源的资料字段有冲突，须人工核对");
         if (ConflictingYear(localTitle, candidate) is { } yearConflict)
             return Pending(confidence, verdict, reason, yearConflict);

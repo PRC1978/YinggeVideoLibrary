@@ -229,6 +229,16 @@ internal static class PluginDiagnostics
         Check("queuedMessageSaysQueued", queued.Queued &&
             queued.Describe(120).Contains("已加入人工审核队列", StringComparison.Ordinal));
 
+        // --- plugin provenance survives a config reload ------------------------
+        Check("decisionSourceKeepsPlugin",
+            MainWindow.NormalizeDecisionSource("plugin", "com.example x") == "plugin" &&
+            MainWindow.NormalizeDecisionSource(" Plugin ", "x") == "plugin");
+        Check("decisionSourceStillNormalisesOthers",
+            MainWindow.NormalizeDecisionSource("manual", "x") == "manual" &&
+            MainWindow.NormalizeDecisionSource("rules", "x") == "rules" &&
+            MainWindow.NormalizeDecisionSource(null, "local-rules v1") == "rules" &&
+            MainWindow.NormalizeDecisionSource(null, "com.example") == "ai");
+
         // --- only enabled, healthy plugins become a normal scrape source -------
         var sourceCatalog = new List<PluginDescriptor>
         {

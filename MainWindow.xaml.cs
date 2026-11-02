@@ -415,6 +415,9 @@ public partial class MainWindow : Window
     System.Collections.ObjectModel.ObservableCollection<VideoItem>? categoryCardItems;
     List<VideoItem>? categoryCardTargets;
     bool categoryCardPopulationScheduled;
+    // Cards added per dispatcher turn. Larger batches finish the page sooner but
+    // make each layout pass heavier; this value is measured, not guessed.
+    const int CardPopulationBatchSize = 6;
     TaskCompletionSource<bool>? categoryCardPopulationCompletion;
     // The exact result after view/category/search filters.  Keeping this
     // lightweight list lets batch selection act on the whole filtered result,
@@ -726,13 +729,7 @@ public partial class MainWindow : Window
                     _ => "pending"
                 };
                 review.Model = string.IsNullOrWhiteSpace(review.Model) ? "local-rules" : review.Model.Trim();
-                review.DecisionSource = (review.DecisionSource ?? "").Trim().ToLowerInvariant() switch
-                {
-                    "manual" => "manual",
-                    "rules" => "rules",
-                    "ai" => "ai",
-                    _ => review.Model.StartsWith("local-rules", StringComparison.OrdinalIgnoreCase) ? "rules" : "ai"
-                };
+                review.DecisionSource = NormalizeDecisionSource(review.DecisionSource, review.Model);
                 review.Reason = string.IsNullOrWhiteSpace(review.Reason) ? "未提供依据" : review.Reason.Trim();
                 if (review.CreatedAt == default) review.CreatedAt = DateTime.Now;
             }
@@ -1087,6 +1084,18 @@ public partial class MainWindow : Window
             _ => ""
         };
     }
+
+    // Plugin provenance must survive a reload: the review row uses it to show
+    // the stored candidates of that video.
+    internal static string NormalizeDecisionSource(string? value, string? model) =>
+        (value ?? "").Trim().ToLowerInvariant() switch
+        {
+            "manual" => "manual",
+            "rules" => "rules",
+            "ai" => "ai",
+            "plugin" => "plugin",
+            _ => (model ?? "").StartsWith("local-rules", StringComparison.OrdinalIgnoreCase) ? "rules" : "ai"
+        };
 
     static bool IsRuleReview(AiReviewRecord review) => review.DecisionSource == "rules" || review.Model.StartsWith("local-rules", StringComparison.OrdinalIgnoreCase);
     static string ReviewRejectLabel(AiReviewRecord review) => review.DecisionSource == "manual" ? "人工否决" : IsRuleReview(review) ? "规则否决" : "AI 否决";
@@ -1732,7 +1741,7 @@ public partial class MainWindow : Window
                 return;
             }
             var populateClock = System.Diagnostics.Stopwatch.StartNew();
-            var end = Math.Min(targets.Count, next + 12);
+            var end = Math.Min(targets.Count, next + CardPopulationBatchSize);
             while (next < end) items.Add(targets[next++]);
             lastSearchPopulateMaxChunkMs = Math.Max(lastSearchPopulateMaxChunkMs, populateClock.Elapsed.TotalMilliseconds);
             if (next == targets.Count) completion?.TrySetResult(true);

@@ -128,6 +128,8 @@ internal static class FeatureDiagnostics
                 findings[name] = checkPassed;
             foreach (var (name, checkPassed) in NativeMetadataAggregationDiagnostics.Verify())
                 findings[name] = checkPassed;
+            foreach (var (name, checkPassed) in VerifiedWorkClustersDiagnostics.Verify())
+                findings[name] = checkPassed;
             foreach (var (name, checkPassed) in NativeMediaFieldsDiagnostics.Verify())
                 findings[name] = checkPassed;
             foreach (var (name, checkPassed) in NativeOriginalFieldsDiagnostics.Verify())

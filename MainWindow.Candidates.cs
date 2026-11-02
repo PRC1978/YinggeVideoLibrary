@@ -288,6 +288,7 @@ public partial class MainWindow
                 FontWeight = FontWeights.SemiBold, FontSize = 16, TextWrapping = TextWrapping.Wrap });
             detail.Children.Add(new TextBlock { Text = $"本地视频：{video.DisplayTitle}\n查询线索：{snapshot.Query}\n匹配依据：{row.Evidence}",
                 TextWrapping = TextWrapping.Wrap, Foreground = Brushes.SlateGray, Margin = new Thickness(0, 7, 0, 10) });
+            AppendVerifiedWorkComparison(detail, snapshot.Candidates, list.SelectedIndex);
             if (source.Source.Equals("Trakt", StringComparison.OrdinalIgnoreCase))
             {
                 static string Ids(MovieMetadata item) => string.Join(" · ",

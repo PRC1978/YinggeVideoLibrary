@@ -13,7 +13,7 @@
 
 首次用全新的 `--data-dir` 临时目录启动窗口时，页面意外显示 16,076 部视频。查明 `TryMigrateLegacyCaches` 对空的重定向目录仍读取并复制旧缓存，导致隔离目录混入私人索引。发现后立即关闭窗口，未启动扫描、搜刮或打开视频；原始库未写入。这个临时目录中留下了迁入的配置、索引与缩略图缓存，后续验收**不再使用它**。
 
-现在重定向数据目录直接跳过旧缓存迁移。以新的空临时目录复测：启动显示 0 部视频，搜刮页离屏诊断退出码 0；目录内没有 `config.json`、`library-index.json` 或迁移标记。功能自检新增 `redirectedLibraryDoesNotImportLegacyCache=true`，同时 `realLibraryRead=false`。常规未重定向目录的旧缓存迁移逻辑未改。
+现在重定向数据目录直接跳过旧缓存迁移。以新的空临时目录复测：启动显示 0 部视频，搜刮页离屏诊断退出码 0；目录内没有 `config.json`、`library-index.json` 或迁移标记。功能自检新增 `redirectedLibraryDoesNotImportLegacyCache=true`，同时 `realLibraryRead=false`。常规未重定向目录的旧缓存迁移逻辑未改。尝试清理被污染的 `yingge-scrape-layout-isolated` 临时目录时，自动审批拒绝了递归删除；该副本仍在 `%TEMP%`，未改动原始库。
 
 ## 验证
 

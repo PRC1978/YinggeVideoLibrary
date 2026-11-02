@@ -36,6 +36,11 @@ public partial class App : System.Windows.Application
             Shutdown(PortableUpdateWorker.SelfTest(e.Args[1]));
             return;
         }
+        if (e.Args.Length > 1 && e.Args[0] == "--self-test-ai-cost-preview")
+        {
+            Shutdown(AiCostPreviewDiagnostics.RunToFile(e.Args[1]));
+            return;
+        }
         if (e.Args.Length > 2 && e.Args[0] == "--self-test-update-transition")
         {
             Shutdown(PortableUpdateWorker.TransitionSelfTest(e.Args[1], e.Args[2]));

@@ -4125,13 +4125,9 @@ public partial class MainWindow : Window
         try
         {
             var localEndpoint = new Uri(GetAiChatEndpoint()).IsLoopback;
-            var retries = Math.Clamp(localEndpoint ? config.AiLocalRetryCount : config.AiCloudRetryCount, 0, 5);
-            var reserved = records.Sum(review => AiRequestQueue.EstimateReservedUsd(config,
-                JsonSerializer.Serialize(BuildScrapeAiPayload(available[review.VideoId], review.ToMetadata()))));
-            var preview = $"本轮 {records.Count} 条，最多 {records.Count * (retries + 1)} 次请求（含重试）。\n" +
-                (localEndpoint ? "当前使用本机模型；不会发送到云端。" :
-                    $"按设置费率估算的预留费用上限约 ${reserved * (retries + 1):F4}；每日预算 ${config.AiDailyBudgetUsd:F2}。实际账单以服务商为准。") +
-                "\n开始评估？";
+            var requestBodies = records.Select(review => JsonSerializer.Serialize(
+                BuildScrapeAiPayload(available[review.VideoId], review.ToMetadata()))).ToArray();
+            var preview = AiCostPreview.Build(config, localEndpoint, requestBodies);
             if (MessageBox.Show(this, preview, "AI 评估预览", MessageBoxButton.YesNo, MessageBoxImage.Information) != MessageBoxResult.Yes)
                 return;
         }

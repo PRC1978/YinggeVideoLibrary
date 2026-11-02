@@ -113,6 +113,10 @@ public partial class MainWindow
         DecisionSource = review.DecisionSource,
         Reason = review.Reason,
         Model = review.Model,
+        AssessmentId = review.AssessmentId,
+        RequestSha256 = review.RequestSha256,
+        ResponseSha256 = review.ResponseSha256,
+        EvidenceSchema = review.EvidenceSchema,
         CreatedAt = review.CreatedAt,
         ReviewedAt = review.ReviewedAt
     };

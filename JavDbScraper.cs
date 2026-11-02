@@ -194,6 +194,10 @@ public sealed class AiReviewRecord
     public string DecisionSource { get; set; } = "ai";
     public string Reason { get; set; } = "";
     public string Model { get; set; } = "local-rules";
+    public string AssessmentId { get; set; } = "";
+    public string RequestSha256 { get; set; } = "";
+    public string ResponseSha256 { get; set; } = "";
+    public string EvidenceSchema { get; set; } = "";
     public DateTime CreatedAt { get; set; } = DateTime.Now;
     public DateTime? ReviewedAt { get; set; }
 

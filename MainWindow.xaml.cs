@@ -3790,9 +3790,9 @@ public partial class MainWindow : Window
         return normalized is "approve" or "approved" or "批准" or "通过" or "已通过" ? "approved" : "pending";
     }
 
-    async Task<(int confidence, string verdict, string reason, string model)> RequestScrapeAiAssessmentAsync(VideoItem video, MovieMetadata candidate)
+    object BuildScrapeAiPayload(VideoItem video, MovieMetadata candidate)
     {
-        var payload = new
+        return new
         {
             model = string.IsNullOrWhiteSpace(config.AiModel) ? "gpt-4o-mini" : config.AiModel,
             messages = new[]
@@ -3803,12 +3803,21 @@ public partial class MainWindow : Window
             temperature = 0.1,
             max_tokens = Math.Min(config.AiMaxOutputTokens, AiScrapePolicy.ReviewOutputTokenLimit)
         };
-        using var document = await AiRequestQueue.SendAsync(config, GetAiChatEndpoint(), payload, DataDir);
+    }
+
+    async Task<(int confidence, string verdict, string reason, string model, AiScrapeTrace trace)> RequestScrapeAiAssessmentAsync(VideoItem video, MovieMetadata candidate)
+    {
+        var payload = BuildScrapeAiPayload(video, candidate);
+        var endpoint = GetAiChatEndpoint();
+        var requestJson = JsonSerializer.Serialize(payload);
+        var jobId = AiRequestQueue.Enqueue(DataDir, "scrape-review", endpoint, payload);
+        using var document = await AiRequestQueue.SendStoredJobAsync(config, endpoint, requestJson, DataDir, jobId);
         var content = ExtractAiMessageContent(document);
         using var result = JsonDocument.Parse(ExtractAiJson(content, "AI 未返回有效审核 JSON。"));
         var assessment = ParseScrapeAiAssessment(result.RootElement);
+        var trace = AiScrapeTrace.Create(jobId, requestJson, document.RootElement.GetRawText());
         return (assessment.Confidence, assessment.Verdict, assessment.Reason,
-            string.IsNullOrWhiteSpace(config.AiModel) ? "gpt-4o-mini" : config.AiModel.Trim());
+            string.IsNullOrWhiteSpace(config.AiModel) ? "gpt-4o-mini" : config.AiModel.Trim(), trace);
     }
 
     internal static (int Confidence, string Verdict, string Reason) ParseScrapeAiAssessment(JsonElement root)
@@ -3833,11 +3842,12 @@ public partial class MainWindow : Window
         var verdict = confidence >= ReviewManualThreshold ? "approve" : confidence < ReviewRejectThreshold ? "reject" : "review";
         var model = "local-rules";
         var decisionSource = "rules";
+        var trace = default(AiScrapeTrace);
         if (AiScrapePolicy.ShouldAutoAssess(video, candidate, forcePending) && AiRequestQueue.CanUse(config))
         {
             try
             {
-                (confidence, verdict, reason, model) = await RequestScrapeAiAssessmentAsync(video, candidate);
+                (confidence, verdict, reason, model, trace) = await RequestScrapeAiAssessmentAsync(video, candidate);
                 decisionSource = "ai";
             }
             catch (Exception ex)
@@ -3879,6 +3889,10 @@ public partial class MainWindow : Window
             DecisionSource = decisionSource,
             Reason = reason,
             Model = model,
+            AssessmentId = trace.AssessmentId ?? "",
+            RequestSha256 = trace.RequestSha256 ?? "",
+            ResponseSha256 = trace.ResponseSha256 ?? "",
+            EvidenceSchema = trace.EvidenceSchema ?? "",
             CreatedAt = DateTime.Now
         };
     }
@@ -4108,6 +4122,24 @@ public partial class MainWindow : Window
             .Take(10)
             .ToList();
         if (records.Count == 0) { MessageBox.Show(this, "没有可供 AI 重新评估的待审核匹配。", "AI 可信度审核", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+        try
+        {
+            var localEndpoint = new Uri(GetAiChatEndpoint()).IsLoopback;
+            var retries = Math.Clamp(localEndpoint ? config.AiLocalRetryCount : config.AiCloudRetryCount, 0, 5);
+            var reserved = records.Sum(review => AiRequestQueue.EstimateReservedUsd(config,
+                JsonSerializer.Serialize(BuildScrapeAiPayload(available[review.VideoId], review.ToMetadata()))));
+            var preview = $"本轮 {records.Count} 条，最多 {records.Count * (retries + 1)} 次请求（含重试）。\n" +
+                (localEndpoint ? "当前使用本机模型；不会发送到云端。" :
+                    $"按设置费率估算的预留费用上限约 ${reserved * (retries + 1):F4}；每日预算 ${config.AiDailyBudgetUsd:F2}。实际账单以服务商为准。") +
+                "\n开始评估？";
+            if (MessageBox.Show(this, preview, "AI 评估预览", MessageBoxButton.YesNo, MessageBoxImage.Information) != MessageBoxResult.Yes)
+                return;
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "无法计算 AI 请求预览：" + ex.Message, "AI 评估预览", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
         var priorStates = CaptureReviewStates(records.Select(item => item.VideoId));
         var proposals = new Dictionary<string, ReviewItemSnapshot>(StringComparer.OrdinalIgnoreCase);
         ReviewEvaluateButton.IsEnabled = false;
@@ -4132,6 +4164,10 @@ public partial class MainWindow : Window
                     review.Reason = identity.Reason;
                     review.Model = result.model;
                     review.DecisionSource = "ai";
+                    review.AssessmentId = result.trace.AssessmentId;
+                    review.RequestSha256 = result.trace.RequestSha256;
+                    review.ResponseSha256 = result.trace.ResponseSha256;
+                    review.EvidenceSchema = result.trace.EvidenceSchema;
                     review.ReviewedAt = null;
                     if (review.Status == "approved")
                     {

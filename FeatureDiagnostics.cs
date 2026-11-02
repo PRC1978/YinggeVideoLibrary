@@ -423,6 +423,17 @@ internal static class FeatureDiagnostics
                 && !AiScrapePolicy.ShouldAutoAssess(evidenceVideo, conflicted, false)
                 && !AiScrapePolicy.ShouldAutoAssess(evidenceVideo, linkedJavDb, true)
                 && AiScrapePolicy.ReviewOutputTokenLimit <= 256;
+            var trace = AiScrapeTrace.Create("job-test-1", "request-a", "response-a");
+            var tracedReview = JsonSerializer.Deserialize<AiReviewRecord>(JsonSerializer.Serialize(new AiReviewRecord
+            {
+                AssessmentId = trace.AssessmentId, RequestSha256 = trace.RequestSha256,
+                ResponseSha256 = trace.ResponseSha256, EvidenceSchema = trace.EvidenceSchema
+            }))!;
+            findings["aiScrapeTracePersistsWithoutRawPrompt"] = tracedReview.AssessmentId == "job-test-1"
+                && tracedReview.RequestSha256.Length == 64 && tracedReview.ResponseSha256.Length == 64
+                && tracedReview.RequestSha256 != tracedReview.ResponseSha256
+                && tracedReview.EvidenceSchema == "yingge.ai-scrape-evidence.v1"
+                && !JsonSerializer.Serialize(tracedReview).Contains("request-a", StringComparison.Ordinal);
             var evidence = AiScrapeEvidence.Build(evidenceVideo, linkedJavDb, [@"C:\private"], true);
             using (var evidenceJson = JsonDocument.Parse(evidence))
                 findings["aiScrapeStructuredEvidenceNoLocalPath"] = evidenceJson.RootElement.GetProperty("schema").GetString() == "yingge.ai-scrape-evidence.v1"

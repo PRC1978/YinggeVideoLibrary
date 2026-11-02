@@ -11,6 +11,8 @@ public partial class MainWindow
 {
     // Keep the existing controls and handlers. Only group their presentation after
     // all source, queue and review initializers have attached their controls.
+    System.Windows.Controls.TabControl? scrapePages;
+
     void RegroupScrapePanel()
     {
         if (ScrapePanel.Child is not StackPanel panel) return;
@@ -57,11 +59,33 @@ public partial class MainWindow
         var review = new StackPanel();
         if (items[reviewStart] is TextBlock reviewHeading) reviewHeading.Text = "审核队列";
         foreach (var item in items.Skip(reviewStart)) review.Children.Add(item);
-        var pages = new System.Windows.Controls.TabControl { BorderThickness = new Thickness(0), Background = System.Windows.Media.Brushes.Transparent };
+        var pages = new System.Windows.Controls.TabControl
+        {
+            BorderThickness = new Thickness(0), Background = System.Windows.Media.Brushes.Transparent,
+            HorizontalContentAlignment = System.Windows.HorizontalAlignment.Stretch
+        };
         pages.Items.Add(new TabItem { Header = "任务与队列", Content = tasks, Padding = new Thickness(14, 8, 14, 8) });
         pages.Items.Add(new TabItem { Header = "人工审核", Content = review, Padding = new Thickness(14, 8, 14, 8) });
         pages.Items.Add(new TabItem { Header = "来源与凭据", Content = advanced, Padding = new Thickness(14, 8, 14, 8) });
         panel.Children.Add(pages);
+        scrapePages = pages;
+        ScrapePanel.SizeChanged += (_, _) => UpdateScrapePagesWidth();
+        UpdateScrapePagesWidth();
+    }
+
+    // A vertical StackPanel measures its children with infinite width, so a
+    // long TextBox or an unwrapped button row used to widen the tab content and
+    // get clipped by the page ScrollViewer at 800x550. Constrain the TabControl
+    // to the real viewport (minus page margin and card padding) so WrapPanels
+    // wrap and long inputs scroll inside their own box.
+    void UpdateScrapePagesWidth()
+    {
+        if (scrapePages is null) return;
+        var panelWidth = ScrapePanel.ActualWidth;
+        if (panelWidth <= 0) return;
+        // ScrapePanel already excludes the page margin; its own Border padding
+        // is 24 px on each side.
+        scrapePages.Width = Math.Max(320, panelWidth - 48);
     }
 
     internal async Task<int> WriteHiddenScrapeDiagnosticAsync(string outputDirectory)

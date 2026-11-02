@@ -75,9 +75,13 @@
 
 **未完成**：搜索整表重排与分类页首次显示都没有实质优化。下一步需要动卡片容器（保持列数、只换数据源）与分类页的卡片生成顺序，这两处风险高于本轮可验证的范围，未在收尾轮改动。
 
+### 回归
+
+`IndexSaveResult` 是共享结构，改动后跑了仓库既有的 `--self-test-features`：整体 `passed=true`，索引根不匹配相关断言未失败；其中的 `dataDirectoryRedirected` / `realLibraryCopyRequested` / `realLibraryRead` / `tempDirectoryCleanupFailed` 均为 false，说明该自检没有读写真实库。
+
 ## 六、证据位置
 
-- 自检：`fix3/ev/missing-final.json`（30/30）、`fix3/ev/plugins-final.json`（41/41）
+- 自检：`fix3/ev/missing-final.json`（30/30）、`fix3/ev/plugins-final.json`（41/41）、`fix3/ev/features.json`（既有功能自检）
 - 性能原始：`fix3/ev/perf/*.json`
 - 备份恢复：`fix3/ev/bk-after.json`
 - 截图：`fix3/shots/`（`undo-fail2-dialog1.png`、`sidebar-800-wheel-zoom.png`、`sidebar-800-wheel2-zoom.png`、`long-title.png`）

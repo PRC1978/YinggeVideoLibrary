@@ -15,6 +15,10 @@ public partial class MainWindow
     // identical to an unpackaged process. Run before LoadConfig.
     static string TryMigrateLegacyCaches(string destinationDataDir)
     {
+        // An explicit data directory is an isolated library, including diagnostic
+        // fixtures. Importing the user's legacy cache into an empty redirected
+        // directory would read private data and silently populate the fixture.
+        if (AppPaths.IsRedirected) return "";
         var ownsConfig = false;
         var ownsIndex = false;
         try
@@ -147,6 +151,16 @@ public partial class MainWindow
             if (ownsIndex) try { IndexWriteMutex.ReleaseMutex(); } catch { }
             if (ownsConfig) try { ConfigWriteMutex.ReleaseMutex(); } catch { }
         }
+    }
+
+    internal static bool VerifyRedirectedCacheDoesNotImportForDiagnostics(string directory)
+    {
+        if (!AppPaths.IsRedirected) return true;
+        Directory.CreateDirectory(directory);
+        var result = TryMigrateLegacyCaches(directory);
+        return result.Length == 0 && !File.Exists(Path.Combine(directory, "config.json"))
+            && !File.Exists(Path.Combine(directory, "library-index.json"))
+            && !File.Exists(Path.Combine(directory, "cache-migration-v1.done"));
     }
 
     static bool FileMatchesMigrationMarker(string path, long expectedLength, string expectedHash)

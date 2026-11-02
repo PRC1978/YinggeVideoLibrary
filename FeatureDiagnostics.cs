@@ -56,6 +56,8 @@ internal static class FeatureDiagnostics
             WindowsCredentialStore.Write(credentialName, "");
             findings["windowsCredentialDelete"] = WindowsCredentialStore.Read(credentialName) is null;
             Directory.CreateDirectory(directory);
+            findings["redirectedLibraryDoesNotImportLegacyCache"] =
+                MainWindow.VerifyRedirectedCacheDoesNotImportForDiagnostics(Path.Combine(directory, "redirected-migration"));
             findings["noncommercialLicenseReplacesOnlyLegacySidecar"] =
                 ProjectLicenseMigration.VerifyForDiagnostics(Path.Combine(directory, "license-migration"));
             foreach (var (name, passed) in MainWindow.VerifyLibraryFormatMigrationForDiagnostics(

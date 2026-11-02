@@ -493,6 +493,7 @@ public partial class MainWindow : Window
         InitializeJavinfoSettings();
         InitializeAnimeReleaseEvidence();
         InitializeLibraryUtilities();
+        RegroupScrapePanel();
         PlayerPathBox.Text = FindPlayer() ?? "";
         TmdbTokenBox.Password = config.TmdbToken;
         ShowAllBox.IsChecked = config.ShowAll;

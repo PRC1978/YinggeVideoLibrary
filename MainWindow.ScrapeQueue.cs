@@ -221,8 +221,8 @@ public partial class MainWindow
                 Foreground = new SolidColorBrush(Color.FromRgb(82, 100, 122)),
                 TextWrapping = TextWrapping.Wrap
             };
-            row.Children.Add(actions);
             row.Children.Add(scrapeQueueInfo);
+            row.Children.Add(actions);
             panel.Children.Insert(2, row);
         }
         UpdateScrapeQueueStatus();
@@ -247,7 +247,7 @@ public partial class MainWindow
         var next = status.NextAttemptAt is null ? "" : $" · 下次 {status.NextAttemptAt.Value.ToLocalTime():HH:mm:ss}";
         if (scrapeQueueInfo is not null)
             scrapeQueueInfo.Text = pendingCount == 0 && failedCount == 0
-                ? "搜刮队列为空。点击“全部符合条件入队”后，有番号的走番号来源，其余按标题查找，后台逐项处理。"
+                ? "队列为空。入队后会按来源限速在后台处理。"
                 : $"待处理 {pendingCount} 项 · 失败 {failedCount} 项 · {(active ? "正在后台轮询" : "已暂停，点击继续才会联网")}{next}"
                   + (pendingCount > 0 ? $" · 最少约 {FormatScrapeMinimumDuration(pendingCount)}（不含网络耗时）" : "");
         var buttonText = active ? "暂停轮询" : "继续轮询";
@@ -257,14 +257,19 @@ public partial class MainWindow
         {
             scrapeQueuePageButton.Content = buttonText;
             scrapeQueuePageButton.IsEnabled = pendingCount > 0 && !scrapeQueueChanging;
+            scrapeQueuePageButton.Visibility = pendingCount > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
         if (scrapeQueueRetryButton is not null)
         {
             scrapeQueueRetryButton.IsEnabled = failedCount > 0 && !scrapeQueueChanging;
+            scrapeQueueRetryButton.Visibility = failedCount > 0 ? Visibility.Visible : Visibility.Collapsed;
             scrapeQueueRetryButton.ToolTip = failedCount == 0 ? null : string.Join("\n", status.FailedExamples.Select(x => $"{x.Query}：{x.Error}"));
         }
         if (scrapeQueueClearButton is not null)
+        {
             scrapeQueueClearButton.IsEnabled = pendingCount > 0 && !scrapeQueueChanging;
+            scrapeQueueClearButton.Visibility = pendingCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
     }
 
     string FormatScrapeMinimumDuration(int count)

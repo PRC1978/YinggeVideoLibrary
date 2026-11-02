@@ -56,8 +56,7 @@ public partial class MainWindow
             TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = System.Windows.Media.Brushes.SlateGray, Margin = new Thickness(0, 0, 0, 12) });
 
         var section = new StackPanel { Margin = new Thickness(0, 2, 0, 18) };
-        section.Children.Add(new TextBlock { Text = "批量搜刮条件", FontSize = 16, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) });
-        section.Children.Add(new TextBlock { Text = "默认将排除条件之外的全部尚待搜刮视频入队：有番号且启用番号来源的优先按番号查找，其余按标题查找。队列逐项限速执行，可随时暂停或取消待处理。以下排除条件也适用于已有队列。", TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = System.Windows.Media.Brushes.SlateGray, Margin = new Thickness(0, 0, 0, 8) });
+        section.Children.Add(new TextBlock { Text = "默认搜刮排除条件之外的全部视频；有番号的优先按番号查找，其余按标题查找。条件也适用于已有队列。", TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = System.Windows.Media.Brushes.SlateGray, Margin = new Thickness(0, 0, 0, 8) });
         scrapeRefreshExistingBox = new CheckBox
         {
             Content = "本次补全已搜刮但字段缺失的资料",

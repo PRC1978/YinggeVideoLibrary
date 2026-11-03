@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -37,7 +37,7 @@ public partial class MainWindow
             ToolTip = "可跨重启恢复最近的图上分类操作；如果相关分类已被其他操作修改，将拒绝撤销。" };
         graphMoveUndoButton.Click += UndoGraphMove;
         graphMoveStatus = new TextBlock { Margin = new Thickness(12, 0, 0, 0),
-            VerticalAlignment = VerticalAlignment.Center, Foreground = Brushes.SlateGray,
+            VerticalAlignment = VerticalAlignment.Center, Foreground = UiTheme.TextTertiaryBrush,
             TextWrapping = TextWrapping.Wrap };
         bar.Children.Add(graphMoveUndoButton);
         bar.Children.Add(graphMoveStatus);
@@ -288,7 +288,7 @@ public partial class MainWindow
         var cancel = new Button { Content = "取消", Width = 90, Height = 34, IsCancel = true,
             Margin = new Thickness(0, 0, 8, 0) };
         var confirm = new Button { Content = "确认修改", Width = 110, Height = 34, IsDefault = true,
-            Background = new SolidColorBrush(Color.FromRgb(77, 106, 219)), Foreground = Brushes.White };
+            Background = UiTheme.AccentBrush, Foreground = UiTheme.AccentForegroundBrush };
         confirm.Click += (_, _) =>
         {
             selected = (modePicker?.SelectedItem as ComboBoxItem)?.Tag as CategoryGraphMovePlan ?? options[0];

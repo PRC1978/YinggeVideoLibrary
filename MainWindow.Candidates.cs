@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Windows;
@@ -50,7 +50,7 @@ public partial class MainWindow
         toggleGroup.Children.Add(new TextBlock
         {
             Text = "TMDB 范围：仅普通电影/剧集。未分类或成人/番号视频会跳过 TMDB；其余已启用来源照常搜刮。单独手动查询 TMDB 时会再次确认。",
-            Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap,
+            Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 8)
         });
         javDatabaseEnabledBox = new CheckBox { Content = "启用 JAVDatabase 番号及标题候选", IsChecked = config.EnableJavDatabase, Margin = new Thickness(0, 0, 0, 10) };
@@ -86,7 +86,7 @@ public partial class MainWindow
         toggleGroup.Children.Add(new TextBlock
         {
             Text = "开启后可用于后续标题搜刮；详情仍核对作品身份并进入人工审核。AniList 与 OMDb 保持单部手动查询。",
-            Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap,
+            Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 10)
         });
         var folderHintBox = new CheckBox
@@ -249,7 +249,7 @@ public partial class MainWindow
         {
             Text = $"{video.DisplayTitle} · {snapshot.Candidates.Count} 个候选 · {snapshot.SearchedUtc.ToLocalTime():yyyy-MM-dd HH:mm} 搜索" +
                 (snapshot.NeedsRefresh ? " · 搜索结果已过期，待联网刷新" : " · 可离线查看"),
-            TextWrapping = TextWrapping.Wrap, Foreground = Brushes.SlateGray, Margin = new Thickness(0, 0, 0, 12)
+            TextWrapping = TextWrapping.Wrap, Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 0, 0, 12)
         };
         DockPanel.SetDock(summary, Dock.Top); root.Children.Add(summary);
         var body = new Grid();
@@ -263,7 +263,7 @@ public partial class MainWindow
             label.Children.Add(new TextBlock { Text = $"{candidate.Rank}. {candidate.SearchMetadata.Title}",
                 FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, MaxHeight = 54 });
             label.Children.Add(new TextBlock { Text = $"估分 {candidate.Score}% · {candidate.SearchMetadata.Source} · {candidate.SearchMetadata.Code}",
-                Foreground = Brushes.SlateGray, FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis });
+                Foreground = UiTheme.TextTertiaryBrush, FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis });
             list.Items.Add(new ListBoxItem { Content = label, Tag = candidate });
         }
         Grid.SetColumn(list, 0); body.Children.Add(list);
@@ -287,7 +287,7 @@ public partial class MainWindow
             detail.Children.Add(new TextBlock { Text = $"第 {row.Rank} 位 · 初步匹配 {row.Score}% · {stage}",
                 FontWeight = FontWeights.SemiBold, FontSize = 16, TextWrapping = TextWrapping.Wrap });
             detail.Children.Add(new TextBlock { Text = $"本地视频：{video.DisplayTitle}\n查询线索：{snapshot.Query}\n匹配依据：{row.Evidence}",
-                TextWrapping = TextWrapping.Wrap, Foreground = Brushes.SlateGray, Margin = new Thickness(0, 7, 0, 10) });
+                TextWrapping = TextWrapping.Wrap, Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 7, 0, 10) });
             var posterRecord = full ?? source;
             detail.Children.Add(CreateScrapeCover(posterRecord, 120, 170));
             if (ManagedScrapeCoverPath(posterRecord) is not null)
@@ -357,9 +357,9 @@ public partial class MainWindow
                     TextWrapping = TextWrapping.Wrap });
                 if (full is not null)
                     detail.Children.Add(new TextBlock { Text = after.Length == 0 ? "详情：未提供" : "详情：" + after,
-                        TextWrapping = TextWrapping.Wrap, Foreground = before == after ? Brushes.SlateGray : Brushes.DarkBlue });
+                        TextWrapping = TextWrapping.Wrap, Foreground = before == after ? UiTheme.TextTertiaryBrush : Brushes.DarkBlue });
                 detail.Children.Add(new TextBlock { Text = "出处：" + sourceText, TextWrapping = TextWrapping.Wrap,
-                    Foreground = Brushes.SlateGray, FontSize = 11 });
+                    Foreground = UiTheme.TextTertiaryBrush, FontSize = 11 });
             }
         }
         list.SelectionChanged += (_, _) => RenderComparison();
@@ -411,13 +411,13 @@ public partial class MainWindow
         {
             var row = new StackPanel { Margin = new Thickness(8, 5, 8, 6) };
             row.Children.Add(new TextBlock { Text = candidate.Title, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
-            row.Children.Add(new TextBlock { Text = $"匹配估分 {score}% · {candidate.Source} · {candidate.Code}", Foreground = System.Windows.Media.Brushes.SlateGray, Margin = new Thickness(0, 3, 0, 0) });
+            row.Children.Add(new TextBlock { Text = $"匹配估分 {score}% · {candidate.Source} · {candidate.Code}", Foreground = global::YinggeVideoLibrary.UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 3, 0, 0) });
             var glimpse = string.Join(" · ", new[] { candidate.ReleaseDate, candidate.Rating, candidate.Summary }.Where(value => !string.IsNullOrWhiteSpace(value)));
-            if (glimpse.Length > 0) row.Children.Add(new TextBlock { Text = glimpse, Foreground = System.Windows.Media.Brushes.SlateGray,
+            if (glimpse.Length > 0) row.Children.Add(new TextBlock { Text = glimpse, Foreground = global::YinggeVideoLibrary.UiTheme.TextTertiaryBrush,
                 FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 3, 0, 0) });
             if (candidate.Source.Equals("Trakt", StringComparison.OrdinalIgnoreCase))
                 row.Children.Add(new TextBlock { Text = candidate.DetailNote,
-                    Foreground = System.Windows.Media.Brushes.SlateGray, FontSize = 11,
+                    Foreground = global::YinggeVideoLibrary.UiTheme.TextTertiaryBrush, FontSize = 11,
                     TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 3, 0, 0) });
             list.Items.Add(row);
         }

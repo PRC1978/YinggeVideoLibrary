@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -109,7 +109,7 @@ public partial class MainWindow
 
         var pathCard = new Border
         {
-            Background = System.Windows.Media.Brushes.White, BorderBrush = Tint("#DFE7F3"), BorderThickness = new Thickness(1),
+            Background = global::YinggeVideoLibrary.UiTheme.SurfaceBrush, BorderBrush = Tint("#DFE7F3"), BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12), Padding = new Thickness(16),
             Margin = new Thickness(0, 0, 0, 12)
         };
@@ -197,7 +197,7 @@ public partial class MainWindow
             HeadersVisibility = DataGridHeadersVisibility.Column,
             SelectionMode = DataGridSelectionMode.Single,
             EnableRowVirtualization = true, EnableColumnVirtualization = true,
-            BorderBrush = Tint("#DFE7F3"), Background = System.Windows.Media.Brushes.White
+            BorderBrush = Tint("#DFE7F3"), Background = global::YinggeVideoLibrary.UiTheme.SurfaceBrush
         };
         VirtualizingPanel.SetIsVirtualizing(grid, true);
         VirtualizingPanel.SetVirtualizationMode(grid, VirtualizationMode.Recycling);
@@ -208,7 +208,7 @@ public partial class MainWindow
 
         var decisionCard = new Border
         {
-            Background = System.Windows.Media.Brushes.White, BorderBrush = Tint("#DFE7F3"), BorderThickness = new Thickness(1),
+            Background = global::YinggeVideoLibrary.UiTheme.SurfaceBrush, BorderBrush = Tint("#DFE7F3"), BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12), Padding = new Thickness(13),
             Margin = new Thickness(0, 10, 0, 0)
         };

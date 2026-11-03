@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Windows;
@@ -218,7 +218,7 @@ public partial class MainWindow
             actions.Children.Add(scrapeQueueClearButton);
             scrapeQueueInfo = new TextBlock
             {
-                Foreground = new SolidColorBrush(Color.FromRgb(82, 100, 122)),
+                Foreground = UiTheme.TextTertiaryBrush,
                 TextWrapping = TextWrapping.Wrap
             };
             row.Children.Add(scrapeQueueInfo);

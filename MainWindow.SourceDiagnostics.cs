@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -25,8 +25,8 @@ public partial class MainWindow
     {
         var section = new Border
         {
-            Background = new SolidColorBrush(Color.FromRgb(247, 249, 255)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(215, 225, 248)),
+            Background = UiTheme.SurfaceBrush,
+            BorderBrush = UiTheme.AccentSoftBackgroundBrush,
             BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12),
             Padding = new Thickness(16), Margin = new Thickness(0, 8, 0, 16)
         };
@@ -36,7 +36,7 @@ public partial class MainWindow
         body.Children.Add(new TextBlock
         {
             Text = "只读取本机的来源开关、冷却与请求上限记录；刷新和导出不会联网，也不会消耗付费额度。",
-            Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap,
+            Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 5, 0, 10)
         });
         var actions = new StackPanel { Orientation = Orientation.Horizontal };
@@ -48,7 +48,7 @@ public partial class MainWindow
         export.Click += async (_, _) => await ExportSourceDiagnosticsAsync();
         actions.Children.Add(export);
         body.Children.Add(actions);
-        sourceHealthStatus = new TextBlock { Foreground = Brushes.SlateGray,
+        sourceHealthStatus = new TextBlock { Foreground = UiTheme.TextTertiaryBrush,
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 8) };
         body.Children.Add(sourceHealthStatus);
         var scroll = new ScrollViewer { MaxHeight = 355, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
@@ -56,7 +56,7 @@ public partial class MainWindow
         sourceHealthRows = new StackPanel();
         scroll.Content = sourceHealthRows;
         body.Children.Add(scroll);
-        sourcePaidBudget = new TextBlock { Foreground = new SolidColorBrush(Color.FromRgb(76, 91, 116)),
+        sourcePaidBudget = new TextBlock { Foreground = UiTheme.TextTertiaryBrush,
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0) };
         body.Children.Add(sourcePaidBudget);
         page.Children.Insert(page.Children.IndexOf(sourceToggles) + 1, section);
@@ -82,7 +82,7 @@ public partial class MainWindow
         sourceHealthRows.Children.Clear();
         foreach (var source in snapshot.Sources)
         {
-            var row = new Border { BorderBrush = new SolidColorBrush(Color.FromRgb(227, 233, 244)),
+            var row = new Border { BorderBrush = UiTheme.AccentSoftBackgroundBrush,
                 BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(2, 9, 2, 9) };
             var content = new StackPanel();
             row.Child = content;
@@ -90,14 +90,14 @@ public partial class MainWindow
             {
                 Text = $"{source.Name}   {source.Status}", FontWeight = FontWeights.SemiBold,
                 Foreground = source.Status == "冷却中" || source.Status == "付费请求已阻止"
-                    ? new SolidColorBrush(Color.FromRgb(163, 93, 45)) : new SolidColorBrush(Color.FromRgb(48, 70, 115))
+                    ? UiTheme.DangerBrush : UiTheme.TextTertiaryBrush
             });
             var cooldown = source.CooldownUntilUtc is { } until
                 ? $" · 冷却至 {until.ToLocalTime():MM-dd HH:mm:ss}" : "";
             content.Children.Add(new TextBlock
             {
                 Text = $"开关：{(source.Enabled ? "开启" : "关闭")} · {source.Mode}{cooldown} · 最近失败：{source.LastFailureCategory} · 解析版本：{source.ParserRevision}",
-                Foreground = Brushes.SlateGray, FontSize = 12, TextWrapping = TextWrapping.Wrap,
+                Foreground = UiTheme.TextTertiaryBrush, FontSize = 12, TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 3, 0, 0)
             });
             sourceHealthRows.Children.Add(row);

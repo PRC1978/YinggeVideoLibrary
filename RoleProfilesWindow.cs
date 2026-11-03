@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -121,7 +121,7 @@ internal sealed class RoleProfilesView : Grid
             state = RoleProfileStore.Load(dataDir);
         }
         else state = new RoleProfileStore.State();
-        Background = new SolidColorBrush(Color.FromRgb(247, 249, 253));
+        Background = UiTheme.SurfaceBrush;
         // Cleanup is intentionally NOT hooked to Unloaded: in the redesigned
         // shell the view is embedded in a main-window page, and switching pages
         // unloads it. Disposing the auto-discovery cancellation token there
@@ -145,7 +145,7 @@ internal sealed class RoleProfilesView : Grid
         columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         Grid.SetRow(columns, 1); root.Children.Add(columns);
 
-        var left = new Border { Background = Brushes.White, CornerRadius = new CornerRadius(14),
+        var left = new Border { Background = UiTheme.SurfaceBrush, CornerRadius = new CornerRadius(14),
             BorderBrush = Line(), BorderThickness = new Thickness(1), Padding = new Thickness(12) };
         Grid.SetColumn(left, 0); columns.Children.Add(left);
         var leftBody = new DockPanel(); left.Child = leftBody;
@@ -218,7 +218,7 @@ internal sealed class RoleProfilesView : Grid
         };
         leftBody.Children.Add(profiles);
 
-        var right = new Border { Background = Brushes.White, CornerRadius = new CornerRadius(14),
+        var right = new Border { Background = UiTheme.SurfaceBrush, CornerRadius = new CornerRadius(14),
             BorderBrush = Line(), BorderThickness = new Thickness(1), Padding = new Thickness(18) };
         Grid.SetColumn(right, 2); columns.Children.Add(right);
         var scroller = new ScrollViewer { Content = content,
@@ -259,15 +259,15 @@ internal sealed class RoleProfilesView : Grid
         return map;
     }
 
-    static Brush Ink() => new SolidColorBrush(Color.FromRgb(35, 49, 74));
-    static Brush Muted() => new SolidColorBrush(Color.FromRgb(112, 128, 151));
-    static Brush Line() => new SolidColorBrush(Color.FromRgb(218, 227, 243));
+    static Brush Ink() => UiTheme.TextSecondaryBrush;
+    static Brush Muted() => UiTheme.TextTertiaryBrush;
+    static Brush Line() => UiTheme.AccentSoftBackgroundBrush;
     static Button UiButton(string text, bool primary = false) => new()
     {
         Content = text, MinHeight = 35, Padding = new Thickness(11, 6, 11, 6),
         Margin = new Thickness(0, 0, 7, 6), Background = primary
-            ? new SolidColorBrush(Color.FromRgb(78, 107, 225)) : Brushes.White,
-        Foreground = primary ? Brushes.White : Ink(), BorderBrush = Line(), BorderThickness = new Thickness(1)
+            ? UiTheme.AccentBrush : UiTheme.SurfaceBrush,
+        Foreground = primary ? UiTheme.SurfaceBrush : Ink(), BorderBrush = Line(), BorderThickness = new Thickness(1)
     };
 
     void BuildVerifiedOptions()
@@ -474,7 +474,7 @@ internal sealed class RoleProfilesView : Grid
             Title = "预览自动搜刮人物", Owner = Window.GetWindow(this), Width = 680, Height = 540,
             MinWidth = 520, MinHeight = 400,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Background = new SolidColorBrush(Color.FromRgb(247, 249, 253))
+            Background = UiTheme.SurfaceBrush
         };
         var layout = new DockPanel { Margin = new Thickness(20) };
         var footer = new WrapPanel { HorizontalAlignment = System.Windows.HorizontalAlignment.Right };
@@ -508,7 +508,7 @@ internal sealed class RoleProfilesView : Grid
         var items = preview.Candidates.Take(150).Select(candidate =>
             $"{candidate.Provider} · {candidate.Name} · {candidate.WorkCount:N0} 部作品"
             + (candidate.CanFetchDetails ? " · 可读取详情" : " · 仅来源身份")).ToArray();
-        var list = new ListBox { ItemsSource = items, Background = Brushes.White,
+        var list = new ListBox { ItemsSource = items, Background = UiTheme.SurfaceBrush,
             BorderBrush = Line(), BorderThickness = new Thickness(1) };
         if (preview.Candidates.Count > items.Length)
             heading.Children.Add(new TextBlock { Text = $"以下展示前 {items.Length} 位；确认后处理全部候选。",
@@ -547,7 +547,7 @@ internal sealed class RoleProfilesView : Grid
         var top = new Grid { Margin = new Thickness(0, 0, 0, 15) };
         top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(180) });
         top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var portrait = new Border { Width = 158, Height = 190, Background = new SolidColorBrush(Color.FromRgb(236, 241, 250)),
+        var portrait = new Border { Width = 158, Height = 190, Background = UiTheme.AccentSoftBackgroundBrush,
             CornerRadius = new CornerRadius(10), HorizontalAlignment = System.Windows.HorizontalAlignment.Left };
         try
         {
@@ -576,7 +576,7 @@ internal sealed class RoleProfilesView : Grid
         if (profile.Aliases.Count > 0) title.Children.Add(new TextBlock { Text = "别名：" + string.Join("、", profile.Aliases),
             Foreground = Muted(), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 8) });
         title.Children.Add(new TextBlock { Text = "手工档案 · " + profile.Sources.Count + " 个已核实来源 · " + profile.Works.Count + " 个明确关联作品",
-            Foreground = new SolidColorBrush(Color.FromRgb(78, 107, 187)),
+            Foreground = UiTheme.AccentBrush,
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 7, 0, 12) });
         var edit = UiButton("✎ 编辑档案"); edit.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
         edit.Click += (_, _) => EditProfile(profile);
@@ -987,7 +987,7 @@ internal sealed class RoleProfilesView : Grid
         var editor = new Window { Title = existing is null ? "新建角色档案" : "编辑角色档案",
             Owner = Window.GetWindow(this), Width = 650, Height = 690, MinWidth = 500, MinHeight = 500,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Background = new SolidColorBrush(Color.FromRgb(247, 249, 253)) };
+            Background = UiTheme.SurfaceBrush };
         var layout = new DockPanel { Margin = new Thickness(20) };
         var footer = new WrapPanel { HorizontalAlignment = System.Windows.HorizontalAlignment.Right };
         var save = UiButton("保存档案", true); var cancel = UiButton("取消");

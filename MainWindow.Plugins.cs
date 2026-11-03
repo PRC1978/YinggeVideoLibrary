@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -81,7 +81,7 @@ public partial class MainWindow
             PluginListPanel.Children.Add(new TextBlock
             {
                 Text = "插件目录为空。示例插件位于仓库的 samples\\ExampleScrapePlugin，构建后复制到上面的目录即可。",
-                Foreground = new SolidColorBrush(Color.FromRgb(131, 144, 163)), TextWrapping = TextWrapping.Wrap,
+                Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(2, 6, 2, 6)
             });
         }
@@ -106,8 +106,8 @@ public partial class MainWindow
         };
         var card = new Border
         {
-            Background = new SolidColorBrush(Color.FromRgb(250, 251, 254)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(226, 232, 242)),
+            Background = UiTheme.SurfaceBrush,
+            BorderBrush = UiTheme.AccentSoftBackgroundBrush,
             BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(11),
             Padding = new Thickness(14, 12, 14, 12), Margin = new Thickness(0, 0, 0, 10)
         };
@@ -117,7 +117,7 @@ public partial class MainWindow
         title.Children.Add(new TextBlock
         {
             Text = plugin.DisplayName, FontSize = 15, FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Color.FromRgb(38, 51, 71)), VerticalAlignment = VerticalAlignment.Center
+            Foreground = UiTheme.TextSecondaryBrush, VerticalAlignment = VerticalAlignment.Center
         });
         title.Children.Add(new Border
         {
@@ -157,7 +157,7 @@ public partial class MainWindow
               (string.IsNullOrWhiteSpace(plugin.Manifest.Author) ? "" : " · " + plugin.Manifest.Author);
         stack.Children.Add(new TextBlock
         {
-            Text = identity, Foreground = new SolidColorBrush(Color.FromRgb(131, 144, 163)),
+            Text = identity, Foreground = UiTheme.TextTertiaryBrush,
             FontSize = 12, Margin = new Thickness(0, 5, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis
         });
         var capabilities = plugin.Manifest?.Capabilities is { Count: > 0 } list ? string.Join("、", list) : "未声明能力";
@@ -166,7 +166,7 @@ public partial class MainWindow
         stack.Children.Add(new TextBlock
         {
             Text = $"能力：{capabilities}　·　域名：{network}　·　数据：{data}",
-            Foreground = new SolidColorBrush(Color.FromRgb(82, 100, 122)), FontSize = 12,
+            Foreground = UiTheme.TextTertiaryBrush, FontSize = 12,
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 0, 0)
         });
         if (!string.IsNullOrWhiteSpace(plugin.Message))
@@ -175,7 +175,7 @@ public partial class MainWindow
             {
                 Text = plugin.Message,
                 Foreground = plugin.Status is PluginStatus.Ready or PluginStatus.Disabled
-                    ? new SolidColorBrush(Color.FromRgb(180, 83, 9)) : new SolidColorBrush(Color.FromRgb(185, 28, 28)),
+                    ? UiTheme.DangerBrush : UiTheme.DangerBrush,
                 FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0)
             });
         }
@@ -184,7 +184,7 @@ public partial class MainWindow
             stack.Children.Add(new TextBlock
             {
                 Text = $"最近错误（{plugin.LastErrorAt:MM-dd HH:mm}）：{plugin.LastError}",
-                Foreground = new SolidColorBrush(Color.FromRgb(180, 83, 9)), FontSize = 12,
+                Foreground = UiTheme.DangerBrush, FontSize = 12,
                 TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0)
             });
         }

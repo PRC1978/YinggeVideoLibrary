@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using CheckBox = System.Windows.Controls.CheckBox;
@@ -28,7 +28,7 @@ public partial class MainWindow
         section.Children.Add(new TextBlock
         {
             Text = "仅作为可选付费的手动备用来源。必须先核对当前视频的明确番号和日文作品原名；纯汉字原名须由你确认。只按精确番号查询，不加入“全部来源”或后台全量队列。",
-            Foreground = System.Windows.Media.Brushes.SlateGray, TextWrapping = TextWrapping.Wrap,
+            Foreground = global::YinggeVideoLibrary.UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 5, 0, 12)
         });
         javinfoEnabledBox = new CheckBox { Content = "启用 Javinfo 手动搜刮", IsChecked = config.EnableJavinfo,
@@ -78,7 +78,7 @@ public partial class MainWindow
         section.Children.Add(new TextBlock
         {
             Text = "请求间隔至少 13 秒；每日按 UTC 日期计数。费用以 Javinfo 官方实时价格和账单为准：docs.javinfo.dev/docs/rate-limits",
-            Foreground = System.Windows.Media.Brushes.SlateGray, TextWrapping = TextWrapping.Wrap,
+            Foreground = global::YinggeVideoLibrary.UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 10, 0, 0)
         });
         panel.Children.Insert(panel.Children.IndexOf(TmdbEnabledBox) + 2, section);
@@ -110,7 +110,7 @@ public partial class MainWindow
             Width = 580, Height = 430, MinWidth = 520, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var panel = new StackPanel { Margin = new Thickness(20) };
         panel.Children.Add(new TextBlock { Text = "只在番号与日文作品原名都明确时查询。Javinfo 是付费来源，每次请求可能消耗额度。",
-            TextWrapping = TextWrapping.Wrap, Foreground = System.Windows.Media.Brushes.SlateGray,
+            TextWrapping = TextWrapping.Wrap, Foreground = global::YinggeVideoLibrary.UiTheme.TextTertiaryBrush,
             Margin = new Thickness(0, 0, 0, 12) });
         panel.Children.Add(new TextBlock { Text = "作品番号", FontWeight = FontWeights.SemiBold });
         var codeBox = new TextBox { Text = code, Height = 34, Margin = new Thickness(0, 5, 0, 12),
@@ -126,7 +126,7 @@ public partial class MainWindow
         var confirmMatch = new CheckBox { Content = "我已核对上方番号与日文原名属于当前视频",
             Margin = new Thickness(0, 0, 0, 10) };
         panel.Children.Add(confirmMatch);
-        var error = new TextBlock { Foreground = System.Windows.Media.Brushes.IndianRed,
+        var error = new TextBlock { Foreground = global::YinggeVideoLibrary.UiTheme.DangerBrush,
             TextWrapping = TextWrapping.Wrap, MinHeight = 34 };
         panel.Children.Add(error);
         JavinfoSearchEvidence? evidence = null;

@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Button = System.Windows.Controls.Button;
@@ -31,7 +31,7 @@ public partial class MainWindow
             MinWidth = 640,
             MinHeight = 560,
             ShowInTaskbar = false,
-            Background = new SolidColorBrush(Color.FromRgb(247, 249, 253))
+            Background = UiTheme.SurfaceBrush
         };
         var root = new Grid { Margin = new Thickness(24) };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -43,7 +43,7 @@ public partial class MainWindow
         header.Children.Add(new TextBlock
         {
             Text = "从备份导入所选资料", FontSize = 21, FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Color.FromRgb(31, 49, 80))
+            Foreground = UiTheme.TextSecondaryBrush
         });
         header.Children.Add(ImportHint("先选择范围并预览差异。确认后排定于下次启动前导入；视频原文件不会移动。"));
         root.Children.Add(header);
@@ -67,7 +67,7 @@ public partial class MainWindow
         {
             Text = latestPath, Height = 38, MinWidth = 160, Padding = new Thickness(9, 6, 9, 6),
             VerticalContentAlignment = VerticalAlignment.Center,
-            BorderBrush = new SolidColorBrush(Color.FromRgb(210, 222, 240))
+            BorderBrush = UiTheme.BorderBrushToken
         };
         sourceRow.Children.Add(source);
         var recent = ImportButton("最近备份");
@@ -132,8 +132,8 @@ public partial class MainWindow
 
         var previewBox = new Border
         {
-            Background = Brushes.White,
-            BorderBrush = new SolidColorBrush(Color.FromRgb(217, 226, 241)),
+            Background = UiTheme.SurfaceBrush,
+            BorderBrush = UiTheme.AccentSoftBackgroundBrush,
             BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10),
             Padding = new Thickness(14), Margin = new Thickness(0, 12, 5, 0),
             MinHeight = 170
@@ -141,7 +141,7 @@ public partial class MainWindow
         var previewText = new TextBlock
         {
             Text = "点击“预览差异”查看备份时间、来源、目标和各项改动数量。",
-            TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush(Color.FromRgb(75, 91, 116))
+            TextWrapping = TextWrapping.Wrap, Foreground = UiTheme.TextTertiaryBrush
         };
         previewBox.Child = previewText;
         body.Children.Add(previewBox);
@@ -398,7 +398,7 @@ public partial class MainWindow
 
     static TextBlock ImportHint(string text) => new()
     {
-        Text = text, Foreground = new SolidColorBrush(Color.FromRgb(109, 126, 153)),
+        Text = text, Foreground = UiTheme.TextTertiaryBrush,
         FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 0, 5)
     };
 

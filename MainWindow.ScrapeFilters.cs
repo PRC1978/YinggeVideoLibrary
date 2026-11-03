@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using Button = System.Windows.Controls.Button;
 using CheckBox = System.Windows.Controls.CheckBox;
@@ -53,10 +53,10 @@ public partial class MainWindow
         actions.Children.Add(preview);
         panel.Children.Insert(3, actions);
         panel.Children.Insert(4, new TextBlock { Text = "搜刮会读取所选来源的详情信息，低可信度先进入审核。来源未公开或暂不可访问的字段会标明缺失。",
-            TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = System.Windows.Media.Brushes.SlateGray, Margin = new Thickness(0, 0, 0, 12) });
+            TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = global::YinggeVideoLibrary.UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 0, 0, 12) });
 
         var section = new StackPanel { Margin = new Thickness(0, 2, 0, 18) };
-        section.Children.Add(new TextBlock { Text = "默认搜刮排除条件之外的全部视频；有番号的优先按番号查找，其余按标题查找。条件也适用于已有队列。", TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = System.Windows.Media.Brushes.SlateGray, Margin = new Thickness(0, 0, 0, 8) });
+        section.Children.Add(new TextBlock { Text = "默认搜刮排除条件之外的全部视频；有番号的优先按番号查找，其余按标题查找。条件也适用于已有队列。", TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = global::YinggeVideoLibrary.UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 0, 0, 8) });
         scrapeRefreshExistingBox = new CheckBox
         {
             Content = "本次补全已搜刮但字段缺失的资料",
@@ -67,7 +67,7 @@ public partial class MainWindow
         scrapeRefreshExistingBox.Checked += (_, _) => ScrapeBatchButton.Content = "未搜刮＋需补全入队";
         scrapeRefreshExistingBox.Unchecked += (_, _) => ScrapeBatchButton.Content = "全部符合条件入队";
         section.Children.Add(scrapeRefreshExistingBox);
-        section.Children.Add(new TextBlock { Text = "补全模式只会增加详情未核对或常用字段缺失的已保存作品；审核中、已否决的候选不会重新入队。补全结果需人工确认，原资料在确认前保持不变。", TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = System.Windows.Media.Brushes.SlateGray, Margin = new Thickness(0, 0, 0, 10) });
+        section.Children.Add(new TextBlock { Text = "补全模式只会增加详情未核对或常用字段缺失的已保存作品；审核中、已否决的候选不会重新入队。补全结果需人工确认，原资料在确认前保持不变。", TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = global::YinggeVideoLibrary.UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 0, 0, 10) });
         section.Children.Add(new TextBlock { Text = "跳过这些文件夹（含子文件夹）", FontWeight = FontWeights.SemiBold });
         scrapeExcludedList = new ListBox { Height = 88, Margin = new Thickness(0, 6, 0, 6) };
         RefreshExcludedFoldersList();

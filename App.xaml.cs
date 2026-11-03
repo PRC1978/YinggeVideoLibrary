@@ -127,6 +127,21 @@ public partial class App : System.Windows.Application
             Shutdown(searchResult);
             return;
         }
+        // --diagnose-ui-theme <输出目录>：五种界面模式 × 三档窗口 × 关键页面截图。
+        if (e.Args.Length > 1 && e.Args[0] == "--diagnose-ui-theme")
+        {
+            var themeProbe = new MainWindow
+            {
+                Left = -30000, Top = -30000, Width = 1240, Height = 780,
+                ShowActivated = false, ShowInTaskbar = false
+            };
+            MainWindow = themeProbe;
+            themeProbe.Show();
+            var themeResult = await themeProbe.WriteHiddenThemeDiagnosticAsync(e.Args[1]);
+            themeProbe.Close();
+            Shutdown(themeResult);
+            return;
+        }
         if (e.Args.Length > 1 && e.Args[0] == "--diagnose-ui-scrape")
         {
             var scrapeProbe = new MainWindow

@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -143,7 +143,7 @@ public partial class MainWindow
         FoldersPanel.Children.Add(new TextBlock
         {
             Text = "正在整理文件夹视图…", Margin = new Thickness(0, 15, 0, 0),
-            Foreground = new SolidColorBrush(Color.FromRgb(127, 143, 168))
+            Foreground = UiTheme.TextTertiaryBrush
         });
         var roots = NormalizeRoots(config.Folders);
         var source = videos;
@@ -172,7 +172,7 @@ public partial class MainWindow
             if (request != folderRenderRequest) return;
             FoldersPanel.Children.Clear();
             FoldersPanel.Children.Add(new TextBlock { Text = "文件夹视图暂时无法建立：" + ex.Message,
-                Foreground = Brushes.IndianRed, TextWrapping = TextWrapping.Wrap });
+                Foreground = UiTheme.DangerBrush, TextWrapping = TextWrapping.Wrap });
             Log("文件夹树构建失败：" + ex.Message);
         }
     }
@@ -186,20 +186,20 @@ public partial class MainWindow
         {
             Text = current is null ? "我的文件夹" : current.Name,
             FontSize = 21, FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Color.FromRgb(38, 51, 71))
+            Foreground = UiTheme.TextSecondaryBrush
         });
         summary.Children.Add(new TextBlock
         {
             Text = current is null
                 ? $"{tree.Roots.Length} 个扫描位置 · {tree.ByPath.Count:N0} 个库内目录 · {tree.Source.Count:N0} 部视频"
                 : $"{current.TotalVideos:N0} 部视频（含子目录） · 本层 {current.DirectVideos.Count:N0} 部 · {current.Children.Count:N0} 个库内子目录",
-            FontSize = 12, Foreground = new SolidColorBrush(Color.FromRgb(123, 141, 169)),
+            FontSize = 12, Foreground = UiTheme.TextTertiaryBrush,
             Margin = new Thickness(0, 5, 0, 0)
         });
         summary.Children.Add(new TextBlock
         {
             Text = "按视频索引浏览库内目录；没有索引视频的空目录不会显示。扫描位置始终显示。",
-            FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(139, 153, 177)),
+            FontSize = 11, Foreground = UiTheme.TextTertiaryBrush,
             Margin = new Thickness(0, 4, 0, 0)
         });
         FoldersPanel.Children.Add(summary);
@@ -255,9 +255,9 @@ public partial class MainWindow
     static Button FolderAction(string label) => new()
     {
         Content = label, Height = 34, Padding = new Thickness(11, 5, 11, 5),
-        Margin = new Thickness(0, 0, 9, 8), Background = Brushes.White,
-        BorderBrush = new SolidColorBrush(Color.FromRgb(217, 226, 241)),
-        Foreground = new SolidColorBrush(Color.FromRgb(69, 98, 161)), Cursor = Cursors.Hand
+        Margin = new Thickness(0, 0, 9, 8), Background = UiTheme.SurfaceBrush,
+        BorderBrush = UiTheme.AccentSoftBackgroundBrush,
+        Foreground = UiTheme.AccentBrush, Cursor = Cursors.Hand
     };
 
     WrapPanel BuildFolderBreadcrumb(FolderTreeIndex tree, IndexedFolder? current)
@@ -277,7 +277,7 @@ public partial class MainWindow
         {
             var node = path.Pop();
             breadcrumb.Children.Add(new TextBlock { Text = "›", VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 8, 8), Foreground = new SolidColorBrush(Color.FromRgb(149, 163, 187)) });
+                Margin = new Thickness(0, 0, 8, 8), Foreground = UiTheme.TextTertiaryBrush });
             var step = FolderAction(node.Name);
             step.ToolTip = node.Path;
             var destination = node.Path;
@@ -338,7 +338,7 @@ public partial class MainWindow
         {
             Text = current is null ? $"扫描位置 · {matches.Length:N0}" : $"库内子目录 · {matches.Length:N0}",
             FontSize = 16, FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(0, 2, 0, 10), Foreground = new SolidColorBrush(Color.FromRgb(45, 65, 104))
+            Margin = new Thickness(0, 2, 0, 10), Foreground = UiTheme.TextTertiaryBrush
         });
         var cards = new WrapPanel();
         foreach (var child in matches.Skip(folderDirectoryPage * FolderDirectoryPageSize).Take(FolderDirectoryPageSize))
@@ -349,7 +349,7 @@ public partial class MainWindow
             {
                 Text = tree.Roots.Length == 0 ? "还没有扫描位置。点击上方“添加扫描位置”。" :
                     folderSearch.Length > 0 ? "当前层没有匹配的库内目录。" : "这个目录下没有已索引的子目录。",
-                Foreground = new SolidColorBrush(Color.FromRgb(127, 143, 168)), Margin = new Thickness(0, 9, 0, 6)
+                Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 9, 0, 6)
             });
         if (pageCount > 1) folderResultsHost.Children.Add(BuildFolderPager(folderDirectoryPage, pageCount,
             page => { folderDirectoryPage = page; UpdateFolderDirectoryListing(); }));
@@ -360,7 +360,7 @@ public partial class MainWindow
         var card = new Border
         {
             Width = 194, MinHeight = 164, CornerRadius = new CornerRadius(14),
-            Background = Brushes.White, BorderBrush = new SolidColorBrush(Color.FromRgb(216, 226, 244)),
+            Background = UiTheme.SurfaceBrush, BorderBrush = UiTheme.AccentSoftBackgroundBrush,
             BorderThickness = new Thickness(1), Padding = new Thickness(14),
             Margin = new Thickness(0, 0, 11, 11), Cursor = Cursors.Hand,
             Focusable = true, ToolTip = node.Path
@@ -370,8 +370,8 @@ public partial class MainWindow
         var folderIcon = new WpfPath
         {
             Data = Geometry.Parse("M4,8 C4,6.9 4.9,6 6,6 L13,6 L16,9 L28,9 C29.1,9 30,9.9 30,11 L30,25 C30,26.1 29.1,27 28,27 L6,27 C4.9,27 4,26.1 4,25 Z"),
-            Fill = new SolidColorBrush(Color.FromRgb(91, 126, 219)),
-            Stroke = new SolidColorBrush(Color.FromRgb(66, 103, 199)),
+            Fill = UiTheme.AccentBrush,
+            Stroke = UiTheme.AccentBrush,
             StrokeThickness = 0.7, Width = 54, Height = 47,
             Stretch = Stretch.Uniform, HorizontalAlignment = WpfHorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Center
@@ -381,7 +381,7 @@ public partial class MainWindow
         {
             var remove = new Button
             {
-                Content = "移除", FontSize = 11, Foreground = Brushes.IndianRed,
+                Content = "移除", FontSize = 11, Foreground = UiTheme.DangerBrush,
                 Background = Brushes.Transparent, BorderThickness = new Thickness(0),
                 Padding = new Thickness(5, 2, 5, 2), Cursor = Cursors.Hand
             };
@@ -394,24 +394,24 @@ public partial class MainWindow
         body.Children.Add(new TextBlock
         {
             Text = node.Name, FontSize = 15, FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Color.FromRgb(59, 93, 178)),
+            Foreground = UiTheme.AccentBrush,
             TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 163
         });
         body.Children.Add(new TextBlock
         {
             Text = $"{node.TotalVideos:N0} 部视频 · {node.Children.Count:N0} 个子目录",
-            FontSize = 12, Foreground = new SolidColorBrush(Color.FromRgb(115, 132, 161)),
+            FontSize = 12, Foreground = UiTheme.TextTertiaryBrush,
             Margin = new Thickness(0, 10, 0, 0)
         });
         body.Children.Add(new TextBlock
         {
             Text = isRoot ? node.Path : $"本层 {node.DirectVideos.Count:N0} 部 · 点击进入",
-            FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(145, 159, 182)),
+            FontSize = 11, Foreground = UiTheme.TextTertiaryBrush,
             TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 7, 0, 0)
         });
         card.Child = body;
-        card.MouseEnter += (_, _) => card.Background = new SolidColorBrush(Color.FromRgb(239, 245, 255));
-        card.MouseLeave += (_, _) => card.Background = Brushes.White;
+        card.MouseEnter += (_, _) => card.Background = UiTheme.AccentSoftBackgroundBrush;
+        card.MouseLeave += (_, _) => card.Background = UiTheme.SurfaceBrush;
         card.PreviewMouseLeftButtonDown += (_, e) =>
         {
             if (e.OriginalSource is DependencyObject source && FindParent<WpfButtonBase>(source) is not null)
@@ -477,7 +477,7 @@ public partial class MainWindow
         bar.Children.Add(new TextBlock
         {
             Text = $"第 {page + 1:N0} / {count:N0} 页", VerticalAlignment = VerticalAlignment.Center,
-            Foreground = new SolidColorBrush(Color.FromRgb(111, 129, 160)), Margin = new Thickness(2, 0, 11, 8)
+            Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(2, 0, 11, 8)
         });
         var next = FolderAction("下一页");
         next.IsEnabled = page < count - 1;
@@ -495,7 +495,7 @@ public partial class MainWindow
         folderVideosHost.Children.Add(new TextBlock
         {
             Text = $"本层视频 · {videosHere.Count:N0}", FontSize = 16, FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Color.FromRgb(45, 65, 104)), Margin = new Thickness(0, 0, 0, 10)
+            Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 0, 0, 10)
         });
         var pageCount = Math.Max(1, (videosHere.Count + FolderVideoPageSize - 1) / FolderVideoPageSize);
         folderVideoPage = Math.Clamp(folderVideoPage, 0, pageCount - 1);
@@ -503,7 +503,7 @@ public partial class MainWindow
         {
             var row = new Border
             {
-                Background = Brushes.White, BorderBrush = new SolidColorBrush(Color.FromRgb(225, 232, 244)),
+                Background = UiTheme.SurfaceBrush, BorderBrush = UiTheme.AccentSoftBackgroundBrush,
                 BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9),
                 Padding = new Thickness(11, 8, 11, 8), Margin = new Thickness(0, 0, 0, 6)
             };
@@ -516,7 +516,7 @@ public partial class MainWindow
             contents.Children.Add(new TextBlock
             {
                 Text = video.DisplayTitle, VerticalAlignment = VerticalAlignment.Center,
-                FontSize = 13, Foreground = new SolidColorBrush(Color.FromRgb(42, 59, 88)),
+                FontSize = 13, Foreground = UiTheme.TextSecondaryBrush,
                 TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = video.Path
             });
             row.Child = contents;
@@ -526,7 +526,7 @@ public partial class MainWindow
         }
         if (videosHere.Count == 0)
             folderVideosHost.Children.Add(new TextBlock { Text = "本层没有视频；可以进入子文件夹继续浏览。",
-                Foreground = new SolidColorBrush(Color.FromRgb(127, 143, 168)) });
+                Foreground = UiTheme.TextTertiaryBrush });
         if (pageCount > 1) folderVideosHost.Children.Add(BuildFolderPager(folderVideoPage, pageCount,
             page => { folderVideoPage = page; UpdateFolderVideoListing(); }));
     }

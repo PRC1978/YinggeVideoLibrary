@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Windows;
@@ -65,13 +65,13 @@ public partial class MainWindow
     {
         var dialog = new Window { Title = "人工审批预览", Owner = owner, Width = 760, Height = 580,
             MinWidth = 550, MinHeight = 380, WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Background = Brushes.White };
+            Background = UiTheme.SurfaceBrush };
         var layout = new DockPanel { Margin = new Thickness(20) };
         var heading = new TextBlock { Text = $"准备通过 {selected.Count} 条 AI 建议",
             FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 8) };
         DockPanel.SetDock(heading, Dock.Top); layout.Children.Add(heading);
         var note = new TextBlock { Text = "下方预览最多 20 条。确认时还会核对磁盘记录与请求时的字段版本；已变化的项目不会被覆盖。",
-            TextWrapping = TextWrapping.Wrap, Foreground = Brushes.SlateGray, Margin = new Thickness(0, 0, 0, 12) };
+            TextWrapping = TextWrapping.Wrap, Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 0, 0, 12) };
         DockPanel.SetDock(note, Dock.Top); layout.Children.Add(note);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
             Margin = new Thickness(0, 12, 0, 0) };
@@ -107,17 +107,17 @@ public partial class MainWindow
         if (ScrapePanel.Child is not StackPanel panel) return;
         var section = new Border
         {
-            Background = new SolidColorBrush(Color.FromRgb(246, 247, 255)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(216, 221, 244)),
+            Background = UiTheme.SurfaceBrush,
+            BorderBrush = UiTheme.AccentSoftBackgroundBrush,
             BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14),
             Padding = new Thickness(16), Margin = new Thickness(0, 18, 0, 0)
         };
         var body = new StackPanel();
         body.Children.Add(new TextBlock { Text = "AI 分类与标签建议", FontSize = 17,
-            FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(56, 66, 128)) });
+            FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextTertiaryBrush });
         body.Children.Add(new TextBlock { Text = "建议先保存到待审记录。人工通过后才会改变分类或标签；可批量否决、查看原始依据与撤销。",
-            Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 10) });
-        aiSuggestionReviewSummary = new TextBlock { Foreground = new SolidColorBrush(Color.FromRgb(88, 104, 147)),
+            Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 10) });
+        aiSuggestionReviewSummary = new TextBlock { Foreground = UiTheme.TextTertiaryBrush,
             Margin = new Thickness(0, 0, 0, 8) };
         body.Children.Add(aiSuggestionReviewSummary);
         aiSuggestionReviewButton = new Button { Content = "打开 AI 建议审核", Style = (Style)FindResource("Primary"),
@@ -150,18 +150,18 @@ public partial class MainWindow
         {
             Title = "映格 · AI 建议审核", Owner = this, Width = 1120, Height = 670,
             MinWidth = 850, MinHeight = 480, WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Background = new SolidColorBrush(Color.FromRgb(247, 249, 253)), FontFamily = FontFamily,
+            Background = UiTheme.SurfaceBrush, FontFamily = FontFamily,
             FontSize = 12
         };
         var layout = new DockPanel { Margin = new Thickness(20) };
         var heading = new StackPanel { Margin = new Thickness(0, 0, 0, 12) };
         heading.Children.Add(new TextBlock { Text = "AI 建议审核", FontSize = 24, FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Color.FromRgb(39, 52, 87)) });
+            Foreground = UiTheme.TextSecondaryBrush });
         heading.Children.Add(new TextBlock { Text = "可单选或多选。低可信度与 AI 否决均不会自动写入；审批前再次核对最新分类、标签和建议状态。",
-            Foreground = Brushes.SlateGray, Margin = new Thickness(0, 5, 0, 0), TextWrapping = TextWrapping.Wrap });
+            Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 5, 0, 0), TextWrapping = TextWrapping.Wrap });
         DockPanel.SetDock(heading, Dock.Top); layout.Children.Add(heading);
         var footer = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(0, 12, 0, 0) };
-        var summary = new TextBlock { Foreground = Brushes.SlateGray, Margin = new Thickness(0, 0, 0, 8) };
+        var summary = new TextBlock { Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 0, 0, 8) };
         footer.Children.Add(summary);
         var buttons = new WrapPanel();
         Button MakeButton(string label, RoutedEventHandler onClick, bool primary = false)
@@ -175,7 +175,7 @@ public partial class MainWindow
             SelectionUnit = DataGridSelectionUnit.FullRow, CanUserAddRows = false,
             EnableRowVirtualization = true, EnableColumnVirtualization = true,
             HeadersVisibility = DataGridHeadersVisibility.Column,
-            RowHeight = 52, Background = Brushes.White, BorderBrush = new SolidColorBrush(Color.FromRgb(223, 230, 243))
+            RowHeight = 52, Background = UiTheme.SurfaceBrush, BorderBrush = UiTheme.AccentSoftBackgroundBrush
         };
         grid.Columns.Add(AiColumn("状态", nameof(AiSuggestionRow.State), 110));
         grid.Columns.Add(AiColumn("类型", nameof(AiSuggestionRow.Kind), 52));
@@ -248,7 +248,7 @@ public partial class MainWindow
         var history = new Window { Title = "AI 建议完整历史", Owner = owner, Width = 900, Height = 570,
             MinWidth = 650, MinHeight = 400, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var grid = new DataGrid { IsReadOnly = true, AutoGenerateColumns = false, EnableRowVirtualization = true,
-            SelectionMode = DataGridSelectionMode.Single, Background = Brushes.White };
+            SelectionMode = DataGridSelectionMode.Single, Background = UiTheme.SurfaceBrush };
         grid.Columns.Add(AiColumn("时间", "TimeUtc", 180));
         grid.Columns.Add(AiColumn("操作", "Action", 90));
         grid.Columns.Add(AiColumn("数量", "Count", 65));

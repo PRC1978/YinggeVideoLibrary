@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Brushes = System.Windows.Media.Brushes;
@@ -20,7 +20,7 @@ public partial class MainWindow
         section.Children.Add(new TextBlock
         {
             Text = "仅对你单独选择的标题查询。按 IMDb ID 再核对详情，候选只进入人工审核；不会加入全部来源或后台全量队列。免费 API Key 的每日额度由 OMDb 管理。",
-            Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap,
+            Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 5, 0, 12)
         });
         var enabled = new CheckBox { Content = "启用 OMDb 手动搜刮", IsChecked = config.EnableOmdb,
@@ -29,7 +29,7 @@ public partial class MainWindow
         enabled.Unchecked += (_, _) => { if (!IsLoaded) return; config.EnableOmdb = false; SaveConfig(); RefreshSourceDiagnostics(); };
         section.Children.Add(enabled);
         var status = new TextBlock { Text = OmdbScraper.CredentialReady() ? "Windows 凭据中已有 OMDb API Key" : "尚未设置 OMDb API Key",
-            Foreground = Brushes.SlateGray, Margin = new Thickness(0, 0, 0, 5) };
+            Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 0, 0, 5) };
         section.Children.Add(status);
         var keyBox = new PasswordBox { Height = 36, Padding = new Thickness(8),
             Margin = new Thickness(0, 0, 0, 8), ToolTip = "留空不会改变已保存的密钥；输入新密钥后点击保存。" };
@@ -83,7 +83,7 @@ public partial class MainWindow
         actions.Children.Add(remove);
         section.Children.Add(actions);
         section.Children.Add(new TextBlock { Text = "申请与用量说明：omdbapi.com/apikey.aspx",
-            Foreground = Brushes.SlateGray, Margin = new Thickness(0, 8, 0, 0) });
+            Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 8, 0, 0) });
         panel.Children.Insert(panel.Children.IndexOf(TmdbEnabledBox) + 3, section);
     }
 }

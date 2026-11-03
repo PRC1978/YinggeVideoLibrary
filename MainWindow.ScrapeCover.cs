@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -116,7 +116,7 @@ public partial class MainWindow
         var hint = new TextBlock { Text = "只显示已缓存或来源明确提供的封面。选择封面只改此视频的显示图，不改变搜刮资料或审核结论。",
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 10) };
         DockPanel.SetDock(hint, Dock.Top); root.Children.Add(hint);
-        var footer = new TextBlock { Text = "", Foreground = Brushes.SlateGray,
+        var footer = new TextBlock { Text = "", Foreground = UiTheme.TextTertiaryBrush,
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
         DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer);
         var wrap = new WrapPanel();
@@ -168,7 +168,7 @@ public partial class MainWindow
         var frame = new Border
         {
             Width = width, Height = height, Margin = new Thickness(0, 5, 12, 8),
-            Background = new SolidColorBrush(Color.FromRgb(232, 237, 247)),
+            Background = UiTheme.AccentSoftBackgroundBrush,
             CornerRadius = new CornerRadius(6), ClipToBounds = true
         };
         try
@@ -198,7 +198,7 @@ public partial class MainWindow
             Text = string.IsNullOrWhiteSpace(record.PosterUrl) ? "来源未提供封面" : "封面尚未缓存",
             TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap,
             VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(7),
-            Foreground = Brushes.SlateGray, FontSize = 11
+            Foreground = UiTheme.TextTertiaryBrush, FontSize = 11
         };
         return frame;
     }

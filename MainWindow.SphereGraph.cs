@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -515,8 +515,8 @@ public partial class MainWindow
             if (!string.Equals(HoverPath, SelectedPath, StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(HoverPath, DropPath, StringComparison.OrdinalIgnoreCase)) DrawFocusedNode(HoverPath, false);
             dc.DrawEllipse(RootBrush, RootPen, center, 43, 43);
-            DrawCentered(dc, "✦", center.X, center.Y - 14, 16, Brushes.White, FontWeights.Bold);
-            DrawCentered(dc, RootLabel, center.X, center.Y + 8, 11, Brushes.White, FontWeights.SemiBold);
+            DrawCentered(dc, "✦", center.X, center.Y - 14, 16, UiTheme.SurfaceBrush, FontWeights.Bold);
+            DrawCentered(dc, RootLabel, center.X, center.Y + 8, 11, UiTheme.SurfaceBrush, FontWeights.SemiBold);
 
             // All nodes remain visible as dots. Labels use collision avoidance;
             // the navigator below offers exact access to every dense node.
@@ -719,7 +719,7 @@ public partial class MainWindow
                 Log("分类关系索引构建失败：" + error.Message);
                 CategoryPanel.Children.Clear();
                 CategoryPanel.Children.Add(new TextBlock { Text = "分类关系暂时无法生成。请刷新视频库后重试：" + error.Message,
-                    TextWrapping = TextWrapping.Wrap, Foreground = Brushes.IndianRed });
+                    TextWrapping = TextWrapping.Wrap, Foreground = UiTheme.DangerBrush });
                 // The videos remain browsable even if graph construction fails.
                 StartCategoryCardPopulation(allowWithoutGraph: true);
             }
@@ -1166,11 +1166,11 @@ public partial class MainWindow
                 return new Border
                 {
                     Margin = new Thickness(0, 8, 0, 10), Padding = new Thickness(18),
-                    Background = new SolidColorBrush(Color.FromRgb(247, 250, 255)),
-                    BorderBrush = new SolidColorBrush(Color.FromRgb(216, 228, 248)),
+                    Background = UiTheme.SurfaceBrush,
+                    BorderBrush = UiTheme.AccentSoftBackgroundBrush,
                     BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12),
                     Child = new TextBlock { Text = $"正在后台计算 #{sphereTagFilter} 与全部分类的真实共现关系…",
-                        Foreground = new SolidColorBrush(Color.FromRgb(67, 91, 141)), FontSize = 13 }
+                        Foreground = UiTheme.TextTertiaryBrush, FontSize = 13 }
                 };
             }
             tagCategoryLinks = selectedLinks;
@@ -1249,7 +1249,7 @@ public partial class MainWindow
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
             CanContentScroll = false, PanningMode = PanningMode.None,
-            Background = Brushes.White, Content = canvas, ClipToBounds = true
+            Background = UiTheme.SurfaceBrush, Content = canvas, ClipToBounds = true
         };
         var camera = new TransformGroup();
         sphereGraphScale = new ScaleTransform(1, 1);
@@ -1281,7 +1281,7 @@ public partial class MainWindow
             return button;
         }
         Control("−", "缩小球形图", () => ZoomSphereGraph(1 / 1.2));
-        sphereZoomLabel = new TextBlock { Text = "100%", Width = 44, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = new SolidColorBrush(Color.FromRgb(74, 96, 145)) };
+        sphereZoomLabel = new TextBlock { Text = "100%", Width = 44, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = UiTheme.TextTertiaryBrush };
         tools.Children.Add(sphereZoomLabel);
         Control("+", "放大球形图", () => ZoomSphereGraph(1.2));
         Control("适应", "重置缩放和位置", ResetSphereGraphView);
@@ -1292,15 +1292,15 @@ public partial class MainWindow
         });
         DockPanel.SetDock(tools, Dock.Right); header.Children.Add(tools);
         var title = new StackPanel();
-        title.Children.Add(new TextBlock { Text = "球形智能分类图", FontWeight = FontWeights.SemiBold, FontSize = 15, Foreground = new SolidColorBrush(Color.FromRgb(57, 79, 133)) });
-        title.Children.Add(new TextBlock { Text = $"{counts.Count:N0} 个分类 + {connectedTags.Count:N0} 个相关标签全部绘出 · {relevantCount:N0} 部视频 · 悬停节点查看真实共现连线", FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(130, 145, 176)), Margin = new Thickness(0, 3, 0, 0) });
+        title.Children.Add(new TextBlock { Text = "球形智能分类图", FontWeight = FontWeights.SemiBold, FontSize = 15, Foreground = UiTheme.TextTertiaryBrush });
+        title.Children.Add(new TextBlock { Text = $"{counts.Count:N0} 个分类 + {connectedTags.Count:N0} 个相关标签全部绘出 · {relevantCount:N0} 部视频 · 悬停节点查看真实共现连线", FontSize = 11, Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 3, 0, 0) });
         header.Children.Add(title);
 
         var tagOptions = new List<SphereTagOption> { new("", index.VideoCount) };
         tagOptions.AddRange(index.TagCounts.OrderByDescending(pair => pair.Value).ThenBy(pair => pair.Key, StringComparer.CurrentCultureIgnoreCase)
             .Select(pair => new SphereTagOption(pair.Key, pair.Value)));
         var tagBar = new DockPanel { Margin = new Thickness(10, 0, 10, 8) };
-        tagBar.Children.Add(new TextBlock { Text = "标签关系", Foreground = new SolidColorBrush(Color.FromRgb(47, 69, 121)), FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 9, 0) });
+        tagBar.Children.Add(new TextBlock { Text = "标签关系", Foreground = UiTheme.TextTertiaryBrush, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 9, 0) });
         var tagPicker = new ComboBox { Width = 280, Height = 31, ItemsSource = tagOptions, IsTextSearchEnabled = true, MaxDropDownHeight = 360 };
         VirtualizingStackPanel.SetIsVirtualizing(tagPicker, true);
         VirtualizingStackPanel.SetVirtualizationMode(tagPicker, VirtualizationMode.Recycling);
@@ -1315,12 +1315,12 @@ public partial class MainWindow
             RenderCategories();
         };
         tagBar.Children.Add(tagPicker);
-        tagBar.Children.Add(new TextBlock { Text = "选择标签后，球面展示与它相关的全部分类及层级。密集节点可在下方搜索并定位。", Foreground = new SolidColorBrush(Color.FromRgb(124, 143, 177)), FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) });
+        tagBar.Children.Add(new TextBlock { Text = "选择标签后，球面展示与它相关的全部分类及层级。密集节点可在下方搜索并定位。", Foreground = UiTheme.TextTertiaryBrush, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) });
 
         var navigator = BuildSphereNavigator(nodes);
         var navigatorMs = graphClock.Elapsed.TotalMilliseconds - layoutMs - surfaceMs;
         var resizeHandle = new Grid { Height = 20, Background = Brushes.Transparent, ToolTip = "上下拖动以调整球形图高度" };
-        resizeHandle.Children.Add(new Border { Width = 44, Height = 4, CornerRadius = new CornerRadius(2), Background = new SolidColorBrush(Color.FromRgb(177, 193, 222)), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false });
+        resizeHandle.Children.Add(new Border { Width = 44, Height = 4, CornerRadius = new CornerRadius(2), Background = UiTheme.BorderBrushToken, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false });
         var thumb = new System.Windows.Controls.Primitives.Thumb { Background = Brushes.Transparent, Cursor = Cursors.SizeNS };
         thumb.DragDelta += (_, e) =>
         {
@@ -1340,7 +1340,7 @@ public partial class MainWindow
         {
             sphereGraphBuildProfile = $"节点布局 {layoutMs:F1} ms，绘制层 {surfaceMs:F1} ms（关系准备 {sphereMapSurface.AssociationBuildMs:F1} ms、底图 {sphereMapSurface.BaseLayerBuildMs:F1} ms），导航 {navigatorMs:F1} ms，总计 {graphClock.Elapsed.TotalMilliseconds:F1} ms";
         }
-        return new Border { Background = Brushes.White, BorderBrush = new SolidColorBrush(Color.FromRgb(216, 228, 248)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(20), Padding = new Thickness(10), Margin = new Thickness(0, 5, 0, 16), Child = panel };
+        return new Border { Background = UiTheme.SurfaceBrush, BorderBrush = UiTheme.AccentSoftBackgroundBrush, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(20), Padding = new Thickness(10), Margin = new Thickness(0, 5, 0, 16), Child = panel };
     }
 
     static void AddAncestors(string? path, Dictionary<string, int> counts, bool increment,
@@ -1584,10 +1584,10 @@ public partial class MainWindow
         var pagination = new StackPanel { Orientation = Orientation.Horizontal };
         var previous = new Button { Content = "‹ 上一页", Style = (Style)FindResource("Action"), Padding = new Thickness(8, 0, 8, 0) };
         var next = new Button { Content = "下一页 ›", Style = (Style)FindResource("Action"), Padding = new Thickness(8, 0, 8, 0), Margin = new Thickness(5, 0, 0, 0) };
-        var pageLabel = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 7, 0), Foreground = new SolidColorBrush(Color.FromRgb(111, 130, 166)) };
+        var pageLabel = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 7, 0), Foreground = UiTheme.TextTertiaryBrush };
         pagination.Children.Add(previous); pagination.Children.Add(pageLabel); pagination.Children.Add(next);
         DockPanel.SetDock(pagination, Dock.Right); bar.Children.Add(pagination);
-        bar.Children.Add(new TextBlock { Text = "节点导航", Foreground = new SolidColorBrush(Color.FromRgb(57, 79, 133)), FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+        bar.Children.Add(new TextBlock { Text = "节点导航", Foreground = UiTheme.TextTertiaryBrush, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
         var search = new TextBox { Text = sphereNavSearch, Width = 240, Height = 29, Margin = new Thickness(12, 0, 0, 0), ToolTip = "输入分类名，定位球面上拥挤的节点" };
         bar.Children.Add(search);
         panel.Children.Add(bar);

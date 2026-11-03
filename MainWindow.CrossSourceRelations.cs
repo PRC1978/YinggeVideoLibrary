@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Color = System.Windows.Media.Color;
@@ -24,7 +24,7 @@ public partial class MainWindow
     {
         var shell = new Border
         {
-            Background = Brushes.White, BorderBrush = new SolidColorBrush(Color.FromRgb(218, 227, 245)),
+            Background = UiTheme.SurfaceBrush, BorderBrush = UiTheme.AccentSoftBackgroundBrush,
             BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10),
             Padding = new Thickness(12), Margin = new Thickness(0, 7, 0, 12)
         };
@@ -34,7 +34,7 @@ public partial class MainWindow
         body.Children.Add(new TextBlock
         {
             Text = "在上面的 JavDB 关系和这里的 JAVDatabase 关系中各选一项。分别读取每站最多前三页，按明确番号在本地求交集。先读取 JavDB 作品详情；演员姓名搜索卡不能直接作为组合证据。",
-            Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap,
+            Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 4, 0, 8)
         });
         crossSourcePreviewButton = CatalogButton("预览两站共同作品", true);
@@ -43,20 +43,20 @@ public partial class MainWindow
         crossSourceRelationStatus = new TextBlock
         {
             Text = "只显示两站已核对关系目录中共同出现的候选；未列出不代表作品不存在。",
-            Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap,
+            Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 8, 0, 7)
         };
         body.Children.Add(crossSourceRelationStatus);
         crossSourceRelationResults = new ListBox
         {
             Height = 140, DisplayMemberPath = nameof(CrossSourceRelationCandidate.DisplayName),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(218, 227, 245))
+            BorderBrush = UiTheme.AccentSoftBackgroundBrush
         };
         crossSourceRelationResults.SelectionChanged += (_, _) => ShowCrossSourceEvidence();
         body.Children.Add(crossSourceRelationResults);
         crossSourceRelationEvidence = new TextBlock
         {
-            Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap,
+            Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 7, 0, 8)
         };
         body.Children.Add(crossSourceRelationEvidence);

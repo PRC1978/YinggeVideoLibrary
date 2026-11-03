@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -29,7 +29,7 @@ public partial class MainWindow
         section.Children.Add(new TextBlock
         {
             Text = "按番名查看公开 RSS 中的字幕组、集数和发布时间。线索只供核对，不会覆盖作品资料或下载资源。",
-            Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap,
+            Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 5, 0, 10)
         });
 
@@ -49,7 +49,7 @@ public partial class MainWindow
         section.Children.Add(actions);
         var status = new TextBlock
         {
-            Text = "输入番名后手动查询。", Foreground = Brushes.SlateGray,
+            Text = "输入番名后手动查询。", Foreground = UiTheme.TextTertiaryBrush,
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 6)
         };
         section.Children.Add(status);
@@ -58,7 +58,7 @@ public partial class MainWindow
         {
             Content = rows, Height = 260, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(232, 236, 242)),
+            BorderBrush = UiTheme.BorderBrushToken,
             BorderThickness = new Thickness(1), Padding = new Thickness(7)
         });
 
@@ -117,12 +117,12 @@ public partial class MainWindow
                     card.Children.Add(new TextBlock
                     {
                         Text = details.Count == 0 ? "发布条目" : string.Join(" · ", details),
-                        Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap,
+                        Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap,
                         Margin = new Thickness(0, 2, 0, 2)
                     });
                     card.Children.Add(new TextBlock
                     {
-                        Text = release.ReleaseTitle, Foreground = Brushes.SlateGray,
+                        Text = release.ReleaseTitle, Foreground = UiTheme.TextTertiaryBrush,
                         TextWrapping = TextWrapping.Wrap, MaxHeight = 48
                     });
                     var open = new Button

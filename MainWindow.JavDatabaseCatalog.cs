@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Color = System.Windows.Media.Color;
@@ -35,8 +35,8 @@ public partial class MainWindow
     {
         var shell = new Border
         {
-            Background = new SolidColorBrush(Color.FromRgb(247, 249, 255)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(218, 227, 245)),
+            Background = UiTheme.SurfaceBrush,
+            BorderBrush = UiTheme.AccentSoftBackgroundBrush,
             BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(13),
             Padding = new Thickness(15), Margin = new Thickness(0, 8, 0, 14)
         };
@@ -46,7 +46,7 @@ public partial class MainWindow
         body.Children.Add(new TextBlock
         {
             Text = "输入明确番号，先核对作品详情，再沿详情中的演员和系列链接手动浏览作品。这里只展示公开候选，匹配本地视频后仍须人工审核。",
-            Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 11)
+            Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 11)
         });
 
         var codeRow = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
@@ -89,11 +89,11 @@ public partial class MainWindow
         javDatabaseCatalogStatus = new TextBlock
         {
             Text = "先输入明确番号并读取演员与系列关系。",
-            Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8)
+            Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8)
         };
         body.Children.Add(javDatabaseCatalogStatus);
         javDatabaseCatalogResults = new ListBox { Height = 190, DisplayMemberPath = nameof(JavDatabaseCatalogRow.DisplayName),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(218, 227, 245)) };
+            BorderBrush = UiTheme.AccentSoftBackgroundBrush };
         body.Children.Add(javDatabaseCatalogResults);
         var pager = new StackPanel { Orientation = Orientation.Horizontal,
             HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0) };

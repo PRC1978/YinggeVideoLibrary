@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -49,14 +49,14 @@ public partial class MainWindow
         {
             Title = "新建子分类", Owner = owner, Width = 560, Height = 260,
             MinWidth = 460, WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            ResizeMode = ResizeMode.NoResize, Background = Brushes.White
+            ResizeMode = ResizeMode.NoResize, Background = UiTheme.SurfaceBrush
         };
         var body = new StackPanel { Margin = new Thickness(22) };
         body.Children.Add(new TextBlock { Text = "在此分类下新建子分类", FontSize = 17, FontWeight = FontWeights.SemiBold });
         body.Children.Add(new TextBlock
         {
             Text = parent, TextWrapping = TextWrapping.Wrap, MaxHeight = 55,
-            Foreground = new SolidColorBrush(Color.FromRgb(92, 111, 150)),
+            Foreground = UiTheme.TextTertiaryBrush,
             Margin = new Thickness(0, 8, 0, 12)
         });
         var input = new System.Windows.Controls.TextBox { Height = 36, MaxLength = 40, Padding = new Thickness(9, 5, 9, 5) };
@@ -130,14 +130,14 @@ public partial class MainWindow
             Height = Math.Min(620, 190 + categories.Length * 67),
             MinWidth = 440,
             MinHeight = 260,
-            Background = Brushes.White,
+            Background = UiTheme.SurfaceBrush,
             FontFamily = FontFamily,
             FontSize = 13
         };
         var layout = new DockPanel { Margin = new Thickness(22, 18, 22, 18) };
         var heading = new StackPanel { Margin = new Thickness(0, 0, 0, 15) };
-        heading.Children.Add(new TextBlock { Text = "当前分类", FontSize = 20, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(38, 51, 71)) });
-        heading.Children.Add(new TextBlock { Text = video.DisplayTitle, TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush(Color.FromRgb(115, 130, 153)), Margin = new Thickness(0, 6, 0, 0), MaxHeight = 45 });
+        heading.Children.Add(new TextBlock { Text = "当前分类", FontSize = 20, FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextSecondaryBrush });
+        heading.Children.Add(new TextBlock { Text = video.DisplayTitle, TextWrapping = TextWrapping.Wrap, Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 6, 0, 0), MaxHeight = 45 });
         DockPanel.SetDock(heading, Dock.Top);
         layout.Children.Add(heading);
 
@@ -162,7 +162,7 @@ public partial class MainWindow
                 Text = category,
                 TextWrapping = TextWrapping.Wrap,
                 VerticalAlignment = VerticalAlignment.Center,
-                Foreground = new SolidColorBrush(Color.FromRgb(54, 74, 123)),
+                Foreground = UiTheme.TextTertiaryBrush,
                 Margin = new Thickness(12, 10, 12, 10)
             };
             row.Children.Add(name);
@@ -187,8 +187,8 @@ public partial class MainWindow
             var surface = new Border
             {
                 Child = row,
-                Background = new SolidColorBrush(Color.FromRgb(245, 248, 255)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(219, 228, 247)),
+                Background = UiTheme.BorderBrushToken,
+                BorderBrush = UiTheme.AccentSoftBackgroundBrush,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(9)
             };

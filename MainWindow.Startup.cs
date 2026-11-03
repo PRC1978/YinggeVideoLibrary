@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -213,7 +213,7 @@ public partial class MainWindow
         input.HorizontalAlignment = System.Windows.HorizontalAlignment.Right;
         Grid.SetColumn(input, 1);
         row.Children.Add(input);
-        return new Border { Background = System.Windows.Media.Brushes.White, BorderBrush = Tint("#E2E8F1"),
+        return new Border { Background = global::YinggeVideoLibrary.UiTheme.SurfaceBrush, BorderBrush = Tint("#E2E8F1"),
             BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9),
             Padding = new Thickness(14, 13, 14, 13), Margin = new Thickness(0, 0, 0, 9), Child = row };
     }

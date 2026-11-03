@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -133,7 +133,7 @@ public partial class MainWindow
         var search = new TextBox
         {
             Width = 210, Height = 36, Padding = new Thickness(10, 6, 10, 6),
-            BorderBrush = Tint("#DDE6F2"), Background = Brushes.White,
+            BorderBrush = Tint("#DDE6F2"), Background = UiTheme.SurfaceBrush,
             ToolTip = "搜索设置主题，例如缓存、AI、更新"
         };
         search.TextChanged += (_, _) =>
@@ -235,7 +235,7 @@ public partial class MainWindow
         return string.Empty;
     }
 
-    static System.Windows.Media.Brush Tint(string color) => (System.Windows.Media.Brush)new BrushConverter().ConvertFromString(color)!;
+    static System.Windows.Media.Brush Tint(string color) => UiTheme.FromLegacyHex(color);
 
     internal (bool Valid, string Detail) VerifySettingsLayout()
     {

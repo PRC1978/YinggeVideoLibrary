@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
@@ -22,7 +22,7 @@ internal sealed class DuplicateVideosWindow : Window
     readonly CancellationTokenSource scanCancellation = new();
     readonly DispatcherTimer searchDelay = new() { Interval = TimeSpan.FromMilliseconds(250) };
     readonly Dictionary<string, string> keepByGroup = new(StringComparer.Ordinal);
-    readonly TextBlock status = new() { Foreground = WpfBrushes.SlateGray };
+    readonly TextBlock status = new() { Foreground = UiTheme.TextTertiaryBrush };
     readonly TextBlock pageStatus = new() { VerticalAlignment = VerticalAlignment.Center };
     readonly TextBlock keepStatus = new() { TextWrapping = TextWrapping.Wrap, Foreground = WpfBrushes.DarkSlateBlue };
     readonly WpfListBox groupList = new() { DisplayMemberPath = nameof(DuplicateVideoGroup.Summary) };
@@ -65,7 +65,7 @@ internal sealed class DuplicateVideosWindow : Window
         MinWidth = 860;
         MinHeight = 550;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = WpfBrushes.White;
+        Background = UiTheme.SurfaceBrush;
         Content = BuildContent();
         Loaded += async (_, _) => await ScanAsync();
         Closing += (_, args) => { if (operationBusy) args.Cancel = true; };

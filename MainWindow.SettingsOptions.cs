@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -51,7 +51,7 @@ public partial class MainWindow
     static TextBlock SettingsHint(string text) => new()
     {
         Text = text, TextWrapping = TextWrapping.Wrap, FontSize = 12,
-        Foreground = new SolidColorBrush(Color.FromRgb(105, 123, 150)),
+        Foreground = UiTheme.TextTertiaryBrush,
         Margin = new Thickness(0, 5, 0, 9)
     };
 

@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -47,7 +47,7 @@ public partial class MainWindow
             Owner = this,
             Width = 620, Height = 390, MinWidth = 460, MinHeight = 320,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Background = System.Windows.Media.Brushes.White
+            Background = global::YinggeVideoLibrary.UiTheme.SurfaceBrush
         };
         var root = new StackPanel { Margin = new Thickness(26) };
         root.Children.Add(new TextBlock

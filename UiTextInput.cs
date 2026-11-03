@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Color = System.Windows.Media.Color;
@@ -21,7 +21,7 @@ internal static class UiTextInput
         var label = new TextBlock
         {
             Text = hint,
-            Foreground = new SolidColorBrush(Color.FromRgb(169, 181, 198)),
+            Foreground = UiTheme.TextTertiaryBrush,
             FontSize = 12,
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Left,

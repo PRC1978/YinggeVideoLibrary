@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -68,12 +68,12 @@ public partial class MainWindow
         section.Children.Add(new TextBlock
         {
             Text = "软件更新", FontSize = 17, FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(30, 47, 75))
+            Foreground = UiTheme.TextPrimaryBrush
         });
         updateStatus = new TextBlock
         {
             Text = $"当前版本 {FormatUpdateVersion(CurrentUpdateVersion())} · 从 GitHub Releases 获取更新",
-            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(105, 123, 150)),
+            Foreground = UiTheme.TextTertiaryBrush,
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 7, 0, 9), FontSize = 12
         };
         try
@@ -209,8 +209,7 @@ public partial class MainWindow
         return portable ?? throw new InvalidDataException("新版本缺少便携更新文件；请稍后重试或手动下载安装包");
     }
 
-    static System.Windows.Media.Brush UpdateBrush(string color) =>
-        (System.Windows.Media.Brush)new BrushConverter().ConvertFromString(color)!;
+    static System.Windows.Media.Brush UpdateBrush(string color) => UiTheme.FromLegacyHex(color);
 
     static System.Windows.Controls.Button CreateUpdatePromptButton(string label, bool primary = false)
     {
@@ -298,7 +297,7 @@ public partial class MainWindow
         var outer = new Border
         {
             Margin = new Thickness(20), CornerRadius = new CornerRadius(20),
-            Background = Brushes.White, BorderBrush = UpdateBrush("#DEE6F1"), BorderThickness = new Thickness(1),
+            Background = UiTheme.SurfaceBrush, BorderBrush = UpdateBrush("#DEE6F1"), BorderThickness = new Thickness(1),
             Effect = new DropShadowEffect { BlurRadius = 25, ShadowDepth = 9, Opacity = 0.30, Color = System.Windows.Media.Colors.SlateGray }
         };
         dialog.Content = outer;
@@ -325,7 +324,7 @@ public partial class MainWindow
         {
             Width = 34, Height = 34, CornerRadius = new CornerRadius(10),
             Background = UpdateBrush("#486CE1"), Margin = new Thickness(0, 0, 12, 0),
-            Child = new TextBlock { Text = "✦", FontSize = 19, Foreground = Brushes.White, HorizontalAlignment = WpfHorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+            Child = new TextBlock { Text = "✦", FontSize = 19, Foreground = System.Windows.Media.Brushes.White, HorizontalAlignment = WpfHorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
         };
         DockPanel.SetDock(icon, Dock.Left);
         header.Children.Add(icon);
@@ -367,7 +366,7 @@ public partial class MainWindow
             TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             BorderThickness = new Thickness(0), Padding = new Thickness(0, 3, 10, 3),
-            Foreground = UpdateBrush("#455875"), Background = Brushes.White,
+            Foreground = UpdateBrush("#455875"), Background = UiTheme.SurfaceBrush,
             FontSize = 12.5, TabIndex = 1
         };
         Grid.SetRow(notes, 3);

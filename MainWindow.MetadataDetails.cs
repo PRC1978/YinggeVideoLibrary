@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -34,7 +34,7 @@ public partial class MainWindow
             Title = "搜刮资料 · " + (string.IsNullOrWhiteSpace(record.Code) ? record.Title : record.Code),
             Owner = this, Width = 780, Height = 650, MinWidth = 550, MinHeight = 430,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Background = new SolidColorBrush(Color.FromRgb(247, 249, 253))
+            Background = UiTheme.SurfaceBrush
         };
         var root = new DockPanel { Margin = new Thickness(22) };
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
@@ -74,16 +74,16 @@ public partial class MainWindow
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
         var panel = new StackPanel();
         panel.Children.Add(new TextBlock { Text = record.Title, FontSize = 22, FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Color.FromRgb(35, 49, 74)), TextWrapping = TextWrapping.Wrap });
+            Foreground = UiTheme.TextSecondaryBrush, TextWrapping = TextWrapping.Wrap });
         var statusText = status switch { "approved" => "已通过", "pending" => "待人工审核", "rejected" => "已否决", "unmatched" => "未找到", "local-only" => "未搜刮", _ => "已保存" };
         panel.Children.Add(new TextBlock { Text = $"{record.Source}  ·  {statusText}" + (confidence is null ? "" : $"  ·  可信度 {confidence}%"),
-            Margin = new Thickness(0, 7, 0, 10), Foreground = new SolidColorBrush(Color.FromRgb(78, 107, 187)) });
+            Margin = new Thickness(0, 7, 0, 10), Foreground = UiTheme.AccentBrush });
         panel.Children.Add(CreateScrapeCover(record, 150, 210));
         var note = string.IsNullOrWhiteSpace(record.DetailNote)
             ? record.DetailFetched ? "已读取来源详情；来源未提供的字段会明确显示。" : "仅有旧版搜刮摘要，尚未读取完整详情；可重新搜刮。"
             : record.DetailNote;
         panel.Children.Add(new TextBlock { Text = note, Margin = new Thickness(0, 0, 0, 12),
-            Foreground = record.DetailFetched ? new SolidColorBrush(Color.FromRgb(90, 114, 143)) : new SolidColorBrush(Color.FromRgb(174, 99, 47)),
+            Foreground = record.DetailFetched ? UiTheme.TextTertiaryBrush : UiTheme.DangerBrush,
             TextWrapping = TextWrapping.Wrap });
         var savedRecord = video is not null && metadata.TryGetValue(video.Id, out var accepted) && ReferenceEquals(accepted, record);
         AddMetadataRatings(panel, dialog, record, video, savedRecord);
@@ -131,7 +131,7 @@ public partial class MainWindow
             {
                 Header = $"查看样张链接 · {record.PreviewImageUrls.Count} 张",
                 Margin = new Thickness(0, 6, 0, 8), Padding = new Thickness(8),
-                Background = System.Windows.Media.Brushes.White
+                Background = global::YinggeVideoLibrary.UiTheme.SurfaceBrush
             };
             var imageButtons = new WrapPanel();
             for (var index = 0; index < record.PreviewImageUrls.Count; index++)
@@ -157,8 +157,8 @@ public partial class MainWindow
                 Header = $"{(sourceCount > 1 ? "多来源" : "来源")}原始字段对照 · {sourceCount} 个来源" +
                     (sourceCount == 1 ? "" : conflicting.Count == 0 ? " · 无身份字段冲突" : $" · {conflicting.Count} 项需核对"),
                 Margin = new Thickness(0, 12, 0, 10), Padding = new Thickness(10),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(221, 230, 245)),
-                BorderThickness = new Thickness(1), Background = System.Windows.Media.Brushes.White
+                BorderBrush = UiTheme.AccentSoftBackgroundBrush,
+                BorderThickness = new Thickness(1), Background = global::YinggeVideoLibrary.UiTheme.SurfaceBrush
             };
             var rows = new StackPanel();
             var labels = new Dictionary<string, string>
@@ -186,8 +186,8 @@ public partial class MainWindow
                     Text = (labels.TryGetValue(group.Key, out var label) ? label : group.Key) +
                         (isConflict ? " · 来源不一致，待人工核对" : ""),
                     FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 11, 0, 4),
-                    Foreground = isConflict ? new SolidColorBrush(Color.FromRgb(172, 81, 48))
-                        : new SolidColorBrush(Color.FromRgb(46, 65, 99))
+                    Foreground = isConflict ? UiTheme.DangerBrush
+                        : UiTheme.TextSecondaryBrush
                 });
                 foreach (var observation in group)
                 {
@@ -195,13 +195,13 @@ public partial class MainWindow
                     {
                         Text = $"{observation.Source} · {observation.Stage}：{observation.Value}",
                         TextWrapping = TextWrapping.Wrap,
-                        Foreground = new SolidColorBrush(Color.FromRgb(65, 82, 110)),
+                        Foreground = UiTheme.TextTertiaryBrush,
                         Margin = new Thickness(8, 0, 0, 2)
                     });
                     rows.Children.Add(new TextBlock
                     {
                         Text = observation.SourceUrl, TextWrapping = TextWrapping.Wrap,
-                        FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(125, 139, 165)),
+                        FontSize = 11, Foreground = UiTheme.TextTertiaryBrush,
                         Margin = new Thickness(8, 0, 0, 4)
                     });
                 }
@@ -245,22 +245,22 @@ public partial class MainWindow
     static void AddMetadataRow(StackPanel parent, string label, string? value,
         MetadataFieldProvenance? provenance = null, bool showProvenance = false)
     {
-        var row = new Grid { Margin = new Thickness(0, 0, 0, 1), Background = System.Windows.Media.Brushes.White };
+        var row = new Grid { Margin = new Thickness(0, 0, 0, 1), Background = global::YinggeVideoLibrary.UiTheme.SurfaceBrush };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(116) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var heading = new TextBlock { Text = label, Padding = new Thickness(12, 10, 8, 10),
-            Foreground = new SolidColorBrush(Color.FromRgb(111, 125, 149)), FontWeight = FontWeights.SemiBold };
+            Foreground = UiTheme.TextTertiaryBrush, FontWeight = FontWeights.SemiBold };
         var contentHost = new StackPanel { Margin = new Thickness(8, 9, 12, 9) };
         var content = new TextBlock { Text = string.IsNullOrWhiteSpace(value) ? "来源未提供" : value,
             TextWrapping = TextWrapping.Wrap,
-            Foreground = string.IsNullOrWhiteSpace(value) ? new SolidColorBrush(Color.FromRgb(158, 169, 185)) : new SolidColorBrush(Color.FromRgb(42, 56, 81)) };
+            Foreground = string.IsNullOrWhiteSpace(value) ? UiTheme.TextTertiaryBrush : UiTheme.TextSecondaryBrush };
         contentHost.Children.Add(content);
         if (showProvenance && !string.IsNullOrWhiteSpace(value))
         {
             var attribution = provenance is null ? "旧记录 · 未逐项记录来源"
                 : string.IsNullOrWhiteSpace(provenance.Stage) ? provenance.Source : $"{provenance.Source} · {provenance.Stage}";
             contentHost.Children.Add(new TextBlock { Text = attribution, Margin = new Thickness(0, 4, 0, 0),
-                FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(117, 136, 173)) });
+                FontSize = 11, Foreground = UiTheme.TextTertiaryBrush });
         }
         Grid.SetColumn(contentHost, 1);
         row.Children.Add(heading);

@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
@@ -146,7 +146,7 @@ public partial class MainWindow
     {
         var shell = new Border
         {
-            Background = Brushes.White, BorderBrush = Brush("#E3E9F3"), BorderThickness = new Thickness(1),
+            Background = UiTheme.SurfaceBrush, BorderBrush = Brush("#E3E9F3"), BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(17), Padding = new Thickness(18),
             Margin = new Thickness(0, 0, 0, 16)
         };
@@ -238,7 +238,7 @@ public partial class MainWindow
         DockPanel.SetDock(refresh, Dock.Right);
         layout.Children.Add(refresh);
         var copy = new StackPanel();
-        copy.Children.Add(new TextBlock { Text = "为你挑选", FontSize = 20, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White });
+        copy.Children.Add(new TextBlock { Text = "为你挑选", FontSize = 20, FontWeight = FontWeights.SemiBold, Foreground = System.Windows.Media.Brushes.White });
         copy.Children.Add(new TextBlock
         {
             Text = count == 0 ? "添加本地视频后，这里会给出推荐。" : "根据收藏、观看状态、标签、分类和新近程度，在本机挑选。",
@@ -254,7 +254,7 @@ public partial class MainWindow
     {
         var shell = new Border
         {
-            Background = Brushes.White, BorderBrush = Brush("#E3E9F3"), BorderThickness = new Thickness(1),
+            Background = UiTheme.SurfaceBrush, BorderBrush = Brush("#E3E9F3"), BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(17), Padding = new Thickness(18),
             Margin = new Thickness(0, 0, 0, 20)
         };
@@ -304,7 +304,7 @@ public partial class MainWindow
         var previous = new Button
         {
             Content = "上一批", Padding = new Thickness(10, 5, 10, 5),
-            Background = Brushes.White, BorderBrush = Brush("#D7E3FF"),
+            Background = UiTheme.SurfaceBrush, BorderBrush = Brush("#D7E3FF"),
             Foreground = Brush("#405DAD"), IsEnabled = recommendationPage > 0,
             Cursor = System.Windows.Input.Cursors.Hand
         };
@@ -355,7 +355,7 @@ public partial class MainWindow
             var card = new Border
             {
                 Width = 260, MinHeight = 290, Margin = new Thickness(0, 0, 14, 14),
-                Background = Brushes.White, BorderBrush = Brush("#E2E9F4"),
+                Background = UiTheme.SurfaceBrush, BorderBrush = Brush("#E2E9F4"),
                 BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(16),
                 Padding = new Thickness(12)
             };
@@ -413,7 +413,7 @@ public partial class MainWindow
             var imagePreview = new Button
             {
                 Content = "图片", Padding = new Thickness(7, 5, 7, 5),
-                Background = Brushes.White, Foreground = Brush("#405DAD"),
+                Background = UiTheme.SurfaceBrush, Foreground = Brush("#405DAD"),
                 BorderBrush = Brush("#D7E3FF"), BorderThickness = new Thickness(1),
                 Margin = new Thickness(0, 0, 5, 0), Cursor = System.Windows.Input.Cursors.Hand,
                 ToolTip = "放大查看封面或视频缩略图"
@@ -423,7 +423,7 @@ public partial class MainWindow
             var videoPreview = new Button
             {
                 Content = "视频预览", Padding = new Thickness(7, 5, 7, 5),
-                Background = Brushes.White, Foreground = Brush("#405DAD"),
+                Background = UiTheme.SurfaceBrush, Foreground = Brush("#405DAD"),
                 BorderBrush = Brush("#D7E3FF"), BorderThickness = new Thickness(1),
                 Margin = new Thickness(0, 0, 5, 0), Cursor = System.Windows.Input.Cursors.Hand,
                 ToolTip = "在小窗口中按需预览视频"
@@ -836,6 +836,6 @@ public partial class MainWindow
         return $"从 {videos.Count:N0} 部视频中生成推荐；只为当前 {expected} 张卡片提交缩略图任务；图片、视频预览及播放入口完整；手动番名重启存储与恢复通过；已核实片名 {titles.Count(item => item.Source.StartsWith("已核实", StringComparison.Ordinal))}，文件名 {titles.Count(item => item.Source == "文件名")}，目录推测 {titles.Count(item => item.Source.StartsWith("目录推测", StringComparison.Ordinal))}，待补充 {titles.Count(item => item.Name == "片名待补充")}；耗时 {started.ElapsedMilliseconds} ms；离屏预览 {previewPath ?? "未生成"}；未修改分类、标签或审核数据";
     }
 
-    private static SolidColorBrush Brush(string color) => new(ColorOf(color));
+    private static SolidColorBrush Brush(string color) => UiTheme.FromLegacyHex(color);
     private static System.Windows.Media.Color ColorOf(string color) => (System.Windows.Media.Color)ColorConverter.ConvertFromString(color);
 }

@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Windows;
@@ -160,7 +160,7 @@ public partial class MainWindow
         {
             Child = body, CornerRadius = new CornerRadius(10),
             BorderBrush = Tint("#E1E8F3"), BorderThickness = new Thickness(1),
-            Background = Brushes.White, Padding = new Thickness(11),
+            Background = UiTheme.SurfaceBrush, Padding = new Thickness(11),
             Margin = new Thickness(0, 0, 0, 8)
         };
     }

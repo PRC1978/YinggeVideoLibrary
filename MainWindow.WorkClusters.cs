@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Brushes = System.Windows.Media.Brushes;
@@ -18,7 +18,7 @@ public partial class MainWindow
             panel.Children.Add(new TextBlock
             {
                 Text = "尚无可核对的跨来源作品编号；相似标题不会自动合并。",
-                Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap,
+                Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 8)
             });
             return;
@@ -35,7 +35,7 @@ public partial class MainWindow
         rows.Children.Add(new TextBlock
         {
             Text = "以下为来源原值对照。没有自动合并或写入资料；有差异的字段须人工核对。",
-            Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap
+            Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap
         });
         var labels = new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -59,7 +59,7 @@ public partial class MainWindow
                 rows.Children.Add(new TextBlock
                 {
                     Text = $"{observation.Source}：{observation.Value}\n{observation.SourceUrl}",
-                    TextWrapping = TextWrapping.Wrap, Foreground = Brushes.SlateGray,
+                    TextWrapping = TextWrapping.Wrap, Foreground = UiTheme.TextTertiaryBrush,
                     Margin = new Thickness(8, 0, 0, 4)
                 });
         }

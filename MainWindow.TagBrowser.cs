@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
@@ -82,7 +82,7 @@ public partial class MainWindow
             Height = 620,
             MinWidth = 420,
             MinHeight = 380,
-            Background = new SolidColorBrush(Color.FromRgb(247, 249, 253))
+            Background = UiTheme.SurfaceBrush
         };
         tagBrowserWindow = browser;
         var layout = new Grid { Margin = new Thickness(24) };
@@ -92,13 +92,13 @@ public partial class MainWindow
         layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        var heading = new TextBlock { Text = "全库标签", FontSize = 23, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(38, 51, 71)) };
+        var heading = new TextBlock { Text = "全库标签", FontSize = 23, FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextSecondaryBrush };
         Grid.SetRow(heading, 0); layout.Children.Add(heading);
-        var summary = new TextBlock { Text = "正在整理标签…", Margin = new Thickness(0, 6, 0, 18), FontSize = 12, Foreground = new SolidColorBrush(Color.FromRgb(111, 128, 157)) };
+        var summary = new TextBlock { Text = "正在整理标签…", Margin = new Thickness(0, 6, 0, 18), FontSize = 12, Foreground = UiTheme.TextTertiaryBrush };
         Grid.SetRow(summary, 1); layout.Children.Add(summary);
-        var search = new TextBox { Height = 40, Padding = new Thickness(12, 8, 12, 7), Margin = new Thickness(0, 0, 0, 12), FontSize = 13, BorderBrush = new SolidColorBrush(Color.FromRgb(211, 222, 240)), ToolTip = "输入标签名称筛选" };
+        var search = new TextBox { Height = 40, Padding = new Thickness(12, 8, 12, 7), Margin = new Thickness(0, 0, 0, 12), FontSize = 13, BorderBrush = UiTheme.AccentSoftBackgroundBrush, ToolTip = "输入标签名称筛选" };
         Grid.SetRow(search, 2); layout.Children.Add(search);
-        var list = new ListBox { Background = Brushes.White, BorderBrush = new SolidColorBrush(Color.FromRgb(221, 229, 242)), BorderThickness = new Thickness(1), Padding = new Thickness(3), DisplayMemberPath = nameof(TagBrowserEntry.Display), FontSize = 14 };
+        var list = new ListBox { Background = UiTheme.SurfaceBrush, BorderBrush = UiTheme.AccentSoftBackgroundBrush, BorderThickness = new Thickness(1), Padding = new Thickness(3), DisplayMemberPath = nameof(TagBrowserEntry.Display), FontSize = 14 };
         list.SetValue(VirtualizingPanel.IsVirtualizingProperty, true);
         list.SetValue(VirtualizingPanel.VirtualizationModeProperty, VirtualizationMode.Recycling);
         list.SetValue(ScrollViewer.CanContentScrollProperty, true);
@@ -181,24 +181,24 @@ public partial class MainWindow
             Height = 340,
             MinWidth = 380,
             MinHeight = 280,
-            Background = new SolidColorBrush(Color.FromRgb(247, 249, 253))
+            Background = UiTheme.SurfaceBrush
         };
         var layout = new Grid { Margin = new Thickness(23) };
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        var title = new TextBlock { Text = video.DisplayTitle, TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 17, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(38, 51, 71)), ToolTip = video.DisplayTitle };
+        var title = new TextBlock { Text = video.DisplayTitle, TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 17, FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextSecondaryBrush, ToolTip = video.DisplayTitle };
         Grid.SetRow(title, 0); layout.Children.Add(title);
-        var hint = new TextBlock { Text = $"{video.Tags.Count} 个标签 · 点击标签查看所有匹配视频", Margin = new Thickness(0, 5, 0, 15), FontSize = 12, Foreground = new SolidColorBrush(Color.FromRgb(111, 128, 157)) };
+        var hint = new TextBlock { Text = $"{video.Tags.Count} 个标签 · 点击标签查看所有匹配视频", Margin = new Thickness(0, 5, 0, 15), FontSize = 12, Foreground = UiTheme.TextTertiaryBrush };
         Grid.SetRow(hint, 1); layout.Children.Add(hint);
-        var surface = new Border { Background = Brushes.White, BorderBrush = new SolidColorBrush(Color.FromRgb(221, 229, 242)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12), Padding = new Thickness(14) };
+        var surface = new Border { Background = UiTheme.SurfaceBrush, BorderBrush = UiTheme.AccentSoftBackgroundBrush, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12), Padding = new Thickness(14) };
         var flow = new WrapPanel();
         if (video.Tags.Count == 0)
-            flow.Children.Add(new TextBlock { Text = "这部视频还没有标签。可以点击下方“编辑标签”添加。", TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush(Color.FromRgb(111, 128, 157)), Margin = new Thickness(3) });
+            flow.Children.Add(new TextBlock { Text = "这部视频还没有标签。可以点击下方“编辑标签”添加。", TextWrapping = TextWrapping.Wrap, Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(3) });
         else foreach (var tag in video.Tags.Distinct(StringComparer.CurrentCultureIgnoreCase))
         {
-            var chip = new Button { Content = "#" + tag, Padding = new Thickness(11, 7, 11, 7), Margin = new Thickness(0, 0, 8, 8), Background = new SolidColorBrush(Color.FromRgb(236, 231, 251)), Foreground = new SolidColorBrush(Color.FromRgb(91, 70, 161)), BorderBrush = new SolidColorBrush(Color.FromRgb(220, 209, 248)), Cursor = Cursors.Hand, ToolTip = "查看全库带有这个标签的视频" };
+            var chip = new Button { Content = "#" + tag, Padding = new Thickness(11, 7, 11, 7), Margin = new Thickness(0, 0, 8, 8), Background = UiTheme.AccentSoftBackgroundBrush, Foreground = UiTheme.AccentBrush, BorderBrush = UiTheme.BorderBrushToken, Cursor = Cursors.Hand, ToolTip = "查看全库带有这个标签的视频" };
             chip.Click += (_, _) => { chosenTag = tag; dialog.Close(); };
             flow.Children.Add(chip);
         }
@@ -219,7 +219,7 @@ public partial class MainWindow
 
     static Button TagDialogButton(string label, bool primary)
     {
-        var accent = new SolidColorBrush(Color.FromRgb(76, 109, 215));
+        var accent = UiTheme.AccentBrush;
         return new Button
         {
             Content = label,
@@ -227,9 +227,9 @@ public partial class MainWindow
             Height = 38,
             Padding = new Thickness(12, 0, 12, 0),
             Margin = new Thickness(0, 0, 8, 0),
-            Background = primary ? accent : Brushes.White,
-            Foreground = primary ? Brushes.White : new SolidColorBrush(Color.FromRgb(70, 83, 102)),
-            BorderBrush = primary ? accent : new SolidColorBrush(Color.FromRgb(220, 229, 242)),
+            Background = primary ? accent : UiTheme.SurfaceBrush,
+            Foreground = primary ? UiTheme.SurfaceBrush : UiTheme.TextTertiaryBrush,
+            BorderBrush = primary ? accent : UiTheme.AccentSoftBackgroundBrush,
             Cursor = Cursors.Hand
         };
     }

@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text.RegularExpressions;
@@ -20,8 +20,8 @@ public partial class MainWindow
     {
         var section = new Border
         {
-            Background = System.Windows.Media.Brushes.White,
-            BorderBrush = new SolidColorBrush(Color.FromRgb(221, 230, 245)),
+            Background = global::YinggeVideoLibrary.UiTheme.SurfaceBrush,
+            BorderBrush = UiTheme.AccentSoftBackgroundBrush,
             BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10),
             Padding = new Thickness(14), Margin = new Thickness(0, 0, 0, 12)
         };
@@ -29,19 +29,19 @@ public partial class MainWindow
         section.Child = content;
         parent.Children.Add(section);
         content.Children.Add(new TextBlock { Text = "作品评分", FontSize = 17, FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Color.FromRgb(35, 49, 74)) });
+            Foreground = UiTheme.TextSecondaryBrush });
         content.Children.Add(new TextBlock { Text = "个人评分与站点评分分别保存；匹配可信度只说明搜刮结果是否对应这部视频。",
             Margin = new Thickness(0, 3, 0, 9), TextWrapping = TextWrapping.Wrap,
-            Foreground = new SolidColorBrush(Color.FromRgb(115, 130, 156)) });
+            Foreground = UiTheme.TextTertiaryBrush });
         content.Children.Add(new TextBlock { Text = "综合分将各站原分制换算到 10 分，并限制票数权重；原始分数始终单独显示。",
             Margin = new Thickness(0, 0, 0, 9), TextWrapping = TextWrapping.Wrap,
-            Foreground = new SolidColorBrush(Color.FromRgb(115, 130, 156)) });
+            Foreground = UiTheme.TextTertiaryBrush });
 
         if (video is not null)
         {
             var ownRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 10) };
             ownRow.Children.Add(new TextBlock { Text = "我的评分  ", VerticalAlignment = VerticalAlignment.Center,
-                FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(43, 63, 100)) });
+                FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextTertiaryBrush });
             var scoreBox = new System.Windows.Controls.ComboBox { Width = 108, Height = 32, VerticalAlignment = VerticalAlignment.Center };
             var existing = PersonalRatingStore.Get(DataDir, video.Id);
             foreach (var halfStep in Enumerable.Range(0, 21).Select(index => index / 2.0))
@@ -90,7 +90,7 @@ public partial class MainWindow
         }
 
         var summary = new TextBlock { FontSize = 16, FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Color.FromRgb(60, 84, 148)) };
+            Foreground = UiTheme.TextTertiaryBrush };
         var sourceRows = new StackPanel { Margin = new Thickness(0, 5, 0, 2) };
         content.Children.Add(summary);
         content.Children.Add(sourceRows);
@@ -118,7 +118,7 @@ public partial class MainWindow
                         (rating.VoteCount is int votes and > 0 ? $"  ·  {votes:N0} 票" : "") +
                         (string.IsNullOrWhiteSpace(rating.MatchEvidence) ? "" : $"  ·  {rating.MatchEvidence}"),
                     VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap,
-                    Foreground = new SolidColorBrush(Color.FromRgb(53, 72, 105))
+                    Foreground = UiTheme.TextTertiaryBrush
                 });
                 if (TryRatingSourceUrl(rating.SourceUrl, out var uri))
                 {
@@ -136,11 +136,11 @@ public partial class MainWindow
             }
             if (ratings.Count == 0)
                 sourceRows.Children.Add(new TextBlock { Text = "暂无可核对分制的站点评分。",
-                    Foreground = new SolidColorBrush(Color.FromRgb(128, 142, 164)) });
+                    Foreground = UiTheme.TextTertiaryBrush });
             if (!string.IsNullOrWhiteSpace(record.Rating) && original is null)
                 sourceRows.Children.Add(new TextBlock { Text = $"{record.Source} 原始评分：{record.Rating}（分制未明确，不计入综合分）",
                     TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 0, 0),
-                    Foreground = new SolidColorBrush(Color.FromRgb(139, 105, 75)) });
+                    Foreground = UiTheme.TextTertiaryBrush });
         }
         RefreshSources();
         async Task SaveConfirmedRatingsAsync(IEnumerable<PlatformRating> confirmed)
@@ -179,7 +179,7 @@ public partial class MainWindow
                 Text = saved ? "按番号自动查询 JavDB / JAVDatabase 评分需要已核对的番号；上方仍可手动选择其他平台作品。"
                     : record.Source == "本地视频" ? "补充站点评分前，请先搜刮并核对作品番号。"
                     : "候选资料通过审核后，才能把其他站点评分加入视频。",
-                Margin = new Thickness(0, 9, 0, 0), Foreground = new SolidColorBrush(Color.FromRgb(128, 142, 164)),
+                Margin = new Thickness(0, 9, 0, 0), Foreground = UiTheme.TextTertiaryBrush,
                 TextWrapping = TextWrapping.Wrap
             });
             return;
@@ -289,15 +289,15 @@ public partial class MainWindow
         {
             Title = "选择同一作品的站点评分", Owner = owner, Width = 650, Height = 520,
             MinWidth = 510, MinHeight = 360, WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Background = new SolidColorBrush(Color.FromRgb(247, 249, 253))
+            Background = UiTheme.SurfaceBrush
         };
         var layout = new DockPanel { Margin = new Thickness(18) };
         var top = new StackPanel();
         top.Children.Add(new TextBlock { Text = "从公开作品库查找同一作品", FontSize = 18,
-            FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(35, 49, 74)) });
+            FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextSecondaryBrush });
         top.Children.Add(new TextBlock { Text = "选择结果并读取详情后，还需你确认作品身份。这里只加入评分，不更改原有搜刮资料。",
             Margin = new Thickness(0, 4, 0, 10), TextWrapping = TextWrapping.Wrap,
-            Foreground = new SolidColorBrush(Color.FromRgb(100, 119, 151)) });
+            Foreground = UiTheme.TextTertiaryBrush });
         var controls = new Grid { Margin = new Thickness(0, 0, 0, 10) };
         controls.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(125) });
         controls.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -327,7 +327,7 @@ public partial class MainWindow
             ? "没有已启用的评分来源。请先到搜刮页启用来源并设置所需凭据。"
             : "请选择站点并搜索标题；列表结果不会自动认作同一作品。",
             Margin = new Thickness(0, 0, 0, 8), TextWrapping = TextWrapping.Wrap,
-            Foreground = new SolidColorBrush(Color.FromRgb(105, 124, 157)) };
+            Foreground = UiTheme.TextTertiaryBrush };
         top.Children.Add(guidance);
         DockPanel.SetDock(top, Dock.Top); layout.Children.Add(top);
         var footer = new StackPanel { Orientation = Orientation.Horizontal,
@@ -392,11 +392,11 @@ public partial class MainWindow
                     row.Children.Add(new TextBlock { Text = string.Join(" · ", new[] { item.Source, item.ReleaseDate, item.SourceUrl }
                             .Where(value => !string.IsNullOrWhiteSpace(value))), FontSize = 11,
                         TextTrimming = TextTrimming.CharacterEllipsis,
-                        Foreground = new SolidColorBrush(Color.FromRgb(110, 126, 151)) });
+                        Foreground = UiTheme.TextTertiaryBrush });
                     if (item.Source == "Trakt")
                         row.Children.Add(new TextBlock { Text = item.DetailNote, FontSize = 11,
                             TextTrimming = TextTrimming.CharacterEllipsis,
-                            Foreground = new SolidColorBrush(Color.FromRgb(110, 126, 151)) });
+                            Foreground = UiTheme.TextTertiaryBrush });
                     candidates.Items.Add(new ListBoxItem { Content = row, Tag = item });
                 }
                 guidance.Text = found.Count == 0 ? $"{source} 没有返回候选，尝试换一个关键词或来源。"

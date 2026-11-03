@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using Button = System.Windows.Controls.Button;
 using TextBox = System.Windows.Controls.TextBox;
@@ -27,7 +27,7 @@ public partial class MainWindow
         body.Children.Add(new TextBlock
         {
             Text = "姓名查找最多核对 2 个同名演员卡和各自前 3 部作品；核对成功后可直接浏览该演员的公开作品。",
-            Foreground = WpfBrushes.SlateGray, TextWrapping = TextWrapping.Wrap,
+            Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 8)
         });
     }

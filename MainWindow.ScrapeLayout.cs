@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -48,7 +48,7 @@ public partial class MainWindow
         tasks.Children.Add(new TextBlock
         {
             Text = "搜刮任务", FontSize = 18, FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(38, 51, 71)),
+            Foreground = UiTheme.TextPrimaryBrush,
             Margin = new Thickness(0, 0, 0, 6)
         });
         tasks.Children.Add(actions);

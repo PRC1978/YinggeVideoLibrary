@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -115,7 +115,7 @@ public partial class MainWindow
             Owner = this, Title = rows.Count == 1 ? "逐字段审核候选" : $"逐字段批量审核 · {rows.Count} 条",
             Width = 1050, Height = 720, MinWidth = 780, MinHeight = 520,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Background = Brushes.White
+            Background = UiTheme.SurfaceBrush
         };
         var layout = new Grid { Margin = new Thickness(18) };
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -124,7 +124,7 @@ public partial class MainWindow
         var header = new TextBlock
         {
             Text = $"已选 {rows.Count} 条 · 逐字段对照原值和候选值。原值已有内容时默认保留；来源冲突默认保留，必须由你明确选择。‘不采用’会清空该字段。",
-            TextWrapping = TextWrapping.Wrap, Foreground = Brushes.SlateGray,
+            TextWrapping = TextWrapping.Wrap, Foreground = UiTheme.TextTertiaryBrush,
             Margin = new Thickness(0, 0, 0, 12)
         };
         Grid.SetRow(header, 0); layout.Children.Add(header);
@@ -170,7 +170,7 @@ public partial class MainWindow
         footer.Children.Add(new TextBlock
         {
             Text = "逐条检查后点“预览实际写入”；确认时会校验全部选中项。",
-            VerticalAlignment = VerticalAlignment.Center, Foreground = Brushes.SlateGray,
+            VerticalAlignment = VerticalAlignment.Center, Foreground = UiTheme.TextTertiaryBrush,
             TextWrapping = TextWrapping.Wrap
         });
         Grid.SetRow(footer, 2); layout.Children.Add(footer);
@@ -194,14 +194,14 @@ public partial class MainWindow
         {
             var border = new Border
             {
-                BorderBrush = new SolidColorBrush(Color.FromRgb(225, 231, 240)), BorderThickness = new Thickness(1),
+                BorderBrush = UiTheme.AccentSoftBackgroundBrush, BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(7), Margin = new Thickness(0, 0, 0, 8), Padding = new Thickness(10)
             };
             var content = new StackPanel();
             border.Child = content;
             var conflicted = row.Candidate.SourceConflictFields?.Contains(field.Key, StringComparer.Ordinal) == true;
             content.Children.Add(new TextBlock { Text = field.Label + (conflicted ? " · 来源冲突，请明确选择" : ""),
-                FontWeight = FontWeights.SemiBold, Foreground = conflicted ? Brushes.IndianRed : Brushes.DarkSlateGray });
+                FontWeight = FontWeights.SemiBold, Foreground = conflicted ? UiTheme.DangerBrush : Brushes.DarkSlateGray });
             AddReviewFieldValue(content, "原值", ReviewFieldApproval.Value(row.Before.Metadata, field.Key));
             AddReviewFieldValue(content, "候选", ReviewFieldApproval.Value(row.Candidate, field.Key));
             var selector = new ComboBox { MinWidth = 190, Height = 30, HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
@@ -260,7 +260,7 @@ public partial class MainWindow
         panel.Children.Add(new TextBlock
         {
             Text = label + "：" + TruncateReviewValue(value, 160), ToolTip = value,
-            Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap,
+            Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 3, 0, 0)
         });
     }

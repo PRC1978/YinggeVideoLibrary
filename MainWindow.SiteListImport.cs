@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -38,7 +38,7 @@ public partial class MainWindow
             MinWidth = 690, MinHeight = 520,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ShowInTaskbar = false,
-            Background = new SolidColorBrush(Color.FromRgb(247, 249, 253))
+            Background = UiTheme.SurfaceBrush
         };
         var root = new Grid { Margin = new Thickness(22) };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -50,7 +50,7 @@ public partial class MainWindow
 
         var header = new StackPanel();
         header.Children.Add(new TextBlock { Text = "导入你自己导出的收藏或片单", FontSize = 21,
-            FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(31, 49, 80)) });
+            FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextSecondaryBrush });
         header.Children.Add(SettingsHint("选择 CSV 或 JSON 文件，先查看每项的匹配状态。已匹配会关联本地视频；待核对和未匹配也保留在独立清单中。不会自动修改视频资料或本地收藏。"));
         root.Children.Add(header);
 
@@ -71,7 +71,7 @@ public partial class MainWindow
         {
             Text = "支持标题、番号、链接、来源字段；不连接站点或读取登录信息。",
             TextWrapping = TextWrapping.Wrap,
-            Foreground = new SolidColorBrush(Color.FromRgb(83, 102, 132)),
+            Foreground = UiTheme.TextTertiaryBrush,
             Margin = new Thickness(0, 4, 0, 10)
         };
         Grid.SetRow(status, 2);
@@ -84,7 +84,7 @@ public partial class MainWindow
             EnableRowVirtualization = true, EnableColumnVirtualization = true,
             HeadersVisibility = DataGridHeadersVisibility.Column,
             GridLinesVisibility = DataGridGridLinesVisibility.Horizontal,
-            Background = Brushes.White
+            Background = UiTheme.SurfaceBrush
         };
         rows.Columns.Add(new DataGridTextColumn { Header = "序号", Binding = new Binding(nameof(SiteListImportStore.PreviewRow.Number)), Width = 55 });
         rows.Columns.Add(new DataGridTextColumn { Header = "状态", Binding = new Binding(nameof(SiteListImportStore.PreviewRow.Status)), Width = 80 });
@@ -248,7 +248,7 @@ public partial class MainWindow
             MinWidth = 690, MinHeight = 510,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ShowInTaskbar = false, Owner = this,
-            Background = new SolidColorBrush(Color.FromRgb(247, 249, 253))
+            Background = UiTheme.SurfaceBrush
         };
         var root = new Grid { Margin = new Thickness(20) };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -515,7 +515,7 @@ public partial class MainWindow
             MinWidth = 580, MinHeight = 420, Owner = owner,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ShowInTaskbar = false,
-            Background = new SolidColorBrush(Color.FromRgb(247, 249, 253))
+            Background = UiTheme.SurfaceBrush
         };
         var root = new Grid { Margin = new Thickness(18) };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -542,7 +542,7 @@ public partial class MainWindow
         root.Children.Add(options);
         var status = new TextBlock { Text = "计算预览不会写入任何数据。",
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 10),
-            Foreground = new SolidColorBrush(Color.FromRgb(83, 102, 132)) };
+            Foreground = UiTheme.TextTertiaryBrush };
         Grid.SetRow(status, 2);
         root.Children.Add(status);
         var rows = new DataGrid { IsReadOnly = true, AutoGenerateColumns = false,

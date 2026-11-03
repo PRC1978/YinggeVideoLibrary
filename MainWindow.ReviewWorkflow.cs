@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Windows;
@@ -89,7 +89,7 @@ public partial class MainWindow
         reviewSavedViewNotice = new TextBlock
         {
             Text = "组合状态、来源与可信度后可保存视图；批量选择只作用于当前筛选结果。",
-            Foreground = System.Windows.Media.Brushes.SlateGray,
+            Foreground = global::YinggeVideoLibrary.UiTheme.TextTertiaryBrush,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 9)
         };
@@ -109,7 +109,7 @@ public partial class MainWindow
         panel.Children.Insert(Math.Max(0, panel.Children.Count - 2), actions);
         reviewHistoryWarning = new TextBlock
         {
-            Foreground = System.Windows.Media.Brushes.IndianRed,
+            Foreground = global::YinggeVideoLibrary.UiTheme.DangerBrush,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 9),
             Visibility = Visibility.Collapsed
@@ -680,7 +680,7 @@ public partial class MainWindow
             new TextBlock { Text = "至", VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 5, 7) }, toDate, search, reset }) filters.Children.Add(control);
         var count = new TextBlock { Text = $"显示 {rows.Count:N0} / {rows.Count:N0} 条记录 · 导出完整历史不受筛选影响",
-            Margin = new Thickness(10, 3, 10, 9), Foreground = System.Windows.Media.Brushes.SlateGray };
+            Margin = new Thickness(10, 3, 10, 9), Foreground = global::YinggeVideoLibrary.UiTheme.TextTertiaryBrush };
         var layout = new DockPanel();
         DockPanel.SetDock(filters, Dock.Top);
         DockPanel.SetDock(count, Dock.Bottom);

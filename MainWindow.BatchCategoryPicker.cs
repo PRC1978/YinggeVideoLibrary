@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -37,7 +37,7 @@ public partial class MainWindow
             MinHeight = 430,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ShowInTaskbar = false,
-            Background = new SolidColorBrush(Color.FromRgb(247, 249, 253))
+            Background = UiTheme.SurfaceBrush
         };
         var layout = new Grid { Margin = new Thickness(22) };
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -47,19 +47,19 @@ public partial class MainWindow
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var heading = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };
-        heading.Children.Add(new TextBlock { Text = "选择目标分类", FontSize = 20, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(38, 51, 71)) });
-        heading.Children.Add(new TextBlock { Text = description ?? $"已选 {selectedCount:N0} 部视频 · 选中父分类后可在其下新建子分类", Margin = new Thickness(0, 6, 0, 0), Foreground = new SolidColorBrush(Color.FromRgb(117, 131, 153)), TextTrimming = TextTrimming.CharacterEllipsis });
+        heading.Children.Add(new TextBlock { Text = "选择目标分类", FontSize = 20, FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextSecondaryBrush });
+        heading.Children.Add(new TextBlock { Text = description ?? $"已选 {selectedCount:N0} 部视频 · 选中父分类后可在其下新建子分类", Margin = new Thickness(0, 6, 0, 0), Foreground = UiTheme.TextTertiaryBrush, TextTrimming = TextTrimming.CharacterEllipsis });
         layout.Children.Add(heading);
 
-        var search = new TextBox { Height = 40, Padding = new Thickness(12, 8, 12, 8), BorderBrush = new SolidColorBrush(Color.FromRgb(213, 223, 239)), Background = Brushes.White, ToolTip = moveOnly ? "输入分类名称或路径筛选；按 Enter 移动到选中分类" : "输入分类名称或路径筛选；按 Enter 添加到选中分类" };
+        var search = new TextBox { Height = 40, Padding = new Thickness(12, 8, 12, 8), BorderBrush = UiTheme.AccentSoftBackgroundBrush, Background = UiTheme.SurfaceBrush, ToolTip = moveOnly ? "输入分类名称或路径筛选；按 Enter 移动到选中分类" : "输入分类名称或路径筛选；按 Enter 添加到选中分类" };
         Grid.SetRow(search, 1);
         layout.Children.Add(search);
 
-        var count = new TextBlock { Foreground = new SolidColorBrush(Color.FromRgb(117, 131, 153)), FontSize = 12, Margin = new Thickness(2, 8, 0, 8) };
+        var count = new TextBlock { Foreground = UiTheme.TextTertiaryBrush, FontSize = 12, Margin = new Thickness(2, 8, 0, 8) };
         Grid.SetRow(count, 2);
         layout.Children.Add(count);
 
-        var categories = new ListBox { BorderBrush = new SolidColorBrush(Color.FromRgb(213, 223, 239)), BorderThickness = new Thickness(1), Background = Brushes.White };
+        var categories = new ListBox { BorderBrush = UiTheme.AccentSoftBackgroundBrush, BorderThickness = new Thickness(1), Background = UiTheme.SurfaceBrush };
         VirtualizingPanel.SetIsVirtualizing(categories, true);
         VirtualizingPanel.SetVirtualizationMode(categories, VirtualizationMode.Recycling);
         ScrollViewer.SetCanContentScroll(categories, true);
@@ -80,7 +80,7 @@ public partial class MainWindow
         row.AppendChild(name);
         var parent = new FrameworkElementFactory(typeof(TextBlock));
         parent.SetBinding(TextBlock.TextProperty, new Binding(nameof(CategoryPickerEntry.Parent)));
-        parent.SetValue(TextBlock.ForegroundProperty, new SolidColorBrush(Color.FromRgb(117, 131, 153)));
+        parent.SetValue(TextBlock.ForegroundProperty, UiTheme.TextTertiaryBrush);
         parent.SetValue(TextBlock.FontSizeProperty, 11.0);
         parent.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
         row.AppendChild(parent);
@@ -141,7 +141,7 @@ public partial class MainWindow
         var selectionHint = new TextBlock
         {
             Text = "先选择父分类，再点“＋ 子分类并添加”。",
-            Foreground = new SolidColorBrush(Color.FromRgb(92, 111, 150)),
+            Foreground = UiTheme.TextTertiaryBrush,
             TextTrimming = TextTrimming.CharacterEllipsis,
             Margin = new Thickness(0, 0, 0, 4)
         };

@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -54,15 +54,15 @@ public partial class MainWindow
         if (MissingUndoButton is not null) MissingUndoButton.IsEnabled = MissingCleanupStore.HasUndoable(DataDir);
     }
 
-    static readonly Brush ChipIdleBackground = Brushes.White;
-    static readonly Brush ChipIdleBorder = new SolidColorBrush(Color.FromRgb(227, 232, 239));
-    static readonly Brush ChipIdleForeground = new SolidColorBrush(Color.FromRgb(69, 83, 103));
+    static readonly Brush ChipIdleBackground = UiTheme.SurfaceBrush;
+    static readonly Brush ChipIdleBorder = UiTheme.AccentSoftBackgroundBrush;
+    static readonly Brush ChipIdleForeground = UiTheme.TextTertiaryBrush;
     static readonly Brush ChipMissingBackground = new SolidColorBrush(Color.FromArgb(30, 180, 35, 24));
-    static readonly Brush ChipMissingBorder = new SolidColorBrush(Color.FromRgb(180, 35, 24));
-    static readonly Brush ChipMissingForeground = new SolidColorBrush(Color.FromRgb(180, 35, 24));
+    static readonly Brush ChipMissingBorder = UiTheme.DangerBrush;
+    static readonly Brush ChipMissingForeground = UiTheme.DangerBrush;
     static readonly Brush ChipUnavailableBackground = new SolidColorBrush(Color.FromArgb(30, 180, 83, 9));
-    static readonly Brush ChipUnavailableBorder = new SolidColorBrush(Color.FromRgb(180, 83, 9));
-    static readonly Brush ChipUnavailableForeground = new SolidColorBrush(Color.FromRgb(180, 83, 9));
+    static readonly Brush ChipUnavailableBorder = UiTheme.DangerBrush;
+    static readonly Brush ChipUnavailableForeground = UiTheme.DangerBrush;
 
     static void HighlightChip(Button button, bool active, Color accent)
     {

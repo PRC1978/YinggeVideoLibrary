@@ -2405,8 +2405,8 @@ public partial class MainWindow : Window
         aiCategoryAction = null;
         CategoryPanel.Children.Clear();
         sphereCategoryChips.Clear();
-        CategoryPanel.Children.Add(new TextBlock { Text = "分类工作台", FontSize = 19, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(38, 51, 71)), Margin = new Thickness(0, 0, 0, 4) });
-        CategoryPanel.Children.Add(new TextBlock { Text = "点击节点筛选，拖动视频归类；按住鼠标中键移动图面，滚轮缩放，底边可调整高度。", Foreground = new SolidColorBrush(Color.FromRgb(131, 144, 163)), FontSize = 12, Margin = new Thickness(0, 0, 0, 14) });
+        CategoryPanel.Children.Add(new TextBlock { Text = "分类工作台", FontSize = 19, FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextSecondaryBrush, Margin = new Thickness(0, 0, 0, 4) });
+        CategoryPanel.Children.Add(new TextBlock { Text = "点击节点筛选，拖动视频归类；按住鼠标中键移动图面，滚轮缩放，底边可调整高度。", Foreground = UiTheme.TextTertiaryBrush, FontSize = 12, Margin = new Thickness(0, 0, 0, 14) });
         CategoryPanel.Children.Add(BuildGraphMoveActions());
         var graphIndex = GetSphereGraphIndexForUi();
         if (graphIndex is null)
@@ -2419,11 +2419,11 @@ public partial class MainWindow : Window
             {
                 Padding = new Thickness(18),
                 Margin = new Thickness(0, 8, 0, 10),
-                Background = new SolidColorBrush(Color.FromRgb(247, 250, 255)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(216, 228, 248)),
+                Background = UiTheme.SurfaceBrush,
+                BorderBrush = UiTheme.AccentSoftBackgroundBrush,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(12),
-                Child = new TextBlock { Text = $"正在后台建立 {videos.Count:N0} 部视频的完整分类与标签关系…", Foreground = new SolidColorBrush(Color.FromRgb(67, 91, 141)), FontSize = 13 }
+                Child = new TextBlock { Text = $"正在后台建立 {videos.Count:N0} 部视频的完整分类与标签关系…", Foreground = UiTheme.TextTertiaryBrush, FontSize = 13 }
             });
             lastCategoryRenderVersion = -1;
             return;
@@ -2436,24 +2436,24 @@ public partial class MainWindow : Window
         foreach (var name in new[] { "全部", "未分类" }.Concat(config.CategoryNames).Distinct())
         {
             var count = name == "全部" ? videos.Count : categoryCounts.GetValueOrDefault(name, 0);
-            var chip = new Button { Content = $"{name}  {count}", Padding = new Thickness(13, 8, 13, 8), Margin = new Thickness(0, 0, 9, 9), BorderBrush = new SolidColorBrush(Color.FromRgb(223, 230, 239)), Background = name == selectedCategory ? new SolidColorBrush(Color.FromRgb(234, 240, 255)) : Brushes.White, Foreground = name == selectedCategory ? new SolidColorBrush(Color.FromRgb(62, 99, 213)) : new SolidColorBrush(Color.FromRgb(70, 83, 102)), Cursor = System.Windows.Input.Cursors.Hand };
+            var chip = new Button { Content = $"{name}  {count}", Padding = new Thickness(13, 8, 13, 8), Margin = new Thickness(0, 0, 9, 9), BorderBrush = UiTheme.AccentSoftBackgroundBrush, Background = name == selectedCategory ? UiTheme.AccentSoftBackgroundBrush : UiTheme.SurfaceBrush, Foreground = name == selectedCategory ? UiTheme.AccentBrush : UiTheme.TextTertiaryBrush, Cursor = System.Windows.Input.Cursors.Hand };
             chip.Click += (_, _) => SelectSphereCategory(name == "全部" ? "" : name);
             sphereCategoryChips[name] = chip;
             chips.Children.Add(chip);
         }
-        var add = new Button { Content = "＋ 新建分类", Padding = new Thickness(13, 8, 13, 8), Margin = new Thickness(0, 0, 9, 9), BorderBrush = new SolidColorBrush(Color.FromRgb(223, 230, 239)), Background = Brushes.White, Foreground = new SolidColorBrush(Color.FromRgb(75, 111, 225)), Cursor = System.Windows.Input.Cursors.Hand };
+        var add = new Button { Content = "＋ 新建分类", Padding = new Thickness(13, 8, 13, 8), Margin = new Thickness(0, 0, 9, 9), BorderBrush = UiTheme.AccentSoftBackgroundBrush, Background = UiTheme.SurfaceBrush, Foreground = UiTheme.AccentBrush, Cursor = System.Windows.Input.Cursors.Hand };
         add.Click += (_, _) => CreateCategory(); chips.Children.Add(add);
-        var addChild = new Button { Content = "＋ 在当前分类下新建子分类", Padding = new Thickness(13, 8, 13, 8), Margin = new Thickness(0, 0, 9, 9), BorderBrush = new SolidColorBrush(Color.FromRgb(223, 230, 239)), Background = Brushes.White, Foreground = new SolidColorBrush(Color.FromRgb(75, 111, 225)), Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "先选择父分类；新建的子分类会成为当前分类" };
+        var addChild = new Button { Content = "＋ 在当前分类下新建子分类", Padding = new Thickness(13, 8, 13, 8), Margin = new Thickness(0, 0, 9, 9), BorderBrush = UiTheme.AccentSoftBackgroundBrush, Background = UiTheme.SurfaceBrush, Foreground = UiTheme.AccentBrush, Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "先选择父分类；新建的子分类会成为当前分类" };
         addChild.Click += CreateChildCategoryFromWorkbench; chips.Children.Add(addChild);
-        var smart = new Button { Content = "✦ 智能分类", Padding = new Thickness(13, 8, 13, 8), Margin = new Thickness(0, 0, 9, 9), BorderBrush = new SolidColorBrush(Color.FromRgb(190, 208, 248)), Background = new SolidColorBrush(Color.FromRgb(239, 245, 255)), Foreground = new SolidColorBrush(Color.FromRgb(55, 92, 190)), Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "根据文件夹和文件名离线推断分类" };
+        var smart = new Button { Content = "✦ 智能分类", Padding = new Thickness(13, 8, 13, 8), Margin = new Thickness(0, 0, 9, 9), BorderBrush = UiTheme.BorderBrushToken, Background = UiTheme.AccentSoftBackgroundBrush, Foreground = UiTheme.AccentBrush, Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "根据文件夹和文件名离线推断分类" };
         smart.Click += SmartCategorize; chips.Children.Add(smart); CategoryPanel.Children.Add(chips);
-        var ai = new Button { Content = "AI 建议", Padding = new Thickness(13, 8, 13, 8), Margin = new Thickness(0, 0, 9, 9), BorderBrush = new SolidColorBrush(Color.FromRgb(218, 198, 239)), Background = new SolidColorBrush(Color.FromRgb(250, 244, 255)), Foreground = new SolidColorBrush(Color.FromRgb(122, 70, 165)), Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "使用设置中的 OpenAI 兼容接口" };
+        var ai = new Button { Content = "AI 建议", Padding = new Thickness(13, 8, 13, 8), Margin = new Thickness(0, 0, 9, 9), BorderBrush = UiTheme.BorderBrushToken, Background = UiTheme.BorderBrushToken, Foreground = UiTheme.TextTertiaryBrush, Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "使用设置中的 OpenAI 兼容接口" };
         aiCategoryAction = ai;
         ai.Click += AiCategorize; chips.Children.Add(ai);
         categoryPaths = graphIndex.AllCategoryCounts.Keys.Where(x => x is not "未分类" and not "全部").OrderBy(x => x).ToList();
         var categoryItems = categoryPaths.Select(path => new SphereNavItem(path, path, categoryCounts.GetValueOrDefault(path))).ToList();
         var categorySearch = new TextBox { Width = 280, Height = 30, Margin = new Thickness(0, 0, 12, 0), ToolTip = "搜索全部分类名称；下方列表可滚动选择" };
-        var categoryResult = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Foreground = new SolidColorBrush(Color.FromRgb(111, 130, 166)) };
+        var categoryResult = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Foreground = UiTheme.TextTertiaryBrush };
         var categorySearchBar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
         categorySearchBar.Children.Add(new TextBlock { Text = "查找分类", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 9, 0), FontWeight = FontWeights.SemiBold });
         categorySearchBar.Children.Add(categorySearch);
@@ -2461,7 +2461,7 @@ public partial class MainWindow : Window
         var revealCategories = new Button { Content = "展开列表", Style = (Style)FindResource("Action"), Margin = new Thickness(12, 0, 0, 0), Padding = new Thickness(9, 0, 9, 0), ToolTip = "展开可滚动的完整分类列表" };
         categorySearchBar.Children.Add(revealCategories);
         CategoryPanel.Children.Add(categorySearchBar);
-        var categoryList = new System.Windows.Controls.ListBox { Height = 112, MaxWidth = 880, HorizontalAlignment = System.Windows.HorizontalAlignment.Left, BorderBrush = new SolidColorBrush(Color.FromRgb(216, 228, 248)), Margin = new Thickness(0, 0, 0, 12), Visibility = Visibility.Collapsed };
+        var categoryList = new System.Windows.Controls.ListBox { Height = 112, MaxWidth = 880, HorizontalAlignment = System.Windows.HorizontalAlignment.Left, BorderBrush = UiTheme.AccentSoftBackgroundBrush, Margin = new Thickness(0, 0, 0, 12), Visibility = Visibility.Collapsed };
         var categoryRow = new DataTemplate();
         var categoryText = new FrameworkElementFactory(typeof(TextBlock));
         categoryText.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(SphereNavItem.Display)));
@@ -2665,7 +2665,7 @@ public partial class MainWindow : Window
         var realOrdered = selectedPaths.OrderBy(path => path.Count(c => c == '/')).ThenBy(path => path, StringComparer.CurrentCultureIgnoreCase).Take(220).ToList();
         if (realOrdered.Count == 0)
         {
-            return new Border { Background = Brushes.White, BorderBrush = new SolidColorBrush(Color.FromRgb(221, 230, 245)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(16), Padding = new Thickness(18), Margin = new Thickness(0, 3, 0, 14), Child = new TextBlock { Text = "还没有分类节点。点击“新建分类”，或运行“智能分类”开始整理。", Foreground = new SolidColorBrush(Color.FromRgb(130, 145, 176)) } };
+            return new Border { Background = UiTheme.SurfaceBrush, BorderBrush = UiTheme.AccentSoftBackgroundBrush, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(16), Padding = new Thickness(18), Margin = new Thickness(0, 3, 0, 14), Child = new TextBlock { Text = "还没有分类节点。点击“新建分类”，或运行“智能分类”开始整理。", Foreground = UiTheme.TextTertiaryBrush } };
         }
         const string rootKey = "\u0000__root__";
         var ordered = new List<string> { rootKey };
@@ -2762,7 +2762,7 @@ public partial class MainWindow : Window
             }
         }
 
-        var canvas = new Canvas { Width = graphWidth, Height = graphHeight, Background = new SolidColorBrush(Color.FromRgb(250, 252, 255)) };
+        var canvas = new Canvas { Width = graphWidth, Height = graphHeight, Background = UiTheme.SurfaceBrush };
         // Soft orbital rings make the radial layout legible even with a large
         // number of nodes. They are decoration only and never intercept drag.
         foreach (var ring in new[] { .32, .53, .74 })
@@ -2773,7 +2773,7 @@ public partial class MainWindow : Window
             Canvas.SetTop(ellipse, centerY + nodeHeight / 2 - diameter * .66 / 2);
             canvas.Children.Add(ellipse);
         }
-        var connectorBrush = new SolidColorBrush(Color.FromRgb(184, 201, 232));
+        var connectorBrush = UiTheme.BorderBrushToken;
         foreach (var edge in edges)
         {
             var parent = positions[edge.Parent!]; var child = positions[edge.Child];
@@ -2809,19 +2809,19 @@ public partial class MainWindow : Window
             var card = new Border { Width = nodeWidth, Height = nodeHeight, CornerRadius = new CornerRadius(nodeWidth / 2), Padding = new Thickness(9), Background = fill, BorderBrush = new SolidColorBrush(isRoot ? Color.FromRgb(61, 58, 151) : depth == 0 ? Color.FromRgb(99, 136, 225) : Color.FromRgb(171, 199, 240)), BorderThickness = new Thickness(isRoot || depth == 0 ? 2 : 1), AllowDrop = !isRoot, Tag = path, Cursor = System.Windows.Input.Cursors.Hand, RenderTransform = new ScaleTransform(1, 1), RenderTransformOrigin = new System.Windows.Point(.5, .5), Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 14, ShadowDepth = 3, Opacity = .2 } };
             var body = new StackPanel();
             body.VerticalAlignment = VerticalAlignment.Center;
-            body.Children.Add(new TextBlock { Text = isRoot ? "✦" : "●", HorizontalAlignment = System.Windows.HorizontalAlignment.Center, FontSize = isRoot ? 18 : 10, FontWeight = FontWeights.Bold, Foreground = isRoot ? Brushes.White : new SolidColorBrush(Color.FromRgb(53, 87, 171)) });
-            body.Children.Add(new TextBlock { Text = isRoot ? "全部分类" : path.Split(" / ").Last(), HorizontalAlignment = System.Windows.HorizontalAlignment.Center, FontSize = isRoot || depth == 0 ? 12 : 11, FontWeight = FontWeights.SemiBold, Foreground = isRoot ? Brushes.White : new SolidColorBrush(Color.FromRgb(39, 66, 137)), TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
-            body.Children.Add(new TextBlock { Text = isRoot ? $"{count:N0} 部视频" : $"{count:N0} 部", HorizontalAlignment = System.Windows.HorizontalAlignment.Center, FontSize = 10, Foreground = isRoot ? new SolidColorBrush(Color.FromRgb(235, 239, 255)) : new SolidColorBrush(Color.FromRgb(84, 111, 171)), Margin = new Thickness(0, 3, 0, 0) });
+            body.Children.Add(new TextBlock { Text = isRoot ? "✦" : "●", HorizontalAlignment = System.Windows.HorizontalAlignment.Center, FontSize = isRoot ? 18 : 10, FontWeight = FontWeights.Bold, Foreground = isRoot ? UiTheme.SurfaceBrush : UiTheme.AccentBrush });
+            body.Children.Add(new TextBlock { Text = isRoot ? "全部分类" : path.Split(" / ").Last(), HorizontalAlignment = System.Windows.HorizontalAlignment.Center, FontSize = isRoot || depth == 0 ? 12 : 11, FontWeight = FontWeights.SemiBold, Foreground = isRoot ? UiTheme.SurfaceBrush : UiTheme.TextTertiaryBrush, TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+            body.Children.Add(new TextBlock { Text = isRoot ? $"{count:N0} 部视频" : $"{count:N0} 部", HorizontalAlignment = System.Windows.HorizontalAlignment.Center, FontSize = 10, Foreground = isRoot ? UiTheme.AccentSoftBackgroundBrush : UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 3, 0, 0) });
             card.Child = body;
             Canvas.SetLeft(card, positions[path].X); Canvas.SetTop(card, positions[path].Y);
             card.MouseLeftButtonDown += GraphNodeMouseDown; card.MouseLeftButtonUp += GraphNodeMouseUp; card.MouseMove += GraphNodeMouseMove; card.DragEnter += CategoryDragEnter; card.DragLeave += CategoryDragLeave; card.Drop += CategoryTileDrop; canvas.Children.Add(card);
         }
         var scroll = new ScrollViewer { Height = 390, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, CanContentScroll = false, PanningMode = PanningMode.Both, Content = canvas };
         var header = new DockPanel { Margin = new Thickness(8, 0, 8, 8) };
-        header.Children.Add(new TextBlock { Text = "力导引分类图", FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(61, 83, 130)) });
-        header.Children.Add(new TextBlock { Text = $"  {realOrdered.Count}/{paths.Count} 个分类节点 · 根节点=总览 · 线=层级 · 拖动视频到节点即可归类", Foreground = new SolidColorBrush(Color.FromRgb(130, 145, 176)), FontSize = 11, Margin = new Thickness(8, 2, 0, 0) });
+        header.Children.Add(new TextBlock { Text = "力导引分类图", FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextTertiaryBrush });
+        header.Children.Add(new TextBlock { Text = $"  {realOrdered.Count}/{paths.Count} 个分类节点 · 根节点=总览 · 线=层级 · 拖动视频到节点即可归类", Foreground = UiTheme.TextTertiaryBrush, FontSize = 11, Margin = new Thickness(8, 2, 0, 0) });
         var panel = new StackPanel(); panel.Children.Add(header); panel.Children.Add(scroll);
-        return new Border { Background = Brushes.White, BorderBrush = new SolidColorBrush(Color.FromRgb(221, 230, 245)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(16), Padding = new Thickness(10), Margin = new Thickness(0, 3, 0, 14), Child = panel };
+        return new Border { Background = UiTheme.SurfaceBrush, BorderBrush = UiTheme.AccentSoftBackgroundBrush, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(16), Padding = new Thickness(10), Margin = new Thickness(0, 3, 0, 14), Child = panel };
     }
 
     void GraphNodeMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e) { if (sender is FrameworkElement node) { graphDragNode = node; graphDragStart = e.GetPosition(node); } }
@@ -2868,11 +2868,11 @@ public partial class MainWindow : Window
     {
         var count = videos.Count(v => v.CategoryList.Any(c => c.Equals(path, StringComparison.OrdinalIgnoreCase) || c.StartsWith(path + " / ", StringComparison.OrdinalIgnoreCase)) || v.Category.Equals(path, StringComparison.OrdinalIgnoreCase));
         var header = new StackPanel { Orientation = Orientation.Horizontal };
-        header.Children.Add(new TextBlock { Text = "▰", Foreground = new SolidColorBrush(Color.FromRgb(79, 111, 215)), Margin = new Thickness(0, 0, 7, 0) });
+        header.Children.Add(new TextBlock { Text = "▰", Foreground = UiTheme.AccentBrush, Margin = new Thickness(0, 0, 7, 0) });
         header.Children.Add(new TextBlock { Text = label, FontWeight = FontWeights.SemiBold });
-        header.Children.Add(new TextBlock { Text = $"  {count}", Foreground = new SolidColorBrush(Color.FromRgb(135, 148, 168)), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
-        var headerCard = new Border { Child = header, Background = new LinearGradientBrush(Color.FromRgb(249, 251, 255), Color.FromRgb(235, 242, 255), 0), BorderBrush = new SolidColorBrush(Color.FromRgb(220, 229, 247)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9), Padding = new Thickness(10, 6, 14, 6), Margin = new Thickness(2, 3, 8, 3) };
-        var node = new TreeViewItem { Header = headerCard, Tag = path, AllowDrop = true, Padding = new Thickness(3, 2, 5, 2), Foreground = new SolidColorBrush(Color.FromRgb(55, 70, 95)) };
+        header.Children.Add(new TextBlock { Text = $"  {count}", Foreground = UiTheme.TextTertiaryBrush, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+        var headerCard = new Border { Child = header, Background = new LinearGradientBrush(Color.FromRgb(249, 251, 255), Color.FromRgb(235, 242, 255), 0), BorderBrush = UiTheme.AccentSoftBackgroundBrush, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9), Padding = new Thickness(10, 6, 14, 6), Margin = new Thickness(2, 3, 8, 3) };
+        var node = new TreeViewItem { Header = headerCard, Tag = path, AllowDrop = true, Padding = new Thickness(3, 2, 5, 2), Foreground = UiTheme.TextSecondaryBrush };
         node.Drop += CategoryTreeDrop; node.DragEnter += CategoryDragEnter; node.DragLeave += CategoryDragLeave; node.PreviewMouseLeftButtonDown += CategoryNodeMouseDown; node.PreviewMouseLeftButtonUp += CategoryNodeMouseUp; node.PreviewMouseMove += CategoryNodeMouseMove; node.Expanded += CategoryNodeExpanded;
         var hasChildren = categoryPaths.Any(x => x.StartsWith(path + " / ", StringComparison.OrdinalIgnoreCase));
         if (hasChildren) node.Items.Add(new TreeViewItem { Header = "展开下级…", Tag = "__placeholder__", IsEnabled = false });
@@ -2915,7 +2915,7 @@ public partial class MainWindow : Window
         else if (sender is System.Windows.Controls.Control control)
         {
             control.Tag = control.Tag is string path ? path : control.Tag;
-            control.Background = new SolidColorBrush(Color.FromRgb(218, 231, 255));
+            control.Background = UiTheme.AccentSoftBackgroundBrush;
         }
         e.Effects = System.Windows.DragDropEffects.Move; e.Handled = true;
     }
@@ -3497,7 +3497,7 @@ public partial class MainWindow : Window
         if (SettingsPanel.Child is not StackPanel stack) return;
         var separator = new Separator { Margin = new Thickness(0, 16, 0, 12) };
         var title = new TextBlock { Text = "界面与数据", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) };
-        var description = new TextBlock { Text = "恢复默认界面只重置窗口布局、导航和筛选，不会删除视频、分类、标签或缓存。", Foreground = new SolidColorBrush(Color.FromRgb(131, 144, 163)), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) };
+        var description = new TextBlock { Text = "恢复默认界面只重置窗口布局、导航和筛选，不会删除视频、分类、标签或缓存。", Foreground = UiTheme.TextTertiaryBrush, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) };
         var reset = new Button { Content = "恢复默认界面布局", Style = (Style)FindResource("Action"), HorizontalAlignment = System.Windows.HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 12), ToolTip = "恢复侧栏、顶部区域和筛选到默认状态" };
         reset.Click += ResetInterface;
         stack.Children.Add(separator); stack.Children.Add(title); stack.Children.Add(description); stack.Children.Add(reset);
@@ -3792,14 +3792,14 @@ public partial class MainWindow : Window
     }
     string? PromptText(string title, string label, string? guess, Window? owner = null)
     {
-        var dialog = new Window { Title = title, Owner = owner ?? this, Width = 350, Height = 175, WindowStartupLocation = WindowStartupLocation.CenterOwner, ResizeMode = ResizeMode.NoResize, Background = Brushes.White };
+        var dialog = new Window { Title = title, Owner = owner ?? this, Width = 350, Height = 175, WindowStartupLocation = WindowStartupLocation.CenterOwner, ResizeMode = ResizeMode.NoResize, Background = UiTheme.SurfaceBrush };
         var panel = new StackPanel { Margin = new Thickness(20) };
         panel.Children.Add(new TextBlock { Text = label, Margin = new Thickness(0, 0, 0, 8) });
         var field = new TextBox { Text = guess ?? "", Height = 34, Padding = new Thickness(8, 5, 8, 5) };
         panel.Children.Add(field);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
         var cancel = new Button { Content = "取消", Width = 70, Height = 30, Margin = new Thickness(0, 0, 8, 0) };
-        var accept = new Button { Content = "确定", Width = 70, Height = 30, Background = new SolidColorBrush(Color.FromRgb(75, 111, 225)), Foreground = Brushes.White };
+        var accept = new Button { Content = "确定", Width = 70, Height = 30, Background = UiTheme.AccentBrush, Foreground = UiTheme.AccentForegroundBrush };
         cancel.Click += (_, _) => dialog.DialogResult = false;
         accept.Click += (_, _) => dialog.DialogResult = true;
         buttons.Children.Add(cancel); buttons.Children.Add(accept); panel.Children.Add(buttons); dialog.Content = panel;
@@ -4042,14 +4042,14 @@ public partial class MainWindow : Window
         ReviewClearButton.IsEnabled = reviewSelection.Count > 0;
         if (records.Count == 0)
         {
-            ReviewQueuePanel.Children.Add(new TextBlock { Text = "搜刮结果会先经过可信度判断。低于阈值的匹配会出现在这里。", Foreground = new SolidColorBrush(Color.FromRgb(131, 144, 163)), Margin = new Thickness(8, 15, 8, 15), TextWrapping = TextWrapping.Wrap });
+            ReviewQueuePanel.Children.Add(new TextBlock { Text = "搜刮结果会先经过可信度判断。低于阈值的匹配会出现在这里。", Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(8, 15, 8, 15), TextWrapping = TextWrapping.Wrap });
             return;
         }
         // Build controls only for the current page. A large audit history can
         // contain thousands of records and must not block the UI thread.
         foreach (var review in records.Skip(reviewPageIndex * ReviewPageSize).Take(ReviewPageSize))
         {
-            var row = new Border { Background = review.Status == "rejected" ? new SolidColorBrush(Color.FromRgb(255, 247, 247)) : new SolidColorBrush(Color.FromRgb(248, 250, 255)), BorderBrush = new SolidColorBrush(Color.FromRgb(224, 231, 244)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9), Padding = new Thickness(8), Margin = new Thickness(0, 0, 0, 7) };
+            var row = new Border { Background = review.Status == "rejected" ? UiTheme.SurfaceBrush : UiTheme.SurfaceBrush, BorderBrush = UiTheme.AccentSoftBackgroundBrush, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9), Padding = new Thickness(8), Margin = new Thickness(0, 0, 0, 7) };
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(70) });
@@ -4069,9 +4069,9 @@ public partial class MainWindow : Window
             var cover = CreateScrapeCover(review.ToMetadata(), 48, 68);
             Grid.SetColumn(cover, 2); grid.Children.Add(cover);
             var detail = new StackPanel();
-            detail.Children.Add(new TextBlock { Text = review.CandidateTitle, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(55, 70, 95)), TextTrimming = TextTrimming.CharacterEllipsis });
-            detail.Children.Add(new TextBlock { Text = $"{available[review.VideoId].DisplayTitle} · {review.CandidateSource} · {review.CandidateCode}", Foreground = new SolidColorBrush(Color.FromRgb(131, 144, 163)), FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis });
-            detail.Children.Add(new TextBlock { Text = $"评估：{review.Model} · 依据：{review.Reason}", Foreground = new SolidColorBrush(Color.FromRgb(111, 122, 143)), FontSize = 11, TextWrapping = TextWrapping.Wrap });
+            detail.Children.Add(new TextBlock { Text = review.CandidateTitle, FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextSecondaryBrush, TextTrimming = TextTrimming.CharacterEllipsis });
+            detail.Children.Add(new TextBlock { Text = $"{available[review.VideoId].DisplayTitle} · {review.CandidateSource} · {review.CandidateCode}", Foreground = UiTheme.TextTertiaryBrush, FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis });
+            detail.Children.Add(new TextBlock { Text = $"评估：{review.Model} · 依据：{review.Reason}", Foreground = UiTheme.TextTertiaryBrush, FontSize = 11, TextWrapping = TextWrapping.Wrap });
             var compareCovers = new Button { Content = "比较封面", Style = (Style)FindResource("Action"),
                 HorizontalAlignment = System.Windows.HorizontalAlignment.Left, Margin = new Thickness(0, 4, 0, 0),
                 Padding = new Thickness(8, 0, 8, 0) };

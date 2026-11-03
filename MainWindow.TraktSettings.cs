@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Button = System.Windows.Controls.Button;
@@ -21,7 +21,7 @@ public partial class MainWindow
         section.Children.Add(new TextBlock
         {
             Text = "用你注册的 Trakt Client ID 搜索单部电影或剧集。候选按 Trakt ID、IMDb/TMDB 编号、标题和年份核对后进入人工审核。Trakt 不参加全部来源与后台全量队列。",
-            Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap,
+            Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 5, 0, 10)
         });
         var enabled = new CheckBox { Content = "启用 Trakt 手动搜刮", IsChecked = config.EnableTrakt,
@@ -32,7 +32,7 @@ public partial class MainWindow
         var status = new TextBlock
         {
             Text = TraktScraper.CredentialReady() ? "Windows 凭据中已有 Trakt Client ID" : "尚未设置 Trakt Client ID",
-            Foreground = Brushes.SlateGray, Margin = new Thickness(0, 0, 0, 5)
+            Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 0, 0, 5)
         };
         section.Children.Add(status);
         var keyBox = new PasswordBox { Height = 36, Padding = new Thickness(8),
@@ -90,13 +90,13 @@ public partial class MainWindow
         section.Children.Add(new TextBlock
         {
             Text = "申请地址：developer.trakt.tv/apps。需验证 GitHub 账号；应用内会标明 Trakt 评分出处。官方禁止目录批量采集。",
-            Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap,
+            Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 8, 0, 0)
         });
         section.Children.Add(new TextBlock
         {
             Text = "映格视频库 uses Trakt but is not endorsed or certified by Trakt.",
-            Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap,
+            Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 4, 0, 0)
         });
         panel.Children.Insert(panel.Children.IndexOf(TmdbEnabledBox) + 4, section);

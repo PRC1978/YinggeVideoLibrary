@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
@@ -45,7 +45,7 @@ public partial class MainWindow
         row.Children.Add(new TextBlock
         {
             Text = "项目与第三方许可", FontWeight = FontWeights.SemiBold,
-            Foreground = Brushes.SlateGray, Margin = new Thickness(0, 0, 0, 7)
+            Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 0, 0, 7)
         });
         var button = new Button
         {
@@ -57,7 +57,7 @@ public partial class MainWindow
         row.Children.Add(new TextBlock
         {
             Text = "源码公开供许可范围内的非商业使用；商业用途请先通过项目 GitHub Issues 联系 PRC1978。",
-            TextWrapping = TextWrapping.Wrap, Foreground = Brushes.SlateGray,
+            TextWrapping = TextWrapping.Wrap, Foreground = UiTheme.TextTertiaryBrush,
             Margin = new Thickness(0, 7, 0, 0)
         });
         return row;
@@ -89,7 +89,7 @@ public partial class MainWindow
             Title = "项目许可与第三方声明", Owner = this,
             Width = 690, Height = 550, MinWidth = 480, MinHeight = 360,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Background = Brushes.White
+            Background = UiTheme.SurfaceBrush
         };
         var layout = new DockPanel { Margin = new Thickness(22) };
         var close = new Button
@@ -114,7 +114,7 @@ public partial class MainWindow
             Text = documents[0].Text, IsReadOnly = true, TextWrapping = TextWrapping.Wrap,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            BorderThickness = new Thickness(0), Background = Brushes.White,
+            BorderThickness = new Thickness(0), Background = UiTheme.SurfaceBrush,
             FontFamily = new FontFamily("Consolas"), FontSize = 13
         };
         documentPicker.SelectionChanged += (_, _) =>

@@ -39,11 +39,52 @@ public static class UiTheme
     public static string LabelOf(string id) =>
         Modes.FirstOrDefault(mode => mode.Id == Normalize(id)).Label ?? "原版界面";
 
+    // Two brush sets per token:
+    // - liveBrushes: returned to C# callers. Never referenced by XAML style
+    //   setters, so they stay unfrozen and Apply() mutates their Color —
+    //   one-time C# assignments (button.Foreground = UiTheme.TextPrimaryBrush)
+    //   follow theme switches automatically.
+    // - brushes: exposed through UiThemeState for XAML binding. Style setters
+    //   freeze whatever they consume, so Apply() replaces these instances and
+    //   UiThemeState raises PropertyChanged to refresh bindings.
     static readonly Dictionary<string, SolidColorBrush> brushes = new(StringComparer.Ordinal);
+    static readonly Dictionary<string, SolidColorBrush> liveBrushes = new(StringComparer.Ordinal);
     static readonly Dictionary<string, double> numbers = new(StringComparer.Ordinal);
 
     public static SolidColorBrush Brush(string token) =>
+        liveBrushes.TryGetValue(token, out var brush) ? brush : throw new InvalidOperationException("未知主题令牌：" + token);
+
+    /// <summary>Display-set brush for XAML binding (may be frozen by style
+    /// setters; replaced on Apply). C# callers must use Brush()/the named
+    /// accessors, which return the live set.</summary>
+    internal static SolidColorBrush DisplayBrush(string token) =>
         brushes.TryGetValue(token, out var brush) ? brush : throw new InvalidOperationException("未知主题令牌：" + token);
+
+    /// <summary>Map a legacy hardcoded hex color (#RRGGBB / #AARRGGBB) to the
+    /// closest semantic token brush. Legacy hex helpers (Tint/Brush/UpdateBrush)
+    /// route through here so their many call sites follow theme switches
+    /// without editing every call.</summary>
+    public static SolidColorBrush FromLegacyHex(string hex)
+    {
+        var value = hex.TrimStart('#');
+        if (value.Length == 8) value = value[2..]; // drop alpha for classification
+        if (value.Length != 6 || !int.TryParse(value, System.Globalization.NumberStyles.HexNumber,
+                null, out var rgb)) return TextPrimaryBrush;
+        var r = (rgb >> 16) & 0xFF;
+        var g = (rgb >> 8) & 0xFF;
+        var b = rgb & 0xFF;
+        var max = Math.Max(r, Math.Max(g, b));
+        var min = Math.Min(r, Math.Min(g, b));
+        if (r > 140 && g < 100 && b < 90) return DangerBrush;
+        if (r > 140 && g is >= 60 and < 140 && b < 70) return WarningBrush;
+        if (b - Math.Max(r, g) > 60 && b > 150) return AccentBrush;
+        if (min > 245) return SurfaceBrush;
+        if (min > 210 && b - r >= 12) return AccentSoftBackgroundBrush;
+        if (max > 208) return BorderBrushToken;
+        if (max < 60) return TextPrimaryBrush;
+        if (max < 100) return TextSecondaryBrush;
+        return TextTertiaryBrush;
+    }
 
     public static double Num(string token) =>
         numbers.TryGetValue(token, out var value) ? value : throw new InvalidOperationException("未知主题数值：" + token);
@@ -176,7 +217,10 @@ public static class UiTheme
             SelectionBackground, SelectionForeground,
             Warning, Danger, Success, FocusRing, PosterFallback, OverlayBackdrop
         })
+        {
             brushes[token] = new SolidColorBrush(Pick(first, token));
+            liveBrushes[token] = new SolidColorBrush(Pick(first, token));
+        }
         ApplyDensity(themes[Classic].Density);
         UiThemeState.NotifyAll();
     }
@@ -210,16 +254,22 @@ public static class UiTheme
     });
 
     /// <summary>Switch the active mode. XAML style setters freeze the brushes
-    /// they consume, so we cannot mutate shared instances; instead each token
-    /// gets a fresh brush and bound elements pick it up via UiThemeState
-    /// PropertyChanged. The visual tree is never rebuilt.</summary>
+    /// they consume, so the display set gets fresh instances and bound elements
+    /// pick them up via UiThemeState PropertyChanged. The live set (C# callers)
+    /// is mutated in place — C# assignments stay valid across switches. The
+    /// visual tree is never rebuilt.</summary>
     public static void Apply(string? id)
     {
         var normalized = Normalize(id);
         Current = normalized;
         var (colors, density) = themes[normalized];
         foreach (var token in brushes.Keys.ToArray())
-            brushes[token] = new SolidColorBrush(Pick(colors, token));
+        {
+            var color = Pick(colors, token);
+            brushes[token] = new SolidColorBrush(color);
+            if (liveBrushes[token].IsFrozen) liveBrushes[token] = new SolidColorBrush(color);
+            else liveBrushes[token].Color = color;
+        }
         ApplyDensity(density);
         UiThemeState.NotifyAll();
     }
@@ -283,27 +333,29 @@ public sealed class UiThemeState : INotifyPropertyChanged
     public double ControlHeight => UiTheme.Num(UiTheme.ControlHeight);
 
     // Brush accessors for XAML binding (PropertyChanged(null) refreshes all).
-    public SolidColorBrush PageBackgroundBrush => UiTheme.PageBackgroundBrush;
-    public SolidColorBrush ChromeBackgroundBrush => UiTheme.ChromeBackgroundBrush;
-    public SolidColorBrush SurfaceBrush => UiTheme.SurfaceBrush;
-    public SolidColorBrush SurfaceAltBrush => UiTheme.SurfaceAltBrush;
-    public SolidColorBrush BorderBrushToken => UiTheme.BorderBrushToken;
-    public SolidColorBrush BorderStrongBrush => UiTheme.BorderStrongBrush;
-    public SolidColorBrush TextPrimaryBrush => UiTheme.TextPrimaryBrush;
-    public SolidColorBrush TextSecondaryBrush => UiTheme.TextSecondaryBrush;
-    public SolidColorBrush TextTertiaryBrush => UiTheme.TextTertiaryBrush;
-    public SolidColorBrush AccentBrush => UiTheme.AccentBrush;
-    public SolidColorBrush AccentHoverBrush => UiTheme.AccentHoverBrush;
-    public SolidColorBrush AccentForegroundBrush => UiTheme.AccentForegroundBrush;
-    public SolidColorBrush AccentSoftBackgroundBrush => UiTheme.AccentSoftBackgroundBrush;
-    public SolidColorBrush AccentSoftForegroundBrush => UiTheme.AccentSoftForegroundBrush;
-    public SolidColorBrush AccentAltBrush => UiTheme.AccentAltBrush;
-    public SolidColorBrush SelectionBackgroundBrush => UiTheme.SelectionBackgroundBrush;
-    public SolidColorBrush SelectionForegroundBrush => UiTheme.SelectionForegroundBrush;
-    public SolidColorBrush WarningBrush => UiTheme.WarningBrush;
-    public SolidColorBrush DangerBrush => UiTheme.DangerBrush;
-    public SolidColorBrush SuccessBrush => UiTheme.SuccessBrush;
-    public SolidColorBrush FocusRingBrush => UiTheme.FocusRingBrush;
-    public SolidColorBrush PosterFallbackBrush => UiTheme.PosterFallbackBrush;
-    public SolidColorBrush OverlayBackdropBrush => UiTheme.OverlayBackdropBrush;
+    // These read the DISPLAY set: replaceable instances that style
+    // setters may freeze. C# callers use UiTheme.XxxBrush (live set).
+    public SolidColorBrush PageBackgroundBrush => UiTheme.DisplayBrush(UiTheme.PageBackground);
+    public SolidColorBrush ChromeBackgroundBrush => UiTheme.DisplayBrush(UiTheme.ChromeBackground);
+    public SolidColorBrush SurfaceBrush => UiTheme.DisplayBrush(UiTheme.Surface);
+    public SolidColorBrush SurfaceAltBrush => UiTheme.DisplayBrush(UiTheme.SurfaceAlt);
+    public SolidColorBrush BorderBrushToken => UiTheme.DisplayBrush(UiTheme.Border);
+    public SolidColorBrush BorderStrongBrush => UiTheme.DisplayBrush(UiTheme.BorderStrong);
+    public SolidColorBrush TextPrimaryBrush => UiTheme.DisplayBrush(UiTheme.TextPrimary);
+    public SolidColorBrush TextSecondaryBrush => UiTheme.DisplayBrush(UiTheme.TextSecondary);
+    public SolidColorBrush TextTertiaryBrush => UiTheme.DisplayBrush(UiTheme.TextTertiary);
+    public SolidColorBrush AccentBrush => UiTheme.DisplayBrush(UiTheme.Accent);
+    public SolidColorBrush AccentHoverBrush => UiTheme.DisplayBrush(UiTheme.AccentHover);
+    public SolidColorBrush AccentForegroundBrush => UiTheme.DisplayBrush(UiTheme.AccentForeground);
+    public SolidColorBrush AccentSoftBackgroundBrush => UiTheme.DisplayBrush(UiTheme.AccentSoftBackground);
+    public SolidColorBrush AccentSoftForegroundBrush => UiTheme.DisplayBrush(UiTheme.AccentSoftForeground);
+    public SolidColorBrush AccentAltBrush => UiTheme.DisplayBrush(UiTheme.AccentAlt);
+    public SolidColorBrush SelectionBackgroundBrush => UiTheme.DisplayBrush(UiTheme.SelectionBackground);
+    public SolidColorBrush SelectionForegroundBrush => UiTheme.DisplayBrush(UiTheme.SelectionForeground);
+    public SolidColorBrush WarningBrush => UiTheme.DisplayBrush(UiTheme.Warning);
+    public SolidColorBrush DangerBrush => UiTheme.DisplayBrush(UiTheme.Danger);
+    public SolidColorBrush SuccessBrush => UiTheme.DisplayBrush(UiTheme.Success);
+    public SolidColorBrush FocusRingBrush => UiTheme.DisplayBrush(UiTheme.FocusRing);
+    public SolidColorBrush PosterFallbackBrush => UiTheme.DisplayBrush(UiTheme.PosterFallback);
+    public SolidColorBrush OverlayBackdropBrush => UiTheme.DisplayBrush(UiTheme.OverlayBackdrop);
 }

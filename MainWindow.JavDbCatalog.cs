@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -40,8 +40,8 @@ public partial class MainWindow
     {
         var shell = new Border
         {
-            Background = new SolidColorBrush(Color.FromRgb(247, 249, 255)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(218, 227, 245)),
+            Background = UiTheme.SurfaceBrush,
+            BorderBrush = UiTheme.AccentSoftBackgroundBrush,
             BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(13),
             Padding = new Thickness(15), Margin = new Thickness(0, 16, 0, 14)
         };
@@ -51,7 +51,7 @@ public partial class MainWindow
         body.Children.Add(new TextBlock
         {
             Text = "手动查找一个作品，再沿其公开详情中的演员、系列和标签浏览相关作品。选中作品后可匹配到本地视频，并交由人工审核。",
-            Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 11)
+            Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 11)
         });
 
         var searchRow = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
@@ -96,7 +96,7 @@ public partial class MainWindow
             Margin = new Thickness(0, 3, 0, 5) });
         javDbTagLinks = new ListBox { Height = 86, SelectionMode = System.Windows.Controls.SelectionMode.Multiple,
             DisplayMemberPath = nameof(JavDbCatalogLink.DisplayName),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(218, 227, 245)),
+            BorderBrush = UiTheme.AccentSoftBackgroundBrush,
             ToolTip = "只用当前作品详情提供的标签目录，最多读取每个目录前三页并在本地求交集" };
         body.Children.Add(javDbTagLinks);
         var combineTags = CatalogButton("浏览所选标签的交集");
@@ -104,13 +104,13 @@ public partial class MainWindow
         combineTags.Click += JavDbCatalogBrowseTagIntersection;
         body.Children.Add(combineTags);
         body.Children.Add(new TextBlock { Text = "组合筛选最多读取每个公开标签目录的前三页，是候选预览，不代表全部作品；目录要求登录时会停止并提示。",
-            Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) });
+            Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) });
 
         javDbCatalogStatus = new TextBlock { Text = "先搜索作品，或选择一个已搜刮的 JavDB 视频读取关系。",
-            Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) };
+            Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) };
         body.Children.Add(javDbCatalogStatus);
         javDbCatalogResults = new ListBox { Height = 190, DisplayMemberPath = nameof(JavDbCatalogRow.DisplayName),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(218, 227, 245)) };
+            BorderBrush = UiTheme.AccentSoftBackgroundBrush };
         body.Children.Add(javDbCatalogResults);
         var pager = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0) };
         javDbCatalogPrevious = CatalogButton("上一页");

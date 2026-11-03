@@ -107,6 +107,20 @@ public partial class MainWindow
             Margin = new Thickness(0, 0, 0, 9)
         };
         panel.Children.Insert(Math.Max(0, panel.Children.Count - 2), reviewSavedViewNotice);
+        // Saved combinations are useful but not needed for every review.
+        // Keep them one click away so the actual queue starts higher.
+        var savedViewIndex = panel.Children.IndexOf(savedViewBar);
+        panel.Children.Remove(savedViewBar);
+        panel.Children.Remove(reviewSavedViewNotice);
+        var savedViewContent = new StackPanel();
+        savedViewContent.Children.Add(savedViewBar);
+        savedViewContent.Children.Add(reviewSavedViewNotice);
+        panel.Children.Insert(savedViewIndex, new Expander
+        {
+            Header = "已保存的筛选组合", Content = savedViewContent,
+            IsExpanded = false, Margin = new Thickness(0, 0, 0, 8),
+            Padding = new Thickness(0, 6, 0, 0)
+        });
         var actions = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
         var preview = new Button { Content = "预览批量审批", Style = (Style)FindResource("Action") };
         preview.Click += (_, _) => PreviewReviewBatch();
@@ -118,8 +132,17 @@ public partial class MainWindow
         export.Click += (_, _) => ExportReviews();
         var exportHistory = new Button { Content = "导出完整历史", Style = (Style)FindResource("Action") };
         exportHistory.Click += (_, _) => ExportReviewHistory();
-        foreach (var button in new[] { preview, reviewUndoButton, history, export, exportHistory }) actions.Children.Add(button);
+        actions.Children.Add(preview);
+        actions.Children.Add(reviewUndoButton);
         panel.Children.Insert(Math.Max(0, panel.Children.Count - 2), actions);
+        var historyActions = new WrapPanel();
+        foreach (var button in new[] { history, export, exportHistory }) historyActions.Children.Add(button);
+        panel.Children.Insert(Math.Max(0, panel.Children.Count - 2), new Expander
+        {
+            Header = "审核历史与导出", Content = historyActions,
+            IsExpanded = false, Margin = new Thickness(0, 0, 0, 8),
+            Padding = new Thickness(0, 6, 0, 0)
+        });
         reviewHistoryWarning = new TextBlock
         {
             Foreground = global::YinggeVideoLibrary.UiTheme.DangerBrush,

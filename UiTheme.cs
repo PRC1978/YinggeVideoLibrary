@@ -28,7 +28,7 @@ public static class UiTheme
 
     public static readonly (string Id, string Label, string Hint)[] Modes =
     [
-        (Classic, "原版界面", "原有布局与配色，完整回退模式"),
+        (Classic, "原版界面", "恢复原有配色与导航，保留当前功能"),
         (Tech, "科技浅色", "清爽浅色底，钴蓝品牌色"),
         (Cinema, "深色影院", "深色背景，海报优先，暖金点缀"),
         (Compact, "紧凑高密度", "同屏更多内容，文字保持可读"),
@@ -179,7 +179,7 @@ public static class UiTheme
         // 科技浅色：钴蓝品牌色，清爽浅色底。
         [Tech] = (new Palette(
             "#F3F5FB", "#FFFFFF", "#FFFFFF", "#EEF3FE", "#DFE6F2", "#B9C6E4",
-            "#16233B", "#4A5B76", "#7C8BA3",
+            "#16233B", "#4A5B76", "#596881",
             "#2B4BEB", "#1B2FBF", "#FFFFFF", "#E9EEFE", "#2440C9", "#7C5CFC",
             "#E9EEFE", "#2440C9",
             "#B26A1B", "#B4232A", "#0E7A5F",
@@ -188,7 +188,7 @@ public static class UiTheme
         // 深色影院：深色底、海报优先、暖金点缀。
         [Cinema] = (new Palette(
             "#10141B", "#151A23", "#1B222D", "#222B38", "#2C3543", "#44506A",
-            "#EDF1F7", "#A9B4C4", "#71809A",
+            "#EDF1F7", "#A9B4C4", "#8492AA",
             "#E0A458", "#ECB878", "#1A1409", "#2A2418", "#E0A458", "#B08BD9",
             "#33291A", "#ECB878",
             "#D8A04C", "#E26D5A", "#5BBF98",
@@ -197,7 +197,7 @@ public static class UiTheme
         // 紧凑高密度：小字号小卡片，同屏更多内容。
         [Compact] = (new Palette(
             "#F2F3F5", "#FFFFFF", "#FFFFFF", "#F6F7F9", "#D9DCE1", "#B4BAC4",
-            "#1F2937", "#556070", "#6B7280",
+            "#1F2937", "#556070", "#636C78",
             "#2B4BEB", "#1B2FBF", "#FFFFFF", "#E9EEFE", "#2440C9", "#6D55C9",
             "#E9EEFE", "#2440C9",
             "#B45309", "#B4232A", "#0F6E56",
@@ -214,7 +214,7 @@ public static class UiTheme
             new Density(13.5, 12.5, 11.5, 24, 16, 170, 230, 8, 92, 54, 40, 44, 34, 20)),
         [Neumorphism] = (new Palette(
             "#E0E5EC", "#E0E5EC", "#E0E5EC", "#E9EDF3", "#C8D0DA", "#AAB7C8",
-            "#263449", "#4C5C72", "#607188",
+            "#263449", "#4C5C72", "#506078",
             "#6652BD", "#5340A5", "#F4F1FC", "#DCD5F4", "#493796", "#7865C5",
             "#DCD5F4", "#352477",
             "#986018", "#AA3745", "#277456",
@@ -222,14 +222,14 @@ public static class UiTheme
             new Density(13.5, 12, 11, 27, 17, 174, 234, 18, 88, 54, 40, 46, 36, 20)),
         [LineField] = (new Palette(
             "#FAFAF8", "#F1F2EF", "#FFFFFF", "#EEEEEB", "#D9DBD5", "#A9B4C5",
-            "#202A38", "#4A586B", "#66758A",
+            "#202A38", "#4A586B", "#59677B",
             "#2152E7", "#1742C2", "#FFFFFF", "#DEE8FF", "#153BA8", "#496DCE",
             "#DDE8FF", "#153BA8", "#9C621F", "#B43B45", "#247553",
             "#2152E7", "#95A9CF", "#701B2538"),
             new Density(13, 12, 11, 27, 17, 178, 238, 16, 88, 54, 40, 46, 36, 20)),
         [Editorial] = (new Palette(
             "#F5F1E9", "#EDE8DD", "#FAF7F0", "#F0EBE1", "#D5CFC3", "#9B9488",
-            "#282722", "#575349", "#746E63",
+            "#282722", "#575349", "#6E685E",
             "#62563F", "#483D2D", "#FFFFFF", "#E8E0D1", "#443927", "#87735A",
             "#E7DFD0", "#392F21", "#966019", "#A33936", "#3D7052",
             "#62563F", "#A8A093", "#701B2538"),

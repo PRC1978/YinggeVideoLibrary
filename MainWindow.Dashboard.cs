@@ -12,11 +12,19 @@ public partial class MainWindow
     void RenderLibraryDashboard()
     {
         var total = videos.Count;
-        var watched = videos.Count(v => v.WatchStatus != "未看");
-        var favorites = videos.Count(v => v.Favorite);
-        var missing = videos.Count(v => v.IsMissing);
-        var unavailable = videos.Count(v => v.IsUnavailable);
-        var withoutCategory = videos.Count(v => v.Category == "未分类");
+        var watched = 0;
+        var favorites = 0;
+        var missing = 0;
+        var unavailable = 0;
+        var withoutCategory = 0;
+        foreach (var video in videos)
+        {
+            if (video.WatchStatus != "未看") watched++;
+            if (video.Favorite) favorites++;
+            if (video.IsMissing) missing++;
+            if (video.IsUnavailable) unavailable++;
+            if (video.Category == "未分类") withoutCategory++;
+        }
         var shell = new Border
         {
             Background = UiTheme.SurfaceBrush,

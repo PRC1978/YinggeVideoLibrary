@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Color = System.Windows.Media.Color;
 
 namespace YinggeVideoLibrary;
 
@@ -24,6 +25,19 @@ public partial class MainWindow
             {
                 UiTheme.Apply(mode);
                 ApplyInterfaceMode();
+                // Classic is a pixel-faithful compatibility option. New modes
+                // require even their subdued text to remain legible on every
+                // normal content surface.
+                if (mode != UiTheme.Classic)
+                {
+                    foreach (var background in new[] { UiTheme.PageBackground, UiTheme.Surface, UiTheme.SurfaceAlt })
+                    {
+                        var contrast = ThemeContrast(UiTheme.Brush(UiTheme.TextTertiary).Color,
+                            UiTheme.Brush(background).Color);
+                        if (contrast < 4.5)
+                            throw new InvalidOperationException($"{mode} 的辅助文字与 {background} 对比度不足：{contrast:0.00}:1");
+                    }
+                }
                 foreach (var (width, height) in new[] { (800, 550), (1240, 780), (1600, 1000) })
                 {
                     Width = width;
@@ -146,5 +160,21 @@ public partial class MainWindow
             File.WriteAllText(Path.Combine(outputDirectory, "error.txt"), ex.ToString());
             return 1;
         }
+    }
+
+    static double ThemeContrast(Color foreground, Color background)
+    {
+        static double Luminance(Color color)
+        {
+            static double Linear(byte component)
+            {
+                var value = component / 255d;
+                return value <= 0.04045 ? value / 12.92 : Math.Pow((value + 0.055) / 1.055, 2.4);
+            }
+            return 0.2126 * Linear(color.R) + 0.7152 * Linear(color.G) + 0.0722 * Linear(color.B);
+        }
+        var a = Luminance(foreground);
+        var b = Luminance(background);
+        return (Math.Max(a, b) + 0.05) / (Math.Min(a, b) + 0.05);
     }
 }

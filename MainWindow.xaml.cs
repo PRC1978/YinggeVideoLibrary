@@ -1618,7 +1618,10 @@ public partial class MainWindow : Window
         // Settings and scrape already carry their own card heading; a second
         // identical title only pushed the real content further down.
         SectionTitle.Text = target is "settings" or "scrape" or "review" or "roles" ? "" : current.Item3;
-        HeaderArea.Margin = target == "online" ? new Thickness(28, 18, 28, 12) : new Thickness(48, 42, 48, 25);
+        BrandEyebrow.Visibility = UiTheme.IsClassicMode ? Visibility.Visible : Visibility.Collapsed;
+        HeaderArea.Margin = target == "online" ? new Thickness(28, 18, 28, 12)
+            : UiTheme.IsClassicMode ? new Thickness(48, 42, 48, 25)
+            : new Thickness(48, 26, 48, 16);
         foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav, LibraryNav, ReviewNav, RolesNav, PluginsNav })
         {
             button.Background = Brushes.Transparent;

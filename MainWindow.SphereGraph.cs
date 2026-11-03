@@ -187,6 +187,36 @@ public partial class MainWindow
             RootPen = FrozenPen(dark ? Color.FromRgb(247, 201, 125) : Color.FromRgb(245, 248, 255), 2);
             OrbitPen = FrozenPen(dark ? Color.FromArgb(125, 93, 124, 168) : Color.FromArgb(110, 121, 154, 211), 1);
             GlobeBrush = MakeGlobeBrush(dark);
+            // The classic and cinema graphs keep their established visual
+            // treatment. Other themes draw the same nodes and edges with
+            // their semantic palette instead of a fixed blue globe.
+            if (UiTheme.Current is not (UiTheme.Classic or UiTheme.Cinema))
+            {
+                var accent = UiTheme.AccentBrush.Color;
+                var alternate = UiTheme.AccentAltBrush.Color;
+                var surface = UiTheme.SurfaceBrush.Color;
+                var ground = UiTheme.SurfaceAltBrush.Color;
+                var subdued = UiTheme.TextSecondaryBrush.Color;
+                Backdrop = FrozenBrush(ground);
+                NodeBrush = FrozenBrush(accent);
+                NodeLightBrush = FrozenBrush(Mix(accent, ground, .55));
+                TagBrush = FrozenBrush(alternate);
+                SelectedBrush = FrozenBrush(UiTheme.WarningBrush.Color);
+                HoverBrush = FrozenBrush(UiTheme.AccentHoverBrush.Color);
+                HaloBrush = FrozenBrush(Color.FromArgb(72, accent.R, accent.G, accent.B));
+                RootBrush = FrozenBrush(UiTheme.AccentHoverBrush.Color);
+                TextBrush = FrozenBrush(UiTheme.TextPrimaryBrush.Color);
+                LightTextBrush = FrozenBrush(subdued);
+                LabelBackdrop = FrozenBrush(Color.FromArgb(244, surface.R, surface.G, surface.B));
+                LinkPen = FrozenPen(Color.FromArgb(155, accent.R, accent.G, accent.B), 1.15);
+                FocusLinkPen = FrozenPen(UiTheme.WarningBrush.Color, 2);
+                AssociationPen = FrozenPen(Color.FromArgb(190, alternate.R, alternate.G, alternate.B), 1.45);
+                NodePen = FrozenPen(surface, 1);
+                GlobePen = FrozenPen(Mix(accent, ground, .63), 1.5);
+                RootPen = FrozenPen(surface, 2);
+                OrbitPen = FrozenPen(Color.FromArgb(100, accent.R, accent.G, accent.B), 1);
+                GlobeBrush = MakeThemeGlobeBrush(surface, UiTheme.AccentSoftBackgroundBrush.Color, ground);
+            }
             var constructionClock = System.Diagnostics.Stopwatch.StartNew();
             this.nodes = nodes;
             this.tagCategories = tagCategories;
@@ -270,6 +300,27 @@ public partial class MainWindow
             var pen = new Pen(FrozenBrush(color), thickness);
             pen.Freeze();
             return pen;
+        }
+
+        static Color Mix(Color first, Color second, double secondWeight) => Color.FromRgb(
+            (byte)Math.Round(first.R * (1 - secondWeight) + second.R * secondWeight),
+            (byte)Math.Round(first.G * (1 - secondWeight) + second.G * secondWeight),
+            (byte)Math.Round(first.B * (1 - secondWeight) + second.B * secondWeight));
+
+        static Brush MakeThemeGlobeBrush(Color surface, Color accentSoft, Color ground)
+        {
+            var brush = new RadialGradientBrush
+            {
+                Center = new System.Windows.Point(.35, .27),
+                GradientOrigin = new System.Windows.Point(.29, .21),
+                RadiusX = .86,
+                RadiusY = .86
+            };
+            brush.GradientStops.Add(new GradientStop(surface, 0));
+            brush.GradientStops.Add(new GradientStop(accentSoft, .62));
+            brush.GradientStops.Add(new GradientStop(ground, 1));
+            brush.Freeze();
+            return brush;
         }
 
         public static Matrix RotationMatrix(System.Windows.Point center, double angle)

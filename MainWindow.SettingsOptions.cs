@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -59,19 +59,20 @@ public partial class MainWindow
     {
         var section = new StackPanel { Name = "SettingsAppearanceOptions", Margin = new Thickness(0, 16, 0, 8) };
         section.Children.Add(new TextBlock { Text = "界面模式", FontWeight = FontWeights.SemiBold });
-        section.Children.Add(SettingsHint("原版界面保留原有布局作为完整回退；其余四种为新版界面。切换立即生效并随配置保存。"));
+        section.Children.Add(SettingsHint("选择喜欢的外观。点击预览卡片即可切换，重启后仍会保留。"));
         var themeRow = new WrapPanel();
         foreach (var (id, label, hint) in UiTheme.Modes)
         {
             var choice = new System.Windows.Controls.RadioButton
             {
-                Content = label + " · " + hint,
+                Content = BuildThemePreview(id, label, hint),
                 GroupName = "UiThemeMode",
                 IsChecked = UiTheme.Normalize(config.UiTheme) == id,
                 Style = (Style)FindResource("ThemeChoiceRadio"),
-                Margin = new Thickness(0, 3, 18, 3),
+                Width = 139,
                 Tag = id
             };
+            System.Windows.Automation.AutomationProperties.SetName(choice, label);
             choice.Checked += (_, _) =>
             {
                 if (config.UiTheme == id) return;
@@ -102,6 +103,40 @@ public partial class MainWindow
         row.Children.Add(choices);
         section.Children.Add(row);
         return section;
+    }
+
+    static FrameworkElement BuildThemePreview(string id, string label, string hint)
+    {
+        var (background, sidebar, card, accent) = id switch
+        {
+            UiTheme.Cinema => ("#171D28", "#28313D", "#343E4E", "#D5A24C"),
+            UiTheme.Compact => ("#F5F7FA", "#E6ECF6", "#FFFFFF", "#476BDD"),
+            UiTheme.Contrast => ("#E8F2E4", "#C7DCC4", "#F8FFF5", "#275E3E"),
+            UiTheme.Tech => ("#EFF5FF", "#DDEAFF", "#FFFFFF", "#4169E1"),
+            _ => ("#F8FAFD", "#E8EFF9", "#FFFFFF", "#4C6BDC")
+        };
+        static SolidColorBrush Swatch(string hex) => new((Color)System.Windows.Media.ColorConverter.ConvertFromString(hex));
+        var preview = new Grid { Width = 105, Height = 57, Background = Swatch(background) };
+        preview.Children.Add(new Border { Width = 13, Background = Swatch(sidebar), HorizontalAlignment = System.Windows.HorizontalAlignment.Left });
+        var cards = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3, Margin = new Thickness(21, 11, 7, 8) };
+        for (var i = 0; i < 3; i++)
+            cards.Children.Add(new Border { Background = Swatch(card), BorderBrush = Swatch(sidebar),
+                BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(3), Margin = new Thickness(2, 0, 2, 0) });
+        preview.Children.Add(cards);
+        preview.Children.Add(new Border { Background = Swatch(accent), Width = 4, Height = 23,
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left, Margin = new Thickness(4, 0, 0, 0) });
+        var content = new StackPanel();
+        content.Children.Add(new Border { Child = preview, BorderBrush = UiTheme.BorderBrushToken,
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5), ClipToBounds = true });
+        content.Children.Add(new TextBlock { Text = label, FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 7, 0, 1), TextTrimming = TextTrimming.CharacterEllipsis });
+        content.Children.Add(new TextBlock { Text = id switch
+            {
+                UiTheme.Classic => "熟悉的原版布局", UiTheme.Tech => "明亮清爽", UiTheme.Cinema => "深色海报优先",
+                UiTheme.Compact => "同屏更多内容", _ => "文字更清楚"
+            }, FontSize = 11, Foreground = UiTheme.TextTertiaryBrush, TextTrimming = TextTrimming.CharacterEllipsis });
+        content.ToolTip = hint;
+        return content;
     }
 
     StackPanel BuildScrapeOptions()

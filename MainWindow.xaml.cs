@@ -4036,7 +4036,9 @@ public partial class MainWindow : Window
         var ruleRejected = records.Count(review => review.Status == "rejected" && ReviewRejectLabel(review) == "规则否决");
         var manualRejected = records.Count(review => review.Status == "rejected" && ReviewRejectLabel(review) == "人工否决");
         var selectedCount = reviewSelection.Count(id => ids.Contains(id));
-        ReviewSummary.Text = records.Count == 0 ? "暂无搜刮记录" : $"搜刮记录 {records.Count} 条 · 待人工 {records.Count(item => item.Status == "pending")} 条 · 未找到 {unmatched} 条 · 低可信度 {low} 条 · 规则否决 {ruleRejected} 条 · AI 否决 {aiRejected} 条 · 人工否决 {manualRejected} 条" + (selectedCount > 0 ? $" · 已选 {selectedCount} 条" : "");
+        ReviewSummary.Text = records.Count == 0 ? "暂无搜刮记录" :
+            $"待审核 {records.Count(item => item.Status == "pending")} · 已通过 {records.Count(item => item.Status == "approved")} · 未找到 {unmatched} · 低可信度 {low}"
+            + (selectedCount > 0 ? $" · 已选 {selectedCount}" : "");
         var actionableSelection = reviewSelection.Count(id => config.AiReviews.TryGetValue(id, out var item) && (item.Status is "pending" or "rejected"));
         ReviewApproveButton.IsEnabled = actionableSelection > 0;
         ReviewRejectButton.IsEnabled = actionableSelection > 0;
@@ -4054,11 +4056,11 @@ public partial class MainWindow : Window
         // contain thousands of records and must not block the UI thread.
         foreach (var review in records.Skip(reviewPageIndex * ReviewPageSize).Take(ReviewPageSize))
         {
-            var row = new Border { Background = review.Status == "rejected" ? UiTheme.SurfaceBrush : UiTheme.SurfaceBrush, BorderBrush = UiTheme.AccentSoftBackgroundBrush, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9), Padding = new Thickness(8), Margin = new Thickness(0, 0, 0, 7) };
+            var row = new Border { Background = UiTheme.SurfaceBrush, BorderBrush = UiTheme.BorderBrushToken, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(11), Padding = new Thickness(12), Margin = new Thickness(0, 0, 0, 9) };
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(70) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(62) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(74) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(68) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var check = new System.Windows.Controls.CheckBox { IsChecked = reviewSelection.Contains(review.VideoId), IsEnabled = review.Status is "pending" or "rejected", VerticalAlignment = VerticalAlignment.Center, Tag = review.VideoId, ToolTip = "加入批量审核" };
@@ -4068,16 +4070,17 @@ public partial class MainWindow : Window
                 RefreshReviewQueue();
             };
             Grid.SetColumn(check, 0); grid.Children.Add(check);
-            var scoreLabel = review.Status switch { "rejected" => ReviewRejectLabel(review), "unmatched" => "未找到", "approved" => "已通过", _ => "待人工" };
-            var score = new TextBlock { Text = $"{review.Confidence}%\n{scoreLabel}", Foreground = review.Confidence < ReviewRejectThreshold ? UiTheme.DangerBrush : UiTheme.WarningBrush, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextAlignment = TextAlignment.Center };
+            var scoreLabel = review.Status switch { "rejected" => ReviewRejectLabel(review), "unmatched" => "未找到", "approved" => "已通过", _ => "待审核" };
+            var score = new TextBlock { Text = $"{review.Confidence}%\n{scoreLabel}", Foreground = review.Confidence < ReviewRejectThreshold ? UiTheme.DangerBrush : UiTheme.WarningBrush, FontWeight = FontWeights.SemiBold, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, TextAlignment = TextAlignment.Center, ToolTip = "来源匹配可信度；审核前不会写入视频资料" };
             Grid.SetColumn(score, 1); grid.Children.Add(score);
-            var cover = CreateScrapeCover(review.ToMetadata(), 48, 68);
+            var cover = CreateScrapeCover(review.ToMetadata(), 54, 76);
             Grid.SetColumn(cover, 2); grid.Children.Add(cover);
             var detail = new StackPanel();
-            detail.Children.Add(new TextBlock { Text = review.CandidateTitle, FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextSecondaryBrush, TextTrimming = TextTrimming.CharacterEllipsis });
-            detail.Children.Add(new TextBlock { Text = $"{available[review.VideoId].DisplayTitle} · {review.CandidateSource} · {review.CandidateCode}", Foreground = UiTheme.TextTertiaryBrush, FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis });
-            detail.Children.Add(new TextBlock { Text = $"评估：{review.Model} · 依据：{review.Reason}", Foreground = UiTheme.TextTertiaryBrush, FontSize = 11, TextWrapping = TextWrapping.Wrap });
-            var compareCovers = new Button { Content = "比较封面", Style = (Style)FindResource("Action"),
+            detail.Children.Add(new TextBlock { Text = review.CandidateTitle, FontWeight = FontWeights.SemiBold, FontSize = 14, Foreground = UiTheme.TextPrimaryBrush, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = review.CandidateTitle });
+            detail.Children.Add(new TextBlock { Text = $"本地：{available[review.VideoId].DisplayTitle}", Foreground = UiTheme.TextSecondaryBrush, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis });
+            detail.Children.Add(new TextBlock { Text = $"来源：{review.CandidateSource}    编号：{review.CandidateCode}", Foreground = UiTheme.TextTertiaryBrush, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis });
+            detail.Children.Add(new TextBlock { Text = $"匹配依据：{review.Reason}", Foreground = UiTheme.TextTertiaryBrush, FontSize = 12, TextWrapping = TextWrapping.Wrap, MaxHeight = 42, ToolTip = review.Reason });
+            var compareCovers = new Button { Content = "对比封面", Style = (Style)FindResource("Action"),
                 HorizontalAlignment = System.Windows.HorizontalAlignment.Left, Margin = new Thickness(0, 4, 0, 0),
                 Padding = new Thickness(8, 0, 8, 0) };
             compareCovers.Click += (_, _) => ShowScrapeCoverComparison(available[review.VideoId], review);
@@ -4110,7 +4113,7 @@ public partial class MainWindow : Window
             }
             Grid.SetColumn(detail, 3); grid.Children.Add(detail);
             var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            var information = new Button { Content = "资料", Style = (Style)FindResource("Action"), Padding = new Thickness(10, 0, 10, 0) };
+            var information = new Button { Content = "查看详情", Style = (Style)FindResource("Action"), Padding = new Thickness(10, 0, 10, 0) };
             information.Click += (_, _) => ShowMetadataDetails(review.ToMetadata(), review.Confidence, review.Status, available[review.VideoId]);
             var approve = new Button { Content = "通过", Style = (Style)FindResource("Action"), Padding = new Thickness(10, 0, 10, 0) }; approve.Click += (_, _) =>
             {

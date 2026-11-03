@@ -157,21 +157,19 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="RadioButton">
-                        <Grid Margin="0,2">
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="18"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                            <Border Width="14" Height="14" CornerRadius="7"
-                                    Background="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"
-                                    BorderBrush="{Binding BorderStrongBrush, Source={x:Static local:UiThemeState.Instance}}"
-                                    BorderThickness="1.5" VerticalAlignment="Center"/>
-                            <Ellipse x:Name="SelectedDot" Width="8" Height="8" Margin="3,0,0,0"
-                                     Fill="{Binding AccentBrush, Source={x:Static local:UiThemeState.Instance}}"
-                                     HorizontalAlignment="Left" VerticalAlignment="Center" Visibility="Collapsed"/>
-                            <ContentPresenter Grid.Column="1" VerticalAlignment="Center" Margin="4,0,0,0"/>
-                        </Grid>
+                        <Border x:Name="ThemeCard" Background="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"
+                                BorderBrush="{Binding BorderBrushToken, Source={x:Static local:UiThemeState.Instance}}"
+                                BorderThickness="1" CornerRadius="12" Padding="9" Margin="0,0,8,8">
+                            <ContentPresenter HorizontalAlignment="Stretch"/>
+                        </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="SelectedDot" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="ThemeCard" Property="BorderBrush" Value="{Binding AccentBrush, Source={x:Static local:UiThemeState.Instance}}"/>
+                                <Setter TargetName="ThemeCard" Property="BorderThickness" Value="2"/>
                                 <Setter Property="FontWeight" Value="SemiBold"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ThemeCard" Property="BorderBrush" Value="{Binding AccentBrush, Source={x:Static local:UiThemeState.Instance}}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

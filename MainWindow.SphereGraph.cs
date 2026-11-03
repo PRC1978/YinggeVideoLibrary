@@ -605,6 +605,8 @@ public partial class MainWindow
     string sphereTagFilter = "";
     string sphereNavSearch = "";
     int sphereNavPage;
+    bool sphereNavExpanded;
+    double? sphereNavHeight;
     string? sphereMouseDownPath;
     System.Windows.Point sphereMouseDownPoint;
 
@@ -1342,6 +1344,12 @@ public partial class MainWindow
         var resizeHandle = new Grid { Height = 20, Background = Brushes.Transparent, ToolTip = "上下拖动以调整球形图高度" };
         resizeHandle.Children.Add(new Border { Width = 44, Height = 4, CornerRadius = new CornerRadius(2), Background = UiTheme.BorderBrushToken, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false });
         var thumb = new System.Windows.Controls.Primitives.Thumb { Background = Brushes.Transparent, Cursor = Cursors.SizeNS };
+        var invisibleGrip = new FrameworkElementFactory(typeof(Border));
+        invisibleGrip.SetValue(Border.BackgroundProperty, Brushes.Transparent);
+        thumb.Template = new ControlTemplate(typeof(System.Windows.Controls.Primitives.Thumb))
+        {
+            VisualTree = invisibleGrip
+        };
         thumb.DragDelta += (_, e) =>
         {
             sphereManualViewportHeight = Math.Clamp((sphereManualViewportHeight ?? scroll.ActualHeight) + e.VerticalChange, 260, 1000);
@@ -1607,15 +1615,48 @@ public partial class MainWindow
         var pageLabel = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 7, 0), Foreground = UiTheme.TextTertiaryBrush };
         pagination.Children.Add(previous); pagination.Children.Add(pageLabel); pagination.Children.Add(next);
         DockPanel.SetDock(pagination, Dock.Right); bar.Children.Add(pagination);
+        var expand = new Button { Content = sphereNavExpanded ? "收起导航" : "放大导航", Style = (Style)FindResource("Action"),
+            Padding = new Thickness(8, 0, 8, 0), Margin = new Thickness(0, 0, 8, 0), ToolTip = "展开后可拖动列表下方边缘调整高度" };
+        DockPanel.SetDock(expand, Dock.Right); bar.Children.Add(expand);
         bar.Children.Add(new TextBlock { Text = "节点导航", Foreground = UiTheme.TextTertiaryBrush, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
         var search = new TextBox { Text = sphereNavSearch, Width = 240, Height = 29, Margin = new Thickness(12, 0, 0, 0), ToolTip = "输入分类名，定位球面上拥挤的节点" };
         bar.Children.Add(search);
         panel.Children.Add(bar);
-        var list = new ListBox { Height = 110, BorderThickness = new Thickness(0), Background = Brushes.Transparent };
+        var list = new ListBox { Height = sphereNavHeight ?? (sphereNavExpanded ? 420 : 110),
+            MinHeight = 110, BorderThickness = new Thickness(0), Background = Brushes.Transparent };
         ScrollViewer.SetVerticalScrollBarVisibility(list, ScrollBarVisibility.Auto);
         VirtualizingStackPanel.SetIsVirtualizing(list, true);
         VirtualizingStackPanel.SetVirtualizationMode(list, VirtualizationMode.Recycling);
         panel.Children.Add(list);
+        expand.Click += (_, _) =>
+        {
+            sphereNavExpanded = !sphereNavExpanded;
+            sphereNavHeight = sphereNavExpanded ? 420 : 110;
+            list.Height = sphereNavHeight.Value;
+            expand.Content = sphereNavExpanded ? "收起导航" : "放大导航";
+        };
+        var resizeHandle = new System.Windows.Controls.Primitives.Thumb
+        {
+            Height = 8, Width = 100, Margin = new Thickness(0, 7, 0, 0),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Background = UiTheme.BorderStrongBrush, Cursor = Cursors.SizeNS,
+            ToolTip = "上下拖动以调整节点导航高度"
+        };
+        var navGrip = new FrameworkElementFactory(typeof(Border));
+        navGrip.SetValue(Border.BackgroundProperty, UiTheme.BorderStrongBrush);
+        navGrip.SetValue(Border.CornerRadiusProperty, new CornerRadius(4));
+        resizeHandle.Template = new ControlTemplate(typeof(System.Windows.Controls.Primitives.Thumb))
+        {
+            VisualTree = navGrip
+        };
+        resizeHandle.DragDelta += (_, e) =>
+        {
+            sphereNavHeight = Math.Clamp(list.Height + e.VerticalChange, 110, 800);
+            sphereNavExpanded = sphereNavHeight > 110;
+            list.Height = sphereNavHeight.Value;
+            expand.Content = sphereNavExpanded ? "收起导航" : "放大导航";
+        };
+        panel.Children.Add(resizeHandle);
         void Update()
         {
             var filtered = sphereNavSearch.Length == 0 ? all : all.Where(node => node.Label.Contains(sphereNavSearch, StringComparison.CurrentCultureIgnoreCase) || node.Path.Contains(sphereNavSearch, StringComparison.CurrentCultureIgnoreCase)).ToList();

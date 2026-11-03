@@ -86,6 +86,22 @@ public partial class MainWindow
                 throw new InvalidOperationException("新版界面的导航集合不正确");
             if (measuredCardWidths.Any(item => Math.Abs(item.Expected - item.Actual) > 1))
                 throw new InvalidOperationException("界面模式切换后卡片宽度没有跟随密度设置");
+            // The complete list must reflow after a live theme change. A
+            // hidden ListBox used to report width 0 and stayed at one column.
+            config.ShowAll = true;
+            ShowView("all");
+            UpdateLayout();
+            await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Loaded);
+            ReflowVirtualRows();
+            if (currentFilteredVideos.Count >= 5 && VirtualCards.ActualWidth > 900 && virtualColumns < 4)
+                throw new InvalidOperationException("主题切换后完整列表仍只显示一列");
+            var navPanel = BuildSphereNavigator([]) as System.Windows.Controls.StackPanel
+                ?? throw new InvalidOperationException("节点导航未创建");
+            var navBar = (System.Windows.Controls.DockPanel)navPanel.Children[0];
+            var expand = (System.Windows.Controls.Button)navBar.Children[1];
+            var navList = (System.Windows.Controls.ListBox)navPanel.Children[1];
+            expand.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            if (navList.Height < 400) throw new InvalidOperationException("节点导航未能展开");
             // Probe why implicit stock-control styles do or do not land.
             var combo = ScrapeSourceBox;
             var probe = new

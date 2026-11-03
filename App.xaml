@@ -168,9 +168,13 @@
                                 <Setter TargetName="ThemeCard" Property="BorderThickness" Value="2"/>
                                 <Setter Property="FontWeight" Value="SemiBold"/>
                             </Trigger>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ThemeCard" Property="BorderBrush" Value="{Binding AccentBrush, Source={x:Static local:UiThemeState.Instance}}"/>
-                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                    <Condition Property="IsChecked" Value="False"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="ThemeCard" Property="BorderBrush" Value="{Binding BorderStrongBrush, Source={x:Static local:UiThemeState.Instance}}"/>
+                            </MultiTrigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>

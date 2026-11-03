@@ -511,6 +511,11 @@ public partial class MainWindow : Window
         InitializeUpdateUi();
         InitializeSettingsOptions();
         RegroupSettingsPanel();
+        VirtualCards.SizeChanged += (_, e) =>
+        {
+            if (Math.Abs(e.NewSize.Width - e.PreviousSize.Width) > 1)
+                Dispatcher.BeginInvoke(new Action(ReflowVirtualRows), DispatcherPriority.Loaded);
+        };
         InitializeStartupBehavior();
         SearchBox.ToolTip = "搜索视频 · Ctrl+F 聚焦 · Esc 清空 · F5 刷新 · 支持 标签: 分类: 状态: 文件夹: 收藏";
         SearchBox.ContextMenuOpening += SearchContextMenuOpening;
@@ -1737,8 +1742,7 @@ public partial class MainWindow : Window
         {
             AllListTitle.Text = view == "categories" ? "分类视频" : SectionTitle.Text;
             AllListCount.Text = $"{resultSummary} · 完整列表";
-            var cardPitch = UiTheme.Num(UiTheme.CardWidth) + UiTheme.Num(UiTheme.CardGap);
-            virtualColumns = Math.Max(1, (int)Math.Floor(Math.Max(cardPitch, VirtualCards.ActualWidth - 10) / cardPitch));
+            virtualColumns = ComputeVirtualColumns();
             virtualRows = list.Chunk(virtualColumns).Select(row => row.ToList()).ToList();
             VirtualCards.ItemsSource = virtualRows;
             Cards.ItemsSource = null;
@@ -2361,6 +2365,29 @@ public partial class MainWindow : Window
             pendingVirtualVisibleRows = (int)Math.Ceiling(e.ViewportHeight);
             posterScrollTimer.Stop(); posterScrollTimer.Start();
         }
+    }
+
+    int ComputeVirtualColumns()
+    {
+        var pitch = UiTheme.Num(UiTheme.CardWidth) + UiTheme.Num(UiTheme.CardGap);
+        var width = VirtualCards.ActualWidth;
+        if (width < pitch * 2)
+            width = Math.Max(width, Math.Max(AllListPanel.ActualWidth,
+                ActualWidth - SidebarColumn.ActualWidth - 115));
+        return Math.Max(1, (int)Math.Floor(Math.Max(pitch, width - 10) / pitch));
+    }
+
+    void ReflowVirtualRows()
+    {
+        if (!config.ShowAll || AllListPanel.Visibility != Visibility.Visible ||
+            view is not ("all" or "recent" or "favorites") || currentFilteredVideos.Count == 0)
+            return;
+        var columns = ComputeVirtualColumns();
+        if (columns == virtualColumns) return;
+        virtualColumns = columns;
+        virtualRows = currentFilteredVideos.Chunk(columns).Select(row => row.ToList()).ToList();
+        VirtualCards.ItemsSource = virtualRows;
+        Dispatcher.BeginInvoke(new Action(() => ScheduleVirtualPosters(0, 5)), DispatcherPriority.Background);
     }
 
     void ScheduleVirtualPosters(int firstRow, int visibleRows)

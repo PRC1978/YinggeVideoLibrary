@@ -129,7 +129,7 @@ internal static class StartupRegistration
                 BindingFlags.SetProperty, null, shortcut, [value]);
             Set("TargetPath", executable);
             Set("WorkingDirectory", Path.GetDirectoryName(executable) ?? "");
-            Set("IconLocation", executable + ",0");
+            Set("IconLocation", GetShortcutIconPath() + ",0");
             Set("Description", "打开映格视频库");
             shortcutType.InvokeMember("Save", BindingFlags.InvokeMethod, null, shortcut, null);
             return destination;
@@ -139,5 +139,66 @@ internal static class StartupRegistration
             if (shortcut is not null && Marshal.IsComObject(shortcut)) Marshal.FinalReleaseComObject(shortcut);
             if (shell is not null && Marshal.IsComObject(shell)) Marshal.FinalReleaseComObject(shell);
         }
+    }
+
+    // The executable changes in place during an in-app update. A Windows
+    // shortcut that used its embedded icon can keep the old artwork cached.
+    // Only refresh the known desktop shortcut when it already targets this
+    // exact executable; never redirect a shortcut to another installation.
+    internal static void RefreshOwnedDesktopShortcutIcon()
+    {
+        if (AppPaths.IsRedirected || !PublishedExecutable.TryGetRunningPath(out var executable, out _)) return;
+        var desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+        var destination = Path.Combine(desktop, "映格视频库.lnk");
+        if (!File.Exists(destination)) return;
+        try { RefreshShortcutIconAtPath(destination, executable, GetShortcutIconPath()); }
+        catch { /* A custom or unavailable desktop shortcut must not block startup. */ }
+    }
+
+    internal static bool RefreshShortcutIconAtPath(string destination, string executable, string iconPath)
+    {
+        if (!File.Exists(destination) || !File.Exists(iconPath)) return false;
+        var shellType = Type.GetTypeFromProgID("WScript.Shell");
+        if (shellType is null) return false;
+        object? shell = null;
+        object? shortcut = null;
+        try
+        {
+            shell = Activator.CreateInstance(shellType);
+            shortcut = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod,
+                null, shell, [destination]);
+            if (shortcut is null) return false;
+            var type = shortcut.GetType();
+            string Read(string name) => type.InvokeMember(name, BindingFlags.GetProperty,
+                null, shortcut, null) as string ?? "";
+            if (!string.Equals(Path.GetFullPath(Read("TargetPath")), Path.GetFullPath(executable),
+                    StringComparison.OrdinalIgnoreCase)) return false;
+            var oldIcon = Read("IconLocation");
+            if (oldIcon.StartsWith(iconPath, StringComparison.OrdinalIgnoreCase) ||
+                !oldIcon.StartsWith(executable, StringComparison.OrdinalIgnoreCase)) return false;
+            type.InvokeMember("IconLocation", BindingFlags.SetProperty, null, shortcut,
+                [iconPath + ",0"]);
+            type.InvokeMember("Save", BindingFlags.InvokeMethod, null, shortcut, null);
+            return true;
+        }
+        finally
+        {
+            if (shortcut is not null && Marshal.IsComObject(shortcut)) Marshal.FinalReleaseComObject(shortcut);
+            if (shell is not null && Marshal.IsComObject(shell)) Marshal.FinalReleaseComObject(shell);
+        }
+    }
+
+    static string GetShortcutIconPath()
+    {
+        var directory = Path.Combine(AppPaths.DataDirectory, "branding");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "yingge-icon-v2.ico");
+        var resource = System.Windows.Application.GetResourceStream(
+            new Uri("pack://application:,,,/assets/branding/yingge-icon-v2.ico"))
+            ?? throw new IOException("无法读取映格图标资源。");
+        using var input = resource.Stream;
+        using var output = File.Create(path);
+        input.CopyTo(output);
+        return path;
     }
 }

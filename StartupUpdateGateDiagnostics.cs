@@ -2,6 +2,8 @@ using Microsoft.Win32;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Windows;
 using Forms = System.Windows.Forms;
 
@@ -60,6 +62,8 @@ internal static class StartupUpdateGateDiagnostics
                 StartupRegistration.ParseExecutable($"\"{newExecutable}\" --auto-start") == newExecutable
                 && StartupRegistration.ParseExecutable(newExecutable) == newExecutable
                 && StartupRegistration.ParseExecutable("invalid command") is null;
+            findings["ownedDesktopShortcutIconRefreshIsScoped"] =
+                CheckIsolatedShortcutRefresh(directory, newExecutable, anotherExecutable);
 
             var pages = new[] { "all", "recent", "favorites", "recommendations", "categories",
                 "folders", "status", "scrape", "online", "settings" };
@@ -129,6 +133,54 @@ internal static class StartupUpdateGateDiagnostics
         var openOnly = restored() == 1 && exited() == 0;
         exitItem.PerformClick();
         return openOnly && restored() == 1 && exited() == 1;
+    }
+
+    static bool CheckIsolatedShortcutRefresh(string directory, string executable, string otherExecutable)
+    {
+        var shellType = Type.GetTypeFromProgID("WScript.Shell");
+        if (shellType is null) return false;
+        var icon = Path.Combine(directory, "yingge-icon-v2.ico");
+        using (var extracted = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!))
+        using (var output = File.Create(icon)) extracted!.Save(output);
+        var shortcutPath = Path.Combine(directory, "映格视频库.lnk");
+        object? shell = null;
+        try
+        {
+            shell = Activator.CreateInstance(shellType);
+            object Open() => shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod,
+                null, shell, [shortcutPath]) ?? throw new IOException("无法创建隔离快捷方式");
+            void SetAndSave(string target, string iconLocation)
+            {
+                var shortcut = Open();
+                try
+                {
+                    var type = shortcut.GetType();
+                    type.InvokeMember("TargetPath", BindingFlags.SetProperty, null, shortcut, [target]);
+                    type.InvokeMember("IconLocation", BindingFlags.SetProperty, null, shortcut, [iconLocation]);
+                    type.InvokeMember("Save", BindingFlags.InvokeMethod, null, shortcut, null);
+                }
+                finally { if (Marshal.IsComObject(shortcut)) Marshal.FinalReleaseComObject(shortcut); }
+            }
+            string ReadIcon()
+            {
+                var shortcut = Open();
+                try { return shortcut.GetType().InvokeMember("IconLocation", BindingFlags.GetProperty,
+                    null, shortcut, null) as string ?? ""; }
+                finally { if (Marshal.IsComObject(shortcut)) Marshal.FinalReleaseComObject(shortcut); }
+            }
+            SetAndSave(executable, executable + ",0");
+            var changed = StartupRegistration.RefreshShortcutIconAtPath(shortcutPath, executable, icon);
+            var iconUpdated = ReadIcon().StartsWith(icon, StringComparison.OrdinalIgnoreCase);
+            var idempotent = !StartupRegistration.RefreshShortcutIconAtPath(shortcutPath, executable, icon);
+            SetAndSave(otherExecutable, otherExecutable + ",0");
+            var otherUntouched = !StartupRegistration.RefreshShortcutIconAtPath(shortcutPath, executable, icon)
+                && ReadIcon().StartsWith(otherExecutable, StringComparison.OrdinalIgnoreCase);
+            return changed && iconUpdated && idempotent && otherUntouched;
+        }
+        finally
+        {
+            if (shell is not null && Marshal.IsComObject(shell)) Marshal.FinalReleaseComObject(shell);
+        }
     }
 
     internal static int RunToFile(string destination)

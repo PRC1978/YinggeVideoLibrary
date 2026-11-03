@@ -34,6 +34,9 @@ public partial class MainWindow
 
     void InitializeStartupBehavior()
     {
+        Loaded += (_, _) => Dispatcher.BeginInvoke(
+            new Action(StartupRegistration.RefreshOwnedDesktopShortcutIcon),
+            System.Windows.Threading.DispatcherPriority.Background);
         StateChanged += (_, _) =>
         {
             if (ShouldHideInTray(IsVisible, WindowState, config.MinimizeToTray, isClosing))

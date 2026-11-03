@@ -58,7 +58,8 @@ public partial class MainWindow
     StackPanel BuildAppearanceOptions()
     {
         var section = new StackPanel { Name = "SettingsAppearanceOptions", Margin = new Thickness(0, 16, 0, 8) };
-        section.Children.Add(new TextBlock { Text = "界面模式", FontWeight = FontWeights.SemiBold });
+        section.Children.Add(new TextBlock { Text = "界面模式", FontWeight = FontWeights.SemiBold,
+            Foreground = UiTheme.TextPrimaryBrush });
         section.Children.Add(SettingsHint("选择喜欢的外观。点击预览卡片即可切换，重启后仍会保留。"));
         var themeRow = new WrapPanel();
         foreach (var (id, label, hint) in UiTheme.Modes)
@@ -81,16 +82,26 @@ public partial class MainWindow
                 // Structural chrome (nav set, review page host, status cards)
                 // follows the mode immediately; the current page is kept.
                 ApplyInterfaceMode();
+                // The complete list uses row virtualization. Recompute its
+                // column count after the new card width and page width settle.
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    UpdateLayout();
+                    ReflowVirtualRows();
+                    if (view is "all" or "recent" or "favorites") RenderCards();
+                }), DispatcherPriority.Loaded);
                 SaveConfig();
             };
             themeModeButtons.Add(choice);
             themeRow.Children.Add(choice);
         }
         section.Children.Add(themeRow);
-        section.Children.Add(new TextBlock { Text = "列表密度", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 10, 0, 0) });
+        section.Children.Add(new TextBlock { Text = "列表密度", FontWeight = FontWeights.SemiBold,
+            Foreground = UiTheme.TextPrimaryBrush, Margin = new Thickness(0, 10, 0, 0) });
         section.Children.Add(SettingsHint("分页列表每页显示的卡片数。完整列表仍使用虚拟滚动。"));
         var row = new StackPanel { Orientation = Orientation.Horizontal };
-        row.Children.Add(new TextBlock { Text = "每页卡片", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) });
+        row.Children.Add(new TextBlock { Text = "每页卡片", Foreground = UiTheme.TextPrimaryBrush,
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) });
         var choices = new ComboBox { Width = 100, Height = 34, ItemsSource = new[] { 30, 60, 90 }, SelectedItem = config.CardPageSize };
         choices.SelectionChanged += (_, _) =>
         {

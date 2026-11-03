@@ -502,6 +502,7 @@ public partial class MainWindow : Window
         InitializeAnimeReleaseEvidence();
         InitializeLibraryUtilities();
         RegroupScrapePanel();
+        ApplyInterfaceMode();
         PlayerPathBox.Text = FindPlayer() ?? "";
         TmdbTokenBox.Password = config.TmdbToken;
         ShowAllBox.IsChecked = config.ShowAll;
@@ -528,6 +529,7 @@ public partial class MainWindow : Window
         sphereGraphTimer.Tick += (_, _) => RotateSphereGraph();
         Closing += (_, e) =>
         {
+            if (!TryConfirmEmbeddedRolesClose()) { e.Cancel = true; return; }
             if (!batchOperationInProgress) return;
             e.Cancel = true;
             Log("正在完成批量保存，保存完成后即可关闭窗口");
@@ -535,6 +537,7 @@ public partial class MainWindow : Window
         Closed += (_, _) =>
         {
             isClosing = true;
+            embeddedRoles?.Cleanup();
             posterScrollTimer.Stop(); searchRefreshTimer.Stop(); folderRefreshTimer.Stop(); sphereGraphTimer.Stop();
             DisposeFolderWatchers();
             // Invalidate in-flight poster workers so they stop after their
@@ -1586,6 +1589,8 @@ public partial class MainWindow : Window
             ["scrape"] = ("搜刮", "管理来源、凭据和完整资料匹配。", "搜刮设置")
             , ["online"] = ("在线", "在应用内浏览视频网站。", "在线")
             , ["plugins"] = ("插件", "管理第三方搜刮来源，插件候选一律人工审核。", "插件")
+            , ["review"] = ("人工审核", "低可信度或身份冲突的匹配，先审核再写入。", "审核队列")
+            , ["roles"] = ("人物", "手工资料与已核实来源分别显示。", "人物与角色档案")
         };
         var current = titles[target];
         PageTitle.Text = current.Item1;
@@ -1594,17 +1599,38 @@ public partial class MainWindow : Window
             : current.Item2;
         // Settings and scrape already carry their own card heading; a second
         // identical title only pushed the real content further down.
-        SectionTitle.Text = target is "settings" or "scrape" ? "" : current.Item3;
+        SectionTitle.Text = target is "settings" or "scrape" or "review" or "roles" ? "" : current.Item3;
         HeaderArea.Margin = target == "online" ? new Thickness(28, 18, 28, 12) : new Thickness(48, 42, 48, 25);
-        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav }) { button.Background = Brushes.Transparent; button.Foreground = new SolidColorBrush(Color.FromRgb(116, 130, 149)); }
-        var selected = target switch { "recent" => RecentNav, "favorites" => FavoriteNav, "recommendations" => RecommendationsNav, "categories" => CategoriesNav, "folders" => FoldersNav, "status" => StatusNav, "scrape" => ScrapeNav, "online" => OnlineNav, "plugins" => SettingsNav, "settings" => SettingsNav, _ => AllNav };
-        selected.Background = new SolidColorBrush(Color.FromRgb(234, 240, 255)); selected.Foreground = new SolidColorBrush(Color.FromRgb(62, 99, 213));
-        Toolbar.Visibility = target is "settings" or "status" or "scrape" or "online" or "recommendations" or "folders" or "plugins" ? Visibility.Collapsed : Visibility.Visible;
+        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav, LibraryNav, ReviewNav, PluginsNav })
+        {
+            button.Background = Brushes.Transparent;
+            button.Foreground = UiTheme.TextTertiaryBrush;
+        }
+        var classic = UiTheme.IsClassicMode;
+        var selected = target switch
+        {
+            "recent" => classic ? RecentNav : LibraryNav,
+            "favorites" => classic ? FavoriteNav : LibraryNav,
+            "recommendations" => RecommendationsNav,
+            "categories" => CategoriesNav,
+            "folders" => FoldersNav,
+            "status" => StatusNav,
+            "scrape" => ScrapeNav,
+            "review" => classic ? ScrapeNav : ReviewNav,
+            "roles" => RolesNav,
+            "online" => OnlineNav,
+            "plugins" => classic ? SettingsNav : PluginsNav,
+            "settings" => SettingsNav,
+            _ => classic ? AllNav : LibraryNav
+        };
+        selected.Background = UiTheme.SelectionBackgroundBrush;
+        selected.Foreground = UiTheme.SelectionForegroundBrush;
+        Toolbar.Visibility = target is "settings" or "status" or "scrape" or "online" or "recommendations" or "folders" or "plugins" or "review" or "roles" ? Visibility.Collapsed : Visibility.Visible;
         LibraryScroll.Visibility = target == "online" ? Visibility.Collapsed : Visibility.Visible;
         AllListPanel.Visibility = Visibility.Collapsed;
         OnlinePanel.Visibility = target == "online" ? Visibility.Visible : Visibility.Collapsed;
         if (target == "online") _ = InitializeOnlineAsync();
-        Cards.Visibility = target is "folders" or "status" or "scrape" or "settings" or "online" or "recommendations" or "plugins" ? Visibility.Collapsed : Visibility.Visible;
+        Cards.Visibility = target is "folders" or "status" or "scrape" or "settings" or "online" or "recommendations" or "plugins" or "review" or "roles" ? Visibility.Collapsed : Visibility.Visible;
         EmptyPanel.Visibility = Visibility.Collapsed;
         Pager.Visibility = Visibility.Collapsed;
         CategoryPanel.Visibility = target == "categories" ? Visibility.Visible : Visibility.Collapsed;
@@ -1615,6 +1641,10 @@ public partial class MainWindow : Window
         SettingsPanel.Visibility = target == "settings" ? Visibility.Visible : Visibility.Collapsed;
         ScrapePanel.Visibility = target == "scrape" ? Visibility.Visible : Visibility.Collapsed;
         PluginsPanel.Visibility = target == "plugins" ? Visibility.Visible : Visibility.Collapsed;
+        ReviewPanel.Visibility = target == "review" ? Visibility.Visible : Visibility.Collapsed;
+        RolesPanel.Visibility = target == "roles" ? Visibility.Visible : Visibility.Collapsed;
+        EnsureLibrarySegments();
+        UpdateLibrarySegments();
         if (target == "folders") { CountText.Text = $"{config.Folders.Count} 个位置"; RenderFolders(); }
         else if (target == "settings") { CountText.Text = ""; PlayerPathBox.Text = FindPlayer() ?? ""; AutoStartBox.IsChecked = config.AutoStart; GpuBox.IsChecked = config.GpuThumbnails; AiEndpointBox.Text = config.AiEndpoint; AiModelBox.Text = config.AiModel; AiKeyBox.Password = config.AiKey; BackupInfo.Text = CacheDiagnosticSummary; }
         else if (target == "scrape")
@@ -1629,6 +1659,8 @@ public partial class MainWindow : Window
             RefreshReviewQueue();
         }
         else if (target == "plugins") { CountText.Text = ""; EnsurePluginCatalog(); RenderPlugins(); }
+        else if (target == "review") { CountText.Text = ""; RefreshReviewQueue(); }
+        else if (target == "roles") { CountText.Text = ""; EnsureEmbeddedRoles(); }
         else if (target == "recommendations") { CountText.Text = ""; RenderRecommendations(); }
         else if (target is "status" or "online")
         {

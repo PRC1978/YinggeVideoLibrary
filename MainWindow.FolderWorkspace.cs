@@ -249,6 +249,7 @@ public partial class MainWindow
         };
         UpdateFolderDirectoryListing();
         UpdateFolderVideoListing();
+        AttachStatusCardsToFolderPage();
     }
 
     static Button FolderAction(string label) => new()

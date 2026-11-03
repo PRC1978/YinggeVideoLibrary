@@ -12,6 +12,14 @@ public partial class MainWindow
     // Keep the existing controls and handlers. Only group their presentation after
     // all source, queue and review initializers have attached their controls.
     System.Windows.Controls.TabControl? scrapePages;
+    // The three scrape groups are kept as fields so ApplyInterfaceMode can
+    // re-parent them without rebuilding: classic mode hosts all three in the
+    // scrape TabControl; the redesigned modes lift the review group into the
+    // first-class 审核 page.
+    StackPanel? scrapeTasksGroup;
+    StackPanel? scrapeReviewGroup;
+    StackPanel? scrapeAdvancedGroup;
+    TabItem? scrapeReviewTab;
 
     void RegroupScrapePanel()
     {
@@ -59,17 +67,43 @@ public partial class MainWindow
         var review = new StackPanel();
         if (items[reviewStart] is TextBlock reviewHeading) reviewHeading.Text = "审核队列";
         foreach (var item in items.Skip(reviewStart)) review.Children.Add(item);
+        scrapeTasksGroup = tasks;
+        scrapeReviewGroup = review;
+        scrapeAdvancedGroup = advanced;
+        ArrangeScrapeGroups();
+        ScrapePanel.SizeChanged += (_, _) => UpdateScrapePagesWidth();
+    }
+
+    /// <summary>Parent the scrape groups according to the interface mode:
+    /// classic keeps the three-tab layout inside the scrape page; the
+    /// redesigned modes keep 任务与队列 / 来源与凭据 tabs and lift the review
+    /// group into the standalone 审核 page host. Safe to call repeatedly.</summary>
+    void ArrangeScrapeGroups()
+    {
+        if (scrapeTasksGroup is null || scrapeReviewGroup is null || scrapeAdvancedGroup is null) return;
+        if (ScrapePanel.Child is not StackPanel panel) return;
+        // Detach the review group from wherever it currently lives.
+        if (scrapeReviewTab is not null && ReferenceEquals(scrapeReviewTab.Content, scrapeReviewGroup))
+            scrapeReviewTab.Content = null;
+        if (ReferenceEquals(scrapeReviewGroup.Parent, ReviewPanelBody))
+            ReviewPanelBody.Children.Remove(scrapeReviewGroup);
+        panel.Children.Clear();
+        ReviewPanelBody.Children.Clear();
         var pages = new System.Windows.Controls.TabControl
         {
             BorderThickness = new Thickness(0), Background = System.Windows.Media.Brushes.Transparent,
             HorizontalContentAlignment = System.Windows.HorizontalAlignment.Stretch
         };
-        pages.Items.Add(new TabItem { Header = "任务与队列", Content = tasks, Padding = new Thickness(14, 8, 14, 8) });
-        pages.Items.Add(new TabItem { Header = "人工审核", Content = review, Padding = new Thickness(14, 8, 14, 8) });
-        pages.Items.Add(new TabItem { Header = "来源与凭据", Content = advanced, Padding = new Thickness(14, 8, 14, 8) });
+        pages.Items.Add(new TabItem { Header = "任务与队列", Content = scrapeTasksGroup, Padding = new Thickness(14, 8, 14, 8) });
+        if (UiTheme.IsClassicMode)
+        {
+            scrapeReviewTab = new TabItem { Header = "人工审核", Content = scrapeReviewGroup, Padding = new Thickness(14, 8, 14, 8) };
+            pages.Items.Add(scrapeReviewTab);
+        }
+        else ReviewPanelBody.Children.Add(scrapeReviewGroup);
+        pages.Items.Add(new TabItem { Header = "来源与凭据", Content = scrapeAdvancedGroup, Padding = new Thickness(14, 8, 14, 8) });
         panel.Children.Add(pages);
         scrapePages = pages;
-        ScrapePanel.SizeChanged += (_, _) => UpdateScrapePagesWidth();
         UpdateScrapePagesWidth();
     }
 

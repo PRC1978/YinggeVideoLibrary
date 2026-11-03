@@ -6,7 +6,13 @@ namespace YinggeVideoLibrary;
 
 public partial class MainWindow
 {
-    void NavRoles(object sender, RoutedEventArgs e) => OpenRoleProfiles();
+    void NavRoles(object sender, RoutedEventArgs e)
+    {
+        // Classic mode keeps the standalone window; the redesigned modes embed
+        // the same shared view as a main-window page.
+        if (UiTheme.IsClassicMode) OpenRoleProfiles();
+        else ShowView("roles");
+    }
 
     string VerifyRoleProfilesOffscreen()
     {
@@ -34,7 +40,30 @@ public partial class MainWindow
         var count = details.VerifiedOptionCountForDiagnostics;
         overview.Close(); details.Close();
         if (count != 1) throw new InvalidOperationException("已核实作品的人物档案入口没有保留稳定 ID。 ");
-        return "左侧人物入口可用；总览与作品详情两条路径离屏创建正常；TMDB 稳定人物 ID 已显示；未写入用户资料";
+
+        // Embedded-host lifecycle probe: switching pages unloads the view, and
+        // that must NOT tear down its timer/cancellation/state (regression:
+        // Cleanup used to run on Unloaded, disposing the auto-discovery token
+        // while a scrape could still be running).
+        var host = new Window
+        {
+            Left = -30000, Top = -30000, Width = 900, Height = 640,
+            ShowActivated = false, ShowInTaskbar = false, Opacity = 0
+        };
+        var embedded = new RoleProfilesView(fixtureDir, sample, null, null, "", _ => { }, true);
+        host.Content = embedded;
+        host.Show();
+        host.Content = null; // page switch away: view unloads
+        host.Content = embedded; // page switch back: view reloads
+        embedded.SelectProfileForDiagnostics("nonexistent-id"); // must survive re-attach
+        embedded.RequestAutoStop(); // safe when nothing is running
+        if (embedded.IsBusy) throw new InvalidOperationException("空闲人物页被误判为忙碌状态");
+        embedded.Cleanup();
+        embedded.Cleanup(); // final teardown must be idempotent
+        embedded.RequestAutoStop(); // must stay safe after cleanup
+        host.Close();
+        return "左侧人物入口可用；总览与作品详情两条路径离屏创建正常；TMDB 稳定人物 ID 已显示；"
+            + "嵌入宿主经切页卸载/重载后状态正确，清理幂等；未写入用户资料";
     }
 
     void OpenRoleProfiles(VideoItem? video = null, MovieMetadata? record = null)

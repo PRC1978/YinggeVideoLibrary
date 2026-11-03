@@ -76,6 +76,9 @@ public partial class MainWindow
                 if (config.UiTheme == id) return;
                 config.UiTheme = id;
                 UiTheme.Apply(id);
+                // Structural chrome (nav set, review page host, status cards)
+                // follows the mode immediately; the current page is kept.
+                ApplyInterfaceMode();
                 SaveConfig();
             };
             themeModeButtons.Add(choice);

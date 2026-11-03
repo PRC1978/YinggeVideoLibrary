@@ -74,13 +74,21 @@ internal sealed class RoleProfilesView : Grid
     /// <summary>Ask the running auto-discovery to stop (idempotent).</summary>
     internal void RequestAutoStop()
     {
-        if (!autoRunning) return;
+        if (!autoRunning || cleanedUp) return;
         autoCancellation?.Cancel();
         autoStatus.Text = "正在停止搜刮…";
     }
 
+    bool cleanedUp;
+
+    /// <summary>Final teardown: stop the debounce timer and release the
+    /// cancellation token. Idempotent; call only when the view will not be
+    /// shown again (classic window Closed, or main-window Closed when
+    /// embedded). Never call from Unloaded — page switches unload the view.</summary>
     internal void Cleanup()
     {
+        if (cleanedUp) return;
+        cleanedUp = true;
         profileSearchTimer.Stop();
         autoCancellation?.Dispose();
     }
@@ -114,7 +122,12 @@ internal sealed class RoleProfilesView : Grid
         }
         else state = new RoleProfileStore.State();
         Background = new SolidColorBrush(Color.FromRgb(247, 249, 253));
-        Unloaded += (_, _) => Cleanup();
+        // Cleanup is intentionally NOT hooked to Unloaded: in the redesigned
+        // shell the view is embedded in a main-window page, and switching pages
+        // unloads it. Disposing the auto-discovery cancellation token there
+        // would break a running scrape (ObjectDisposedException) and lose the
+        // ability to cancel it on the next close. Final cleanup runs on window
+        // close (classic shell) or main-window close (embedded host).
         BuildVerifiedOptions();
 
         var root = new Grid { Margin = new Thickness(20) };

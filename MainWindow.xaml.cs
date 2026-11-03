@@ -1617,7 +1617,7 @@ public partial class MainWindow : Window
             : current.Item2;
         // Settings and scrape already carry their own card heading; a second
         // identical title only pushed the real content further down.
-        SectionTitle.Text = target is "settings" or "scrape" or "review" or "roles" ? "" : current.Item3;
+        SectionTitle.Text = target is "settings" or "scrape" or "review" or "roles" or "plugins" ? "" : current.Item3;
         BrandEyebrow.Visibility = UiTheme.IsClassicMode ? Visibility.Visible : Visibility.Collapsed;
         HeaderArea.Margin = target == "online" ? new Thickness(28, 18, 28, 12)
             : UiTheme.IsClassicMode ? new Thickness(48, 42, 48, 25)

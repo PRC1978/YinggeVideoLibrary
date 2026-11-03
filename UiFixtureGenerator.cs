@@ -17,6 +17,7 @@ internal sealed class UiFixtureResult
     public int FolderCount { get; set; }
     public int TagCount { get; set; }
     public int MetadataEntryCount { get; set; }
+    public int PosterCount { get; set; }
     public long ConfigBytes { get; set; }
     public long IndexBytes { get; set; }
     public long MetadataBytes { get; set; }
@@ -54,7 +55,7 @@ internal static class UiFixtureGenerator
     internal static int Run(string[] args)
     {
         try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch { }
-        // --ui-fixture <dataDir> <videoCount> [categoryCount]
+        // --ui-fixture <dataDir> <videoCount> [categoryCount] [posterCount]
         if (args.Length < 3)
         {
             Console.Out.WriteLine("用法：映格视频库.exe --ui-fixture <隔离数据目录> <视频数量> [分类叶子数]");
@@ -68,6 +69,9 @@ internal static class UiFixtureGenerator
         var categoryCount = 2000;
         if (args.Length > 3 && int.TryParse(args[3], out var requestedCategories) && requestedCategories > 0)
             categoryCount = requestedCategories;
+        var posterCount = 0;
+        if (args.Length > 4 && int.TryParse(args[4], out var requestedPosters) && requestedPosters > 0)
+            posterCount = Math.Min(requestedPosters, Math.Min(videoCount, 1000));
         string dataDir;
         try { dataDir = System.IO.Path.GetFullPath(args[1]); }
         catch (Exception ex)
@@ -76,12 +80,13 @@ internal static class UiFixtureGenerator
             return 2;
         }
 
-        var result = Seed(dataDir, videoCount, categoryCount);
+        var result = Seed(dataDir, videoCount, categoryCount, posterCount);
         Console.Out.WriteLine($"隔离数据目录：{result.DataDirectory}");
         Console.Out.WriteLine($"视频条目：{result.VideoCount}");
         Console.Out.WriteLine($"分类叶子：{result.CategoryLeafCount}，分类节点（含祖先）：{result.CategoryNodeCount}");
         Console.Out.WriteLine($"扫描根：{result.FolderCount}，库内目录：{CollectionsPerRoot * RootCount}，标签：{result.TagCount}");
         Console.Out.WriteLine($"元数据条目：{result.MetadataEntryCount}");
+        Console.Out.WriteLine($"合成封面：{result.PosterCount}");
         Console.Out.WriteLine($"config.json {result.ConfigBytes:N0} 字节；library-index.json {result.IndexBytes:N0} 字节；metadata.json {result.MetadataBytes:N0} 字节");
         Console.Out.WriteLine($"生成耗时：{result.ElapsedMs} ms");
         return 0;
@@ -91,7 +96,7 @@ internal static class UiFixtureGenerator
     /// Deterministic, idempotent (overwrite) fixture write. Same arguments always
     /// produce byte-identical content so repeated measurements are comparable.
     /// </summary>
-    internal static UiFixtureResult Seed(string dataDir, int videoCount, int categoryCount)
+    internal static UiFixtureResult Seed(string dataDir, int videoCount, int categoryCount, int posterCount = 0)
     {
         var clock = Stopwatch.StartNew();
         Directory.CreateDirectory(dataDir);
@@ -119,6 +124,8 @@ internal static class UiFixtureGenerator
         };
         var index = new LibraryIndex { Folders = roots, Entries = new List<IndexEntry>(videoCount) };
         var metadata = new Dictionary<string, MovieMetadata>(videoCount, StringComparer.OrdinalIgnoreCase);
+        var posterDir = System.IO.Path.Combine(dataDir, "posters");
+        if (posterCount > 0) Directory.CreateDirectory(posterDir);
         var baseTime = new DateTime(2024, 1, 1, 8, 0, 0, DateTimeKind.Local);
 
         for (var position = 0; position < videoCount; position++)
@@ -147,7 +154,8 @@ internal static class UiFixtureGenerator
                 Title = title,
                 Source = "fixture",
                 // Fixed timestamp keeps the file byte-identical across runs.
-                ScrapedAt = baseTime
+                ScrapedAt = baseTime,
+                Poster = position < posterCount ? WriteFixturePoster(posterDir, position) : null
             };
         }
 
@@ -183,11 +191,32 @@ internal static class UiFixtureGenerator
             FolderCount = roots.Length,
             TagCount = TagPool.Distinct(StringComparer.OrdinalIgnoreCase).Count(),
             MetadataEntryCount = metadata.Count,
+            PosterCount = posterCount,
             ConfigBytes = configBytes,
             IndexBytes = indexBytes,
             MetadataBytes = metadataBytes,
             ElapsedMs = clock.ElapsedMilliseconds
         };
+    }
+
+    static string WriteFixturePoster(string directory, int position)
+    {
+        var path = System.IO.Path.Combine(directory, $"fixture-{position:0000}.jpg");
+        if (File.Exists(path)) return path;
+        using var bitmap = new System.Drawing.Bitmap(320, 480, System.Drawing.Imaging.PixelFormat.Format24bppRgb);
+        var random = new Random(position + 42);
+        var rectangle = new System.Drawing.Rectangle(0, 0, bitmap.Width, bitmap.Height);
+        var data = bitmap.LockBits(rectangle, System.Drawing.Imaging.ImageLockMode.WriteOnly,
+            System.Drawing.Imaging.PixelFormat.Format24bppRgb);
+        try
+        {
+            var pixels = new byte[data.Stride * bitmap.Height];
+            random.NextBytes(pixels);
+            System.Runtime.InteropServices.Marshal.Copy(pixels, 0, data.Scan0, pixels.Length);
+        }
+        finally { bitmap.UnlockBits(data); }
+        bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Jpeg);
+        return path;
     }
 
     static long WriteJson<T>(string path, T value, JsonSerializerOptions options)

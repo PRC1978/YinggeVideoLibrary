@@ -48,7 +48,11 @@ public partial class MainWindow
             report["configuredFolderCount"] = config.Folders.Count;
             report["cardPageSize"] = config.CardPageSize;
             report["startupListMode"] = config.ShowAll ? "完整列表" : "分页";
-            report["note"] = "合成库：条目路径不存在、无缩略图；本组数字不含海报解码与磁盘 I/O。";
+            var fixturePosterCount = videos.Count(video => !string.IsNullOrWhiteSpace(video.Poster));
+            report["fixturePosterCount"] = fixturePosterCount;
+            report["note"] = fixturePosterCount == 0
+                ? "合成库：条目路径不存在、无缩略图；本组数字不含海报解码与磁盘 I/O。"
+                : "隔离合成库含可解码 JPEG 封面；包括本地封面读盘与解码，但不代表用户真实海报分布。";
 
             report["search"] = await MeasureSearchAsync();
             report["cardRebind"] = await VerifyCardRebindAsync();

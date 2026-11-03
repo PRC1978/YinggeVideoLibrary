@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Security.Cryptography;
@@ -480,6 +480,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        InitializeFolderExternalDrop();
         Directory.CreateDirectory(DataDir);
         var cacheMigration = TryMigrateLegacyCaches(DataDir);
         Directory.CreateDirectory(ThumbDir);
@@ -1616,7 +1617,7 @@ public partial class MainWindow : Window
         // identical title only pushed the real content further down.
         SectionTitle.Text = target is "settings" or "scrape" or "review" or "roles" ? "" : current.Item3;
         HeaderArea.Margin = target == "online" ? new Thickness(28, 18, 28, 12) : new Thickness(48, 42, 48, 25);
-        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav, LibraryNav, ReviewNav, PluginsNav })
+        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav, LibraryNav, ReviewNav, RolesNav, PluginsNav })
         {
             button.Background = Brushes.Transparent;
             button.Foreground = UiTheme.TextTertiaryBrush;
@@ -3552,7 +3553,7 @@ public partial class MainWindow : Window
         HeaderToggle.Visibility = Visibility.Visible;
         HeaderToggle.Content = "⌃";
         HeaderToggle.ToolTip = "收缩顶部区域";
-        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav, LibraryNav, ReviewNav, PluginsNav })
+        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav, LibraryNav, ReviewNav, RolesNav, PluginsNav })
         {
             button.Visibility = Visibility.Visible;
             button.Width = 60;
@@ -3577,7 +3578,7 @@ public partial class MainWindow : Window
         LogoMark.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
         HeaderToggle.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
         SidebarToggle.Width = collapsed ? 28 : 50;
-        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav, LibraryNav, ReviewNav, PluginsNav })
+        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav, LibraryNav, ReviewNav, RolesNav, PluginsNav })
         {
             button.Width = 60;
             button.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;

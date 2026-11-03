@@ -45,6 +45,21 @@ public sealed class MovieMetadata
     // Legacy metadata entries have no schemaVersion and load as 1.
     // MetadataStore promotes the complete atomic snapshot to version 2 on save.
     public int SchemaVersion { get; set; } = 1;
+
+    // Saving metadata promotes the storage schema to 2 without changing the
+    // approved fields. Review snapshots may still contain schema 1, so compare
+    // their content after normalising only this storage-format marker.
+    internal static bool SameReviewContent(MovieMetadata? left, MovieMetadata? right)
+    {
+        if (left is null || right is null) return left is null && right is null;
+        if (left.SchemaVersion is < 1 or > 2 || right.SchemaVersion is < 1 or > 2)
+            return false;
+        var a = left.Clone();
+        var b = right.Clone();
+        a.SchemaVersion = 2;
+        b.SchemaVersion = 2;
+        return JsonSerializer.Serialize(a) == JsonSerializer.Serialize(b);
+    }
     public string Code { get; set; } = "";
     public string Title { get; set; } = "";
     public string Source { get; set; } = "JavDB";
@@ -377,7 +392,7 @@ public static class MetadataStore
             foreach (var (id, old) in expected)
             {
                 latest.TryGetValue(id, out var current);
-                if (JsonSerializer.Serialize(current) != JsonSerializer.Serialize(old))
+                if (!MovieMetadata.SameReviewContent(current, old))
                     throw new InvalidOperationException($"视频 {id} 的元数据已在其他窗口更改，已停止撤销。");
             }
             foreach (var (id, value) in replacement)

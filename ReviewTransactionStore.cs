@@ -225,7 +225,7 @@ internal static partial class ReviewTransactionStore
         var rightTags = right.Tags is { Count: > 0 } ? right.Tags : null;
         return left.AutoAmateur == right.AutoAmateur &&
             JsonSerializer.Serialize(left.Review, Options) == JsonSerializer.Serialize(right.Review, Options) &&
-            JsonSerializer.Serialize(left.Metadata, Options) == JsonSerializer.Serialize(right.Metadata, Options) &&
+            MovieMetadata.SameReviewContent(left.Metadata, right.Metadata) &&
             JsonSerializer.Serialize(leftTags, Options) == JsonSerializer.Serialize(rightTags, Options);
     }
 

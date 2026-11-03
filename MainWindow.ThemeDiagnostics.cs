@@ -84,6 +84,11 @@ public partial class MainWindow
             if (ReviewNav.Visibility != Visibility.Visible || PluginsNav.Visibility != Visibility.Visible
                 || LibraryNav.Visibility != Visibility.Visible || StatusNav.Visibility != Visibility.Collapsed)
                 throw new InvalidOperationException("新版界面的导航集合不正确");
+            ShowView("review");
+            ShowView("roles");
+            if (!ReferenceEquals(RolesNav.Background, UiTheme.SelectionBackgroundBrush)
+                || !ReferenceEquals(ReviewNav.Background, System.Windows.Media.Brushes.Transparent))
+                throw new InvalidOperationException("人物与审核导航同时保持选中状态");
             if (measuredCardWidths.Any(item => Math.Abs(item.Expected - item.Actual) > 1))
                 throw new InvalidOperationException("界面模式切换后卡片宽度没有跟随密度设置");
             // The complete list must reflow after a live theme change. A

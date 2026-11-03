@@ -10,6 +10,8 @@ using Button = System.Windows.Controls.Button;
 using ComboBox = System.Windows.Controls.ComboBox;
 using Cursors = System.Windows.Input.Cursors;
 using DragDropEffects = System.Windows.DragDropEffects;
+using DataFormats = System.Windows.DataFormats;
+using MessageBox = System.Windows.MessageBox;
 using Orientation = System.Windows.Controls.Orientation;
 using TextBox = System.Windows.Controls.TextBox;
 using WpfButtonBase = System.Windows.Controls.Primitives.ButtonBase;
@@ -59,6 +61,79 @@ public partial class MainWindow
     StackPanel? folderResultsHost;
     StackPanel? folderVideosHost;
     DispatcherTimer? folderSearchTimer;
+
+    void InitializeFolderExternalDrop()
+    {
+        // Window-level preview events also cover the empty area below the
+        // folder cards and controls that would otherwise swallow Drop.
+        AllowDrop = true;
+        PreviewDragOver += FolderExternalDragOver;
+        PreviewDrop += FolderExternalDrop;
+    }
+
+    static string[] DroppedScanRoots(IEnumerable<string> paths)
+    {
+        var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in paths)
+        {
+            try
+            {
+                var folder = Directory.Exists(path) ? path :
+                    File.Exists(path) && Extensions.Contains(System.IO.Path.GetExtension(path))
+                        ? System.IO.Path.GetDirectoryName(path) : null;
+                if (!string.IsNullOrWhiteSpace(folder)) roots.Add(NormalizeRoot(folder));
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            { /* Ignore a malformed Explorer entry without rejecting the others. */ }
+        }
+        return CollapseOverlappingRoots(roots.ToArray());
+    }
+
+    void FolderExternalDragOver(object sender, System.Windows.DragEventArgs e)
+    {
+        if (view != "folders") return;
+        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Link : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    void FolderExternalDrop(object sender, System.Windows.DragEventArgs e)
+    {
+        if (view != "folders" || !e.Data.GetDataPresent(DataFormats.FileDrop)) return;
+        e.Handled = true;
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] paths) return;
+        var roots = DroppedScanRoots(paths);
+        if (roots.Length == 0)
+        {
+            MessageBox.Show(this, "请拖入视频文件或文件夹。其他文件不会加入视频库。", "添加扫描位置");
+            return;
+        }
+        var preview = string.Join("\n", roots.Take(5).Select(path => "• " + path));
+        if (roots.Length > 5) preview += $"\n…另有 {roots.Length - 5} 个位置";
+        var answer = MessageBox.Show(this,
+            $"将添加以下 {roots.Length} 个扫描位置：\n{preview}\n\n拖入视频文件时会扫描其所在文件夹及子文件夹，可能发现其他视频。不会移动、复制或删除原文件。继续吗？",
+            "确认添加扫描位置", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (answer != MessageBoxResult.Yes) return;
+        var added = 0;
+        foreach (var root in roots)
+        {
+            if (config.Folders.Any(existing =>
+                NormalizeRoot(existing).Equals(root, StringComparison.OrdinalIgnoreCase) ||
+                IsDescendantPath(NormalizeRoot(existing), root))) continue;
+            config.Folders.Add(root);
+            added++;
+        }
+        if (added > 0)
+        {
+            config.FoldersClearedByUser = false;
+            SaveConfig();
+        }
+        folderCurrentRoot = null;
+        folderCurrentPath = null;
+        folderDirectoryPage = folderVideoPage = 0;
+        ConfigureFolderWatchers();
+        _ = RefreshAsync();
+        RenderFolders();
+    }
 
     static FolderTreeIndex BuildFolderTreeIndex(List<VideoItem> source, string[] roots)
     {
@@ -198,7 +273,7 @@ public partial class MainWindow
         });
         summary.Children.Add(new TextBlock
         {
-            Text = "按视频索引浏览库内目录；没有索引视频的空目录不会显示。扫描位置始终显示。",
+            Text = "可从资源管理器拖入视频或文件夹；视频会按所在文件夹扫描。不会移动原文件。没有索引视频的空目录不会显示。",
             FontSize = 11, Foreground = UiTheme.TextTertiaryBrush,
             Margin = new Thickness(0, 4, 0, 0)
         });
@@ -533,6 +608,27 @@ public partial class MainWindow
 
     internal static bool VerifyFolderTreeForDiagnostics()
     {
+        var dropRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+            "yingge-folder-drop-" + Guid.NewGuid().ToString("N"));
+        var childDrop = System.IO.Path.Combine(dropRoot, "child");
+        Directory.CreateDirectory(childDrop);
+        var videoDrop = System.IO.Path.Combine(childDrop, "sample.mp4");
+        var ignoredDrop = System.IO.Path.Combine(childDrop, "notes.txt");
+        try
+        {
+            File.WriteAllBytes(videoDrop, []);
+            File.WriteAllBytes(ignoredDrop, []);
+            var roots = DroppedScanRoots([dropRoot, childDrop, videoDrop, ignoredDrop]);
+            if (roots.Length != 1 || !roots[0].Equals(NormalizeRoot(dropRoot), StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+        finally
+        {
+            File.Delete(videoDrop);
+            File.Delete(ignoredDrop);
+            Directory.Delete(childDrop);
+            Directory.Delete(dropRoot);
+        }
         var root = NormalizeRoot(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "yingge-folder-tree-check"));
         var child = System.IO.Path.Combine(root, "人物", "作品", "子目录");
         var items = new List<VideoItem>

@@ -245,7 +245,7 @@ internal static partial class ReviewTransactionStore
             new ReviewItemSnapshot { Review = right.Review, Tags = right.Tags, AutoAmateur = right.AutoAmateur });
 
     static bool SameMetadata(MovieMetadata? left, MovieMetadata? right)
-        => JsonSerializer.Serialize(left, Options) == JsonSerializer.Serialize(right, Options);
+        => MovieMetadata.SameReviewContent(left, right);
 
     static ReviewItemSnapshot ReadSnapshot(DiskState disk, string id)
     {

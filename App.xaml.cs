@@ -31,6 +31,11 @@ public partial class App : System.Windows.Application
             Shutdown(await Task.Run(() => PortableUpdateWorker.Apply(e.Args)));
             return;
         }
+        if (e.Args.Length > 2 && e.Args[0] == "--diagnose-review-recovery")
+        {
+            Shutdown(ReviewTransactionRecoveryDiagnostics.RecoverCopyToFile(e.Args[1], e.Args[2]));
+            return;
+        }
         if (e.Args.Length > 1 && e.Args[0] == "--self-test-updater")
         {
             Shutdown(PortableUpdateWorker.SelfTest(e.Args[1]));

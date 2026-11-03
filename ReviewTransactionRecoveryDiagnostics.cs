@@ -5,6 +5,18 @@ namespace YinggeVideoLibrary;
 
 internal static class ReviewTransactionRecoveryDiagnostics
 {
+    internal static int RecoverCopyToFile(string dataDir, string reportPath)
+    {
+        var pendingBefore = ReviewTransactionStore.HasPending(dataDir);
+        var passed = ReviewTransactionStore.RecoverPendingAtStartup(dataDir, out var error);
+        File.WriteAllText(reportPath, JsonSerializer.Serialize(new
+        {
+            passed, pendingBefore,
+            pendingAfter = ReviewTransactionStore.HasPending(dataDir), error
+        }));
+        return passed ? 0 : 1;
+    }
+
     public static IReadOnlyDictionary<string, bool> Run(string root)
     {
         Directory.CreateDirectory(root);
@@ -169,6 +181,24 @@ internal static class ReviewTransactionRecoveryDiagnostics
             var recovered = begun && ReviewTransactionStore.RecoverPendingAtStartup(data, out _);
             results["reviewDuplicateTagsDoNotBlock"] = sameAsConfigLoader && begun && recovered &&
                 !ReviewTransactionStore.HasPending(data) && SameSaved(data, after);
+        }
+
+        {
+            // MetadataStore promotes schema 1 to 2 on every save. A crash
+            // after that write must not turn a completed approval into an
+            // unrecoverable "concurrent metadata change".
+            var data = Path.Combine(root, "metadata-schema-promotion");
+            var before = Pending("one", "待审核", "旧标题");
+            var after = Approved("one", "新标题");
+            Seed(data, before);
+            var transaction = Transaction("field-approve", before, after);
+            ReviewTransactionStore.Begin(data, transaction);
+            MetadataStore.Save(data, new Dictionary<string, MovieMetadata>
+            { ["one"] = after.Metadata!.Clone() });
+            var recovered = ReviewTransactionStore.RecoverPendingAtStartup(data, out _);
+            results["reviewMetadataSchemaPromotionRecovers"] = recovered &&
+                !ReviewTransactionStore.HasPending(data) && SameSaved(data, after) &&
+                MetadataStore.Load(data)["one"].SchemaVersion == 2;
         }
 
         return results;

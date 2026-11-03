@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace YinggeVideoLibrary;
 
@@ -29,6 +30,10 @@ internal static class RoleProfileStore
         // Every field below is optional and entered by the user. A scrape
         // never overwrites it, even when the source has a different value.
         public string Role { get; set; } = "";
+        // Explicit library classification. Gender and a free-text credit do
+        // not establish a person's profession, so older profiles stay unset.
+        public string PersonKind { get; set; } = RolePersonKind.Unspecified;
+        [JsonIgnore] public string ListLabel => Name + " · " + RolePersonKind.Display(PersonKind);
         public string Birthday { get; set; } = "";
         public string Gender { get; set; } = "";
         public string Height { get; set; } = "";
@@ -158,7 +163,7 @@ internal static class RoleProfileStore
             if (p is null || !Guid.TryParseExact(p.Id, "N", out _) || !ids.Add(p.Id)
                 || !TextOk(p.Name, 180) || string.IsNullOrWhiteSpace(p.Name)
                 || p.Aliases is null || p.Aliases.Count > 50 || p.Aliases.Any(x => !TextOk(x, 180))
-                || !TextOk(p.Role, 180) || !TextOk(p.Birthday, 80)
+                || !TextOk(p.Role, 180) || !RolePersonKind.IsValid(p.PersonKind) || !TextOk(p.Birthday, 80)
                 || !TextOk(p.Gender, 80) || !TextOk(p.Height, 80)
                 || !TextOk(p.Weight, 80) || !TextOk(p.Measurements, 120)
                 || !TextOk(p.BloodType, 80) || !TextOk(p.Biography, 20000)

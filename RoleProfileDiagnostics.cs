@@ -28,6 +28,26 @@ internal static class RoleProfileDiagnostics
             var state = new RoleProfileStore.State { Profiles = [first, second] };
             RoleProfileStore.Save(root, state);
             var loaded = RoleProfileStore.Load(root);
+            result["rolePersonKindsDefaultForOldProfiles"] = loaded.Profiles.All(p =>
+                p.PersonKind == RolePersonKind.Unspecified);
+            var legacyProfileState = RoleProfileStore.Parse("{\"Version\":1,\"Revision\":\"0\",\"Profiles\":[{\"Id\":\""
+                + Guid.NewGuid().ToString("N") + "\",\"Name\":\"旧档案\"}]}");
+            result["rolePersonKindsReadLegacyJson"] = legacyProfileState.Profiles.Single().PersonKind ==
+                RolePersonKind.Unspecified;
+            loaded.Profiles[0].PersonKind = RolePersonKind.Director;
+            loaded.Profiles[1].PersonKind = RolePersonKind.FemaleActor;
+            RoleProfileStore.Save(root, loaded);
+            loaded = RoleProfileStore.Load(root);
+            result["rolePersonKindsPersistIndependently"] =
+                loaded.Profiles[0].PersonKind == RolePersonKind.Director &&
+                loaded.Profiles[1].PersonKind == RolePersonKind.FemaleActor &&
+                loaded.Profiles[0].ListLabel.Contains("导演") &&
+                loaded.Profiles[1].ListLabel.Contains("女演员");
+            var invalidKind = RoleProfileStore.Parse(JsonSerializer.Serialize(loaded));
+            invalidKind.Profiles[0].PersonKind = "unrecognized";
+            try { RoleProfileStore.ValidateState(invalidKind);
+                result["rolePersonKindsRejectUnknown"] = false; }
+            catch (InvalidDataException) { result["rolePersonKindsRejectUnknown"] = true; }
             result["roleProfilesSameNameStaysSeparate"] = loaded.Profiles.Count == 2
                 && loaded.Profiles[0].Id != loaded.Profiles[1].Id
                 && loaded.Profiles[0].Works.Single().LocalVideoId == "local-1"

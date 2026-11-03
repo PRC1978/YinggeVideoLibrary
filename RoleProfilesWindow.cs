@@ -39,6 +39,7 @@ internal sealed partial class RoleProfilesView : Grid
     RoleProfileStore.State state;
     readonly ListBox profiles = new();
     readonly TextBox search = new();
+    readonly ComboBox kindFilter = new();
     readonly StackPanel content = new();
     readonly Button manualAdd = UiButton("＋ 新建手工档案", true);
     readonly Button autoStart = UiButton("自动发现并搜刮人物");
@@ -168,6 +169,12 @@ internal sealed partial class RoleProfilesView : Grid
             profileSearchTimer.Stop(); profileSearchTimer.Start();
         };
         actions.Children.Add(search);
+        kindFilter.Height = 34;
+        kindFilter.Margin = new Thickness(0, 6, 0, 0);
+        kindFilter.ItemsSource = new[] { "全部人物", "导演", "男演员", "女演员", "其他人物", "未分类" };
+        kindFilter.SelectedIndex = 0;
+        kindFilter.SelectionChanged += (_, _) => RefreshList();
+        actions.Children.Add(kindFilter);
         manualAdd.Margin = new Thickness(0, 8, 0, 5);
         manualAdd.Click += (_, _) => EditProfile(null);
         actions.Children.Add(manualAdd);
@@ -247,7 +254,7 @@ internal sealed partial class RoleProfilesView : Grid
                 }
             }
         }
-        profiles.DisplayMemberPath = nameof(RoleProfileStore.Profile.Name);
+        profiles.DisplayMemberPath = nameof(RoleProfileStore.Profile.ListLabel);
         profiles.BorderThickness = new Thickness(0);
         VirtualizingPanel.SetIsVirtualizing(profiles, true);
         VirtualizingPanel.SetVirtualizationMode(profiles, VirtualizationMode.Recycling);
@@ -416,21 +423,30 @@ internal sealed partial class RoleProfilesView : Grid
     void RefreshList()
     {
         var query = search.Text.Trim();
+        var kind = kindFilter.SelectedIndex switch
+        {
+            1 => RolePersonKind.Director,
+            2 => RolePersonKind.MaleActor,
+            3 => RolePersonKind.FemaleActor,
+            4 => RolePersonKind.Other,
+            5 => RolePersonKind.Unspecified,
+            _ => ""
+        };
         var snapshot = state.Profiles.ToArray();
         var revision = ++listRevision;
         if (snapshot.Length >= 500)
         {
-            _ = RefreshListInBackground(snapshot, query, revision);
+            _ = RefreshListInBackground(snapshot, query, kind, revision);
             return;
         }
-        ApplyProfileList(FilterProfiles(snapshot, query), revision);
+        ApplyProfileList(FilterProfiles(snapshot, query, kind), revision);
     }
 
-    async Task RefreshListInBackground(RoleProfileStore.Profile[] snapshot, string query, int revision)
+    async Task RefreshListInBackground(RoleProfileStore.Profile[] snapshot, string query, string kind, int revision)
     {
         try
         {
-            var shown = await Task.Run(() => FilterProfiles(snapshot, query));
+            var shown = await Task.Run(() => FilterProfiles(snapshot, query, kind));
             ApplyProfileList(shown, revision);
         }
         catch (Exception ex)
@@ -440,11 +456,12 @@ internal sealed partial class RoleProfilesView : Grid
         }
     }
 
-    static List<RoleProfileStore.Profile> FilterProfiles(RoleProfileStore.Profile[] snapshot, string query) =>
-        snapshot.Where(p => query.Length == 0 || p.Name.Contains(query,
+    static List<RoleProfileStore.Profile> FilterProfiles(RoleProfileStore.Profile[] snapshot, string query, string kind) =>
+        snapshot.Where(p => (kind.Length == 0 || p.PersonKind == kind) &&
+            (query.Length == 0 || p.Name.Contains(query,
                 StringComparison.CurrentCultureIgnoreCase) ||
             p.Aliases.Any(alias => alias.Contains(query, StringComparison.CurrentCultureIgnoreCase)) ||
-            p.Sources.Any(source => source.PersonId.Contains(query, StringComparison.OrdinalIgnoreCase)))
+            p.Sources.Any(source => source.PersonId.Contains(query, StringComparison.OrdinalIgnoreCase))))
             .OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
 
     void ApplyProfileList(List<RoleProfileStore.Profile> shown, int revision)
@@ -665,6 +682,8 @@ internal sealed partial class RoleProfilesView : Grid
         var title = new StackPanel(); Grid.SetColumn(title, 1); top.Children.Add(title);
         title.Children.Add(new TextBlock { Text = profile.Name, FontSize = 25,
             FontWeight = FontWeights.SemiBold, Foreground = Ink(), TextWrapping = TextWrapping.Wrap });
+        title.Children.Add(new TextBlock { Text = RolePersonKind.Display(profile.PersonKind),
+            Foreground = UiTheme.AccentBrush, Margin = new Thickness(0, 3, 0, 3) });
         if (profile.Aliases.Count > 0) title.Children.Add(new TextBlock { Text = "别名：" + string.Join("、", profile.Aliases),
             Foreground = Muted(), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 8) });
         title.Children.Add(new TextBlock { Text = "手工档案 · " + profile.Sources.Count + " 个已核实来源 · " + profile.Works.Count + " 个明确关联作品",
@@ -684,6 +703,7 @@ internal sealed partial class RoleProfilesView : Grid
                 Foreground = Muted(), FontSize = 11, TextWrapping = TextWrapping.Wrap });
         content.Children.Add(top);
         Section("手工资料");
+        Field("人物类型", RolePersonKind.Display(profile.PersonKind));
         Field("身份 / 关系", profile.Role);
         Field("生日", profile.Birthday);
         Field("性别", profile.Gender);
@@ -1121,6 +1141,19 @@ internal sealed partial class RoleProfilesView : Grid
         }
         Add("name", "姓名 / 角色名 *", draft.Name);
         Add("aliases", "别名（用分号分隔）", string.Join("；", draft.Aliases));
+        fields.Children.Add(new TextBlock { Text = "人物类型", FontWeight = FontWeights.SemiBold,
+            Foreground = Ink(), Margin = new Thickness(0, 9, 0, 4) });
+        var kindChoices = new[]
+        {
+            (RolePersonKind.Unspecified, "未分类"), (RolePersonKind.Director, "导演"),
+            (RolePersonKind.MaleActor, "男演员"), (RolePersonKind.FemaleActor, "女演员"),
+            (RolePersonKind.Other, "其他人物")
+        };
+        var kindEditor = new ComboBox { Height = 35 };
+        foreach (var (id, label) in kindChoices)
+            kindEditor.Items.Add(new ComboBoxItem { Content = label, Tag = id });
+        kindEditor.SelectedIndex = Math.Max(0, Array.FindIndex(kindChoices, choice => choice.Item1 == draft.PersonKind));
+        fields.Children.Add(kindEditor);
         Add("role", "身份 / 关系", draft.Role);
         Add("birthday", "生日", draft.Birthday);
         Add("gender", "性别", draft.Gender);
@@ -1152,6 +1185,7 @@ internal sealed partial class RoleProfilesView : Grid
             draft.Aliases = inputs["aliases"].Text.Split([';', '；'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
                 .Distinct(StringComparer.CurrentCultureIgnoreCase).ToList();
             draft.Role = inputs["role"].Text.Trim(); draft.Birthday = inputs["birthday"].Text.Trim();
+            draft.PersonKind = (kindEditor.SelectedItem as ComboBoxItem)?.Tag as string ?? RolePersonKind.Unspecified;
             draft.Gender = inputs["gender"].Text.Trim(); draft.Height = inputs["height"].Text.Trim();
             draft.Weight = inputs["weight"].Text.Trim(); draft.Measurements = inputs["measurements"].Text.Trim();
             draft.BloodType = inputs["blood"].Text.Trim(); draft.Biography = inputs["bio"].Text.Trim();

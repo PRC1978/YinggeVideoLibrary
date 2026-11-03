@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Windows;
 using System.Windows.Media;
 
 namespace YinggeVideoLibrary;
@@ -330,6 +331,8 @@ public sealed class UiThemeState : INotifyPropertyChanged
     public double CardWidth => UiTheme.Num(UiTheme.CardWidth);
     public double CardHeight => UiTheme.Num(UiTheme.CardHeight);
     public double CardRadius => UiTheme.Num(UiTheme.CardRadius);
+    public double CardGap => UiTheme.Num(UiTheme.CardGap);
+    public Thickness CardMargin => new(0, 0, CardGap, CardGap + 5);
     public double ControlHeight => UiTheme.Num(UiTheme.ControlHeight);
 
     // Brush accessors for XAML binding (PropertyChanged(null) refreshes all).

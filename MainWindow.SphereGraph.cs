@@ -103,25 +103,25 @@ public partial class MainWindow
     {
         sealed record Association(string TagPath, string CategoryPath, int Count);
 
-        static readonly Brush Backdrop = FrozenBrush(Color.FromRgb(247, 250, 255));
-        static readonly Brush NodeBrush = FrozenBrush(Color.FromRgb(78, 124, 222));
-        static readonly Brush NodeLightBrush = FrozenBrush(Color.FromRgb(151, 181, 242));
-        static readonly Brush TagBrush = FrozenBrush(Color.FromRgb(74, 165, 164));
-        static readonly Brush SelectedBrush = FrozenBrush(Color.FromRgb(246, 168, 74));
-        static readonly Brush HoverBrush = FrozenBrush(Color.FromRgb(91, 71, 193));
-        static readonly Brush HaloBrush = FrozenBrush(Color.FromArgb(60, 72, 101, 207));
-        static readonly Brush RootBrush = FrozenBrush(Color.FromRgb(83, 100, 193));
-        static readonly Brush TextBrush = FrozenBrush(Color.FromRgb(47, 69, 121));
-        static readonly Brush LightTextBrush = FrozenBrush(Color.FromRgb(124, 143, 177));
-        static readonly Brush LabelBackdrop = FrozenBrush(Color.FromArgb(225, 250, 252, 255));
-        static readonly Pen LinkPen = FrozenPen(Color.FromArgb(184, 89, 126, 205), 1.15);
-        static readonly Pen FocusLinkPen = FrozenPen(Color.FromArgb(242, 232, 147, 54), 2.0);
-        static readonly Pen AssociationPen = FrozenPen(Color.FromArgb(195, 36, 151, 150), 1.45);
-        static readonly Pen NodePen = FrozenPen(Color.FromRgb(234, 241, 255), 1);
-        static readonly Pen GlobePen = FrozenPen(Color.FromRgb(181, 205, 245), 1.5);
-        static readonly Pen RootPen = FrozenPen(Color.FromRgb(245, 248, 255), 2);
-        static readonly Pen OrbitPen = FrozenPen(Color.FromArgb(110, 121, 154, 211), 1);
-        static readonly Brush GlobeBrush = MakeGlobeBrush();
+        readonly Brush Backdrop;
+        readonly Brush NodeBrush;
+        readonly Brush NodeLightBrush;
+        readonly Brush TagBrush;
+        readonly Brush SelectedBrush;
+        readonly Brush HoverBrush;
+        readonly Brush HaloBrush;
+        readonly Brush RootBrush;
+        readonly Brush TextBrush;
+        readonly Brush LightTextBrush;
+        readonly Brush LabelBackdrop;
+        readonly Pen LinkPen;
+        readonly Pen FocusLinkPen;
+        readonly Pen AssociationPen;
+        readonly Pen NodePen;
+        readonly Pen GlobePen;
+        readonly Pen RootPen;
+        readonly Pen OrbitPen;
+        readonly Brush GlobeBrush;
         static readonly Typeface LabelTypeface = new("Microsoft YaHei UI");
         readonly List<SphereMapNode> nodes;
         readonly (SphereMapNode Node, double Cos, double Sin)[] polarNodes;
@@ -167,6 +167,26 @@ public partial class MainWindow
         public SphereMapSurface(List<SphereMapNode> nodes, IReadOnlyDictionary<string, Dictionary<string, int>> tagCategories,
             IReadOnlyDictionary<string, int>? rootTagCategories = null)
         {
+            var dark = UiTheme.Current == UiTheme.Cinema;
+            Backdrop = FrozenBrush(dark ? Color.FromRgb(15, 21, 33) : Color.FromRgb(247, 250, 255));
+            NodeBrush = FrozenBrush(dark ? Color.FromRgb(108, 157, 239) : Color.FromRgb(78, 124, 222));
+            NodeLightBrush = FrozenBrush(dark ? Color.FromRgb(65, 86, 119) : Color.FromRgb(151, 181, 242));
+            TagBrush = FrozenBrush(dark ? Color.FromRgb(78, 194, 185) : Color.FromRgb(74, 165, 164));
+            SelectedBrush = FrozenBrush(Color.FromRgb(246, 168, 74));
+            HoverBrush = FrozenBrush(dark ? Color.FromRgb(216, 181, 112) : Color.FromRgb(91, 71, 193));
+            HaloBrush = FrozenBrush(dark ? Color.FromArgb(85, 206, 169, 95) : Color.FromArgb(60, 72, 101, 207));
+            RootBrush = FrozenBrush(dark ? Color.FromRgb(167, 119, 56) : Color.FromRgb(83, 100, 193));
+            TextBrush = FrozenBrush(dark ? Color.FromRgb(231, 238, 250) : Color.FromRgb(47, 69, 121));
+            LightTextBrush = FrozenBrush(dark ? Color.FromRgb(181, 195, 214) : Color.FromRgb(124, 143, 177));
+            LabelBackdrop = FrozenBrush(dark ? Color.FromArgb(238, 33, 43, 61) : Color.FromArgb(225, 250, 252, 255));
+            LinkPen = FrozenPen(dark ? Color.FromArgb(170, 103, 139, 190) : Color.FromArgb(184, 89, 126, 205), 1.15);
+            FocusLinkPen = FrozenPen(dark ? Color.FromArgb(245, 249, 185, 102) : Color.FromArgb(242, 232, 147, 54), 2.0);
+            AssociationPen = FrozenPen(dark ? Color.FromArgb(210, 87, 190, 181) : Color.FromArgb(195, 36, 151, 150), 1.45);
+            NodePen = FrozenPen(dark ? Color.FromRgb(28, 43, 65) : Color.FromRgb(234, 241, 255), 1);
+            GlobePen = FrozenPen(dark ? Color.FromRgb(76, 102, 145) : Color.FromRgb(181, 205, 245), 1.5);
+            RootPen = FrozenPen(dark ? Color.FromRgb(247, 201, 125) : Color.FromRgb(245, 248, 255), 2);
+            OrbitPen = FrozenPen(dark ? Color.FromArgb(125, 93, 124, 168) : Color.FromArgb(110, 121, 154, 211), 1);
+            GlobeBrush = MakeGlobeBrush(dark);
             var constructionClock = System.Diagnostics.Stopwatch.StartNew();
             this.nodes = nodes;
             this.tagCategories = tagCategories;
@@ -263,7 +283,7 @@ public partial class MainWindow
                 center.Y - center.X * (232.0 / 246.0) * sine - center.Y * cosine);
         }
 
-        static Brush MakeGlobeBrush()
+        static Brush MakeGlobeBrush(bool dark)
         {
             var brush = new RadialGradientBrush
             {
@@ -272,9 +292,9 @@ public partial class MainWindow
                 RadiusX = .86,
                 RadiusY = .86
             };
-            brush.GradientStops.Add(new GradientStop(Color.FromArgb(252, 246, 250, 255), 0));
-            brush.GradientStops.Add(new GradientStop(Color.FromArgb(241, 219, 231, 255), .62));
-            brush.GradientStops.Add(new GradientStop(Color.FromArgb(220, 172, 196, 245), 1));
+            brush.GradientStops.Add(new GradientStop(dark ? Color.FromRgb(45, 61, 87) : Color.FromArgb(252, 246, 250, 255), 0));
+            brush.GradientStops.Add(new GradientStop(dark ? Color.FromRgb(29, 43, 66) : Color.FromArgb(241, 219, 231, 255), .62));
+            brush.GradientStops.Add(new GradientStop(dark ? Color.FromRgb(20, 31, 49) : Color.FromArgb(220, 172, 196, 245), 1));
             brush.Freeze();
             return brush;
         }
@@ -1646,8 +1666,8 @@ public partial class MainWindow
         foreach (var (name, chip) in sphereCategoryChips)
         {
             var active = name.Equals(selectedCategory, StringComparison.OrdinalIgnoreCase);
-            chip.Background = new SolidColorBrush(active ? Color.FromRgb(234, 240, 255) : Colors.White);
-            chip.Foreground = new SolidColorBrush(active ? Color.FromRgb(62, 99, 213) : Color.FromRgb(70, 83, 102));
+            chip.Background = active ? UiTheme.AccentSoftBackgroundBrush : UiTheme.SurfaceBrush;
+            chip.Foreground = active ? UiTheme.AccentSoftForegroundBrush : UiTheme.TextPrimaryBrush;
         }
         if (sphereCategoryQuickList is { } quickList)
         {

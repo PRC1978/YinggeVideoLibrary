@@ -45,7 +45,8 @@ public partial class MainWindow
         if (ManagedScrapeCoverPath(record) is null) return null;
         var dialog = new Window { Title = "封面预览 · " + record.Source, Owner = this,
             Width = 530, Height = 700, MinWidth = 300, MinHeight = 350,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner };
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = UiTheme.SurfaceBrush, Foreground = UiTheme.TextPrimaryBrush };
         dialog.Content = new ScrollViewer { Content = CreateScrapeCover(record, 440, 600),
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
@@ -111,7 +112,8 @@ public partial class MainWindow
         if (choices.Count == 0) choices.Add(current);
 
         var dialog = new Window { Title = "比较与选择封面", Owner = this, Width = 760, Height = 570,
-            MinWidth = 520, MinHeight = 380, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+            MinWidth = 520, MinHeight = 380, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = UiTheme.SurfaceBrush, Foreground = UiTheme.TextPrimaryBrush };
         var root = new DockPanel { Margin = new Thickness(16) };
         var hint = new TextBlock { Text = "只显示已缓存或来源明确提供的封面。选择封面只改此视频的显示图，不改变搜刮资料或审核结论。",
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 10) };

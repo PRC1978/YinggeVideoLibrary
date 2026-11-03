@@ -243,7 +243,8 @@ public partial class MainWindow
     void ShowTitleCandidateComparison(VideoItem video, ScrapeCandidateCache.TitleCandidateSnapshot snapshot)
     {
         var dialog = new Window { Title = "标题候选比较", Owner = this, Width = 980, Height = 660,
-            MinWidth = 720, MinHeight = 430, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+            MinWidth = 720, MinHeight = 430, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = UiTheme.SurfaceBrush, Foreground = UiTheme.TextPrimaryBrush };
         var root = new DockPanel { Margin = new Thickness(16) };
         var summary = new TextBlock
         {
@@ -320,7 +321,7 @@ public partial class MainWindow
                 detail.Children.Add(new TextBlock
                 {
                     Text = "搜索编号：" + Ids(source) + (full is null ? "" : "\n详情编号：" + Ids(full)),
-                    TextWrapping = TextWrapping.Wrap, Foreground = Brushes.DarkBlue,
+                    TextWrapping = TextWrapping.Wrap, Foreground = UiTheme.AccentBrush,
                     Margin = new Thickness(0, 0, 0, 8)
                 });
             }
@@ -357,7 +358,7 @@ public partial class MainWindow
                     TextWrapping = TextWrapping.Wrap });
                 if (full is not null)
                     detail.Children.Add(new TextBlock { Text = after.Length == 0 ? "详情：未提供" : "详情：" + after,
-                        TextWrapping = TextWrapping.Wrap, Foreground = before == after ? UiTheme.TextTertiaryBrush : Brushes.DarkBlue });
+                        TextWrapping = TextWrapping.Wrap, Foreground = before == after ? UiTheme.TextTertiaryBrush : UiTheme.AccentBrush });
                 detail.Children.Add(new TextBlock { Text = "出处：" + sourceText, TextWrapping = TextWrapping.Wrap,
                     Foreground = UiTheme.TextTertiaryBrush, FontSize = 11 });
             }
@@ -390,7 +391,8 @@ public partial class MainWindow
             }
         ScrapeCandidateCache.SaveTitleCandidates(DataDir, snapshot);
         var dialog = new Window { Title = "选择搜刮候选", Owner = this, Width = 700, Height = 480, MinWidth = 530,
-            MinHeight = 320, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+            MinHeight = 320, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = UiTheme.SurfaceBrush, Foreground = UiTheme.TextPrimaryBrush };
         var layout = new DockPanel { Margin = new Thickness(18) };
         var person = config.UseFolderPersonHint ? ScrapeSearchHints.FindPersonHint(video.Path, config.Folders) : null;
         var caption = new TextBlock { Text = person is null
@@ -466,7 +468,8 @@ public partial class MainWindow
         var selected = videos.Where(video => selectedVideoIds.Contains(video.Id)).Take(2).ToList();
         if (selected.Count == 1) return selected[0];
         var dialog = new Window { Title = dialogTitle, Owner = this, Width = 660, Height = 490,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner };
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = UiTheme.SurfaceBrush, Foreground = UiTheme.TextPrimaryBrush };
         var layout = new DockPanel { Margin = new Thickness(18) };
         var search = new TextBox { Height = 34, Margin = new Thickness(0, 0, 0, 10), ToolTip = "输入文件名或标题关键词" };
         DockPanel.SetDock(search, Dock.Top); layout.Children.Add(search);

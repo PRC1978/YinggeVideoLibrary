@@ -34,7 +34,7 @@ public partial class MainWindow
             Title = "搜刮资料 · " + (string.IsNullOrWhiteSpace(record.Code) ? record.Title : record.Code),
             Owner = this, Width = 780, Height = 650, MinWidth = 550, MinHeight = 430,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Background = UiTheme.SurfaceBrush
+            Background = UiTheme.SurfaceBrush, Foreground = UiTheme.TextPrimaryBrush
         };
         var root = new DockPanel { Margin = new Thickness(22) };
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Right,

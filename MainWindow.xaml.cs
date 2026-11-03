@@ -1736,7 +1736,8 @@ public partial class MainWindow : Window
         {
             AllListTitle.Text = view == "categories" ? "分类视频" : SectionTitle.Text;
             AllListCount.Text = $"{resultSummary} · 完整列表";
-            virtualColumns = Math.Max(1, (int)Math.Floor(Math.Max(200, VirtualCards.ActualWidth - 10) / 192));
+            var cardPitch = UiTheme.Num(UiTheme.CardWidth) + UiTheme.Num(UiTheme.CardGap);
+            virtualColumns = Math.Max(1, (int)Math.Floor(Math.Max(cardPitch, VirtualCards.ActualWidth - 10) / cardPitch));
             virtualRows = list.Chunk(virtualColumns).Select(row => row.ToList()).ToList();
             VirtualCards.ItemsSource = virtualRows;
             Cards.ItemsSource = null;
@@ -2377,10 +2378,12 @@ public partial class MainWindow : Window
     void ScheduleVisiblePosters()
     {
         if (pageItems.Count == 0 || LibraryScroll is null) return;
-        var columns = Math.Max(1, (int)Math.Floor(Math.Max(192, LibraryScroll.ViewportWidth - 15) / 192));
-        var firstRow = Math.Max(0, (int)(LibraryScroll.VerticalOffset / 315));
+        var cardPitch = UiTheme.Num(UiTheme.CardWidth) + UiTheme.Num(UiTheme.CardGap);
+        var rowPitch = UiTheme.Num(UiTheme.CardHeight) + 85;
+        var columns = Math.Max(1, (int)Math.Floor(Math.Max(cardPitch, LibraryScroll.ViewportWidth - 15) / cardPitch));
+        var firstRow = Math.Max(0, (int)(LibraryScroll.VerticalOffset / rowPitch));
         var first = Math.Min(pageItems.Count - 1, firstRow * columns);
-        var count = Math.Min(pageItems.Count - first, columns * (Math.Max(2, (int)Math.Ceiling(Math.Max(400, LibraryScroll.ViewportHeight) / 315)) + 1));
+        var count = Math.Min(pageItems.Count - first, columns * (Math.Max(2, (int)Math.Ceiling(Math.Max(400, LibraryScroll.ViewportHeight) / rowPitch)) + 1));
         if (first == currentPosterStart && count == currentPosterCount) return;
         currentPosterStart = first; currentPosterCount = count;
         var version = ++posterVersion;
@@ -3504,7 +3507,7 @@ public partial class MainWindow : Window
     }
     void ResetInterface(object sender, RoutedEventArgs e)
     {
-        SidebarColumn.Width = new GridLength(78);
+        SidebarColumn.Width = new GridLength(UiTheme.Num(UiTheme.SidebarWidth));
         HeaderArea.Visibility = Visibility.Visible;
         SidebarToggle.Content = "‹";
         SidebarToggle.ToolTip = "收缩侧栏";
@@ -3512,7 +3515,7 @@ public partial class MainWindow : Window
         HeaderToggle.Visibility = Visibility.Visible;
         HeaderToggle.Content = "⌃";
         HeaderToggle.ToolTip = "收缩顶部区域";
-        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav })
+        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav, LibraryNav, ReviewNav, PluginsNav })
         {
             button.Visibility = Visibility.Visible;
             button.Width = 60;
@@ -3524,19 +3527,20 @@ public partial class MainWindow : Window
         selectedVideoIds.Clear();
         foreach (var video in videos) video.IsSelected = false;
         ShowView("all");
+        ApplyInterfaceMode();
         LibraryScroll.ScrollToTop();
         Log("已恢复默认界面布局");
     }
     void ToggleSidebar(object sender, RoutedEventArgs e)
     {
-        var collapsed = SidebarColumn.Width.Value > 60;
-        SidebarColumn.Width = new GridLength(collapsed ? 28 : 78);
+        var collapsed = SidebarColumn.Width.Value > 28;
+        SidebarColumn.Width = new GridLength(collapsed ? 28 : UiTheme.Num(UiTheme.SidebarWidth));
         SidebarToggle.Content = collapsed ? "›" : "‹";
         SidebarToggle.ToolTip = collapsed ? "展开侧栏" : "收缩侧栏";
         LogoMark.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
         HeaderToggle.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
         SidebarToggle.Width = collapsed ? 28 : 50;
-        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav })
+        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav, LibraryNav, ReviewNav, PluginsNav })
         {
             button.Width = 60;
             button.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
@@ -4064,7 +4068,7 @@ public partial class MainWindow : Window
             };
             Grid.SetColumn(check, 0); grid.Children.Add(check);
             var scoreLabel = review.Status switch { "rejected" => ReviewRejectLabel(review), "unmatched" => "未找到", "approved" => "已通过", _ => "待人工" };
-            var score = new TextBlock { Text = $"{review.Confidence}%\n{scoreLabel}", Foreground = new SolidColorBrush(review.Confidence < ReviewRejectThreshold ? Color.FromRgb(190, 70, 70) : Color.FromRgb(194, 122, 46)), FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextAlignment = TextAlignment.Center };
+            var score = new TextBlock { Text = $"{review.Confidence}%\n{scoreLabel}", Foreground = review.Confidence < ReviewRejectThreshold ? UiTheme.DangerBrush : UiTheme.WarningBrush, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextAlignment = TextAlignment.Center };
             Grid.SetColumn(score, 1); grid.Children.Add(score);
             var cover = CreateScrapeCover(review.ToMetadata(), 48, 68);
             Grid.SetColumn(cover, 2); grid.Children.Add(cover);

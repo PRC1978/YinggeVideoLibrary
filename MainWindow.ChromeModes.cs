@@ -23,6 +23,8 @@ public partial class MainWindow
     void ApplyInterfaceMode()
     {
         var classic = UiTheme.IsClassicMode;
+        if (SidebarColumn.Width.Value > 28)
+            SidebarColumn.Width = new GridLength(UiTheme.Num(UiTheme.SidebarWidth));
         LibraryNav.Visibility = classic ? Visibility.Collapsed : Visibility.Visible;
         AllNav.Visibility = classic ? Visibility.Visible : Visibility.Collapsed;
         RecentNav.Visibility = classic ? Visibility.Visible : Visibility.Collapsed;
@@ -32,6 +34,10 @@ public partial class MainWindow
         PluginsNav.Visibility = classic ? Visibility.Collapsed : Visibility.Visible;
         ArrangeScrapeGroups();
         RelocateStatusCards();
+        // The sphere graph caches a rendered bitmap in the palette active at
+        // construction time. Rebuild it after a theme switch so links and
+        // labels never retain the previous mode's colors.
+        lastCategoryRenderVersion = -1;
         // Views that only exist in one mode fall back to a page that does.
         if (classic && view is "review") view = "scrape";
         else if (classic && view is "roles") view = "all";

@@ -19,6 +19,7 @@ public partial class MainWindow
         {
             Directory.CreateDirectory(outputDirectory);
             var report = new List<object>();
+            var measuredCardWidths = new List<(string Mode, double Expected, double Actual)>();
             foreach (var (mode, label, _) in UiTheme.Modes)
             {
                 UiTheme.Apply(mode);
@@ -30,15 +31,20 @@ public partial class MainWindow
                     // The review page only exists outside classic mode; the
                     // status page only exists in classic mode.
                     var pages = UiTheme.IsClassicMode
-                        ? new[] { "all", "scrape", "status", "settings" }
-                        : new[] { "all", "scrape", "review", "roles", "settings" };
+                        ? new[] { "all", "categories", "scrape", "status", "settings" }
+                        : new[] { "all", "categories", "scrape", "review", "roles", "settings" };
                     foreach (var page in pages)
                     {
                         ShowView(page);
+                        if (page == "all" && categoryCardPopulationCompletion is { } population)
+                            await population.Task.WaitAsync(TimeSpan.FromSeconds(10));
                         LibraryScroll.ScrollToTop();
                         UpdateLayout();
                         await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
                         UpdateLayout();
+                        if (page == "all" && Cards.VisibleCardCount > 0)
+                            measuredCardWidths.Add((mode, UiTheme.Num(UiTheme.CardWidth),
+                                ((FrameworkElement)Cards.Children[0]).ActualWidth));
                         var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
                         bitmap.Render(this);
                         var encoder = new PngBitmapEncoder();
@@ -57,6 +63,11 @@ public partial class MainWindow
                             statusNavVisible = StatusNav.Visibility == Visibility.Visible,
                             reviewNavVisible = ReviewNav.Visibility == Visibility.Visible,
                             pluginsNavVisible = PluginsNav.Visibility == Visibility.Visible,
+                            cardWidthExpected = UiTheme.Num(UiTheme.CardWidth),
+                            cardWidthActual = page == "all" && Cards.VisibleCardCount > 0
+                                ? ((FrameworkElement)Cards.Children[0]).ActualWidth : (double?)null,
+                            sphereNodeCount = page == "categories" ? sphereMapSurface?.NodeCount : null,
+                            sphereEveryNodeLinked = page == "categories" ? sphereMapSurface?.EveryNodeLinked : null,
                         });
                     }
                 }
@@ -73,6 +84,8 @@ public partial class MainWindow
             if (ReviewNav.Visibility != Visibility.Visible || PluginsNav.Visibility != Visibility.Visible
                 || LibraryNav.Visibility != Visibility.Visible || StatusNav.Visibility != Visibility.Collapsed)
                 throw new InvalidOperationException("新版界面的导航集合不正确");
+            if (measuredCardWidths.Any(item => Math.Abs(item.Expected - item.Actual) > 1))
+                throw new InvalidOperationException("界面模式切换后卡片宽度没有跟随密度设置");
             // Probe why implicit stock-control styles do or do not land.
             var combo = ScrapeSourceBox;
             var probe = new

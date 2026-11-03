@@ -1,0 +1,25 @@
+{
+  "schema": "yingge.ai-scrape-evaluation.v1",
+  "provenance": "human-reviewed",
+  "inputUsdPerMillion": 0,
+  "outputUsdPerMillion": 0,
+  "cases": [
+    {
+      "id": "sample_0001",
+      "localTitle": "REPLACE_WITH_LOCAL_TITLE_OR_CODE",
+      "candidate": {
+        "title": "REPLACE_WITH_CANDIDATE_TITLE",
+        "code": "",
+        "source": "REPLACE_WITH_SOURCE",
+        "detailFetched": true,
+        "detailIdentityVerified": false
+      },
+      "goldSameWork": null,
+      "proposedConfidence": 0,
+      "proposedVerdict": "review",
+      "modelCalled": false,
+      "inputTokens": 0,
+      "outputTokens": 0
+    }
+  ]
+}

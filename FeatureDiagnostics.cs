@@ -483,6 +483,8 @@ internal static class FeatureDiagnostics
                 && offline.FalseApprovals == 0 && offline.AutoApprovalPrecision == 1
                 && offline.FalseApprovalRate == 0 && offline.ModelCalls == 1
                 && Math.Abs(offline.EstimatedUsd - 0.0002) < 0.00000001
+                && offline.Precision95 is { Lower: < 1, Upper: 1 }
+                && offline.Sources.Count == 1 && offline.Sources[0].SourceGroup == "JavDB"
                 && offline.SuggestedThreshold is null
                 && offline.CalibrationStatus == "synthetic-cannot-calibrate";
             offlineFixture.Cases[0].ProposedVerdict = "review";
@@ -494,19 +496,45 @@ internal static class FeatureDiagnostics
             findings["aiScrapeFalseApprovalIsCounted"] = knownFalseApproval.FalseApprovals == 1
                 && knownFalseApproval.FalseApprovalRate == 1
                 && knownFalseApproval.AutoApprovalPrecision == 0.5;
+            offlineFixture.Cases[0].Candidate = linkedJavDb.Clone();
+            offlineFixture.Cases[0].Candidate.Source = "C:\\private\\plugin-secret";
+            var privateSource = AiScrapeEvaluation.Evaluate(offlineFixture);
+            findings["aiScrapeReportRedactsUnknownSource"] =
+                privateSource.Cases[0].SourceGroup == "Other / plugin"
+                && privateSource.Sources.All(item => !item.SourceGroup.Contains("private", StringComparison.OrdinalIgnoreCase));
+            offlineFixture.Cases[0].Id = "C:\\private\\title.mp4";
+            try
+            {
+                AiScrapeEvaluation.Evaluate(offlineFixture);
+                findings["aiScrapeReportRejectsPathAsId"] = false;
+            }
+            catch (InvalidDataException)
+            {
+                findings["aiScrapeReportRejectsPathAsId"] = true;
+            }
+            offlineFixture.Cases[0].Id = "match";
+            offlineFixture.Cases[0].Candidate.SourceConflictFields = ["Title"];
+            var conflictMetrics = AiScrapeEvaluation.Evaluate(offlineFixture);
+            findings["aiScrapeConflictIsMeasuredAndBlocked"] = conflictMetrics.IdentityConflictCases == 1
+                && conflictMetrics.IdentityConflictAutoApproved == 0;
+            offlineFixture.Cases[0].Candidate.SourceConflictFields = [];
             var calibrationFixture = new AiScrapeEvaluation.Fixture
             {
                 Schema = AiScrapeEvaluation.Schema, Provenance = "human-reviewed",
-                Cases = Enumerable.Range(0, 100).Select(index => new AiScrapeEvaluation.Case
+                Cases = Enumerable.Range(0, 1000).Select(index => new AiScrapeEvaluation.Case
                 {
-                    Id = "calibration-" + index, LocalTitle = index < 50 ? "ABC-123" : "ABC-124",
-                    Candidate = linkedJavDb, GoldSameWork = index < 50,
+                    Id = "calibration-" + index, LocalTitle = index < 500 ? "ABC-123" : "ABC-124",
+                    Candidate = linkedJavDb, GoldSameWork = index < 500,
                     ProposedConfidence = 95, ProposedVerdict = "approve"
                 }).ToList()
             };
             var suggested = AiScrapeEvaluation.Evaluate(calibrationFixture);
             findings["aiScrapeCalibrationIsAdvisoryOnly"] = suggested.SuggestedThreshold == 80
                 && suggested.CalibrationStatus == "advisory-only-not-trained";
+            calibrationFixture.Cases = calibrationFixture.Cases.Take(50)
+                .Concat(calibrationFixture.Cases.Skip(500).Take(50)).ToList();
+            findings["aiScrapeSmallZeroErrorSampleDoesNotSuggestThreshold"] =
+                AiScrapeEvaluation.Evaluate(calibrationFixture).SuggestedThreshold is null;
             offlineFixture.Cases[1].GoldSameWork = null;
             try
             {

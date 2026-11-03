@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace YinggeVideoLibrary;
 
@@ -36,15 +37,22 @@ internal static class AiScrapeEvaluation
         public long OutputTokens { get; set; }
     }
 
-    internal sealed record CaseResult(string Id, bool GoldSameWork, string Decision,
+    internal sealed record CaseResult(string Id, string SourceGroup, bool GoldSameWork, string Decision,
         bool AutoApproved, bool ModelCallEligible, double EstimatedUsd);
+
+    internal sealed record RateInterval(double Lower, double Upper);
+    internal sealed record SourceMetrics(string SourceGroup, int Cases, int GoldNonMatches,
+        int AutoApproved, int FalseApprovals, double? AutoApprovalPrecision,
+        RateInterval? Precision95, double? FalseApprovalRate, RateInterval? FalseApprovalRate95);
 
     internal sealed record Report(string Schema, string Evidence, int CaseCount,
         int GoldMatches, int GoldNonMatches, int AutoApproved, int FalseApprovals,
         int CorrectApprovals, int PendingOrRejected, double? AutoApprovalPrecision,
         double? FalseApprovalRate, double AutoApprovalCoverage,
         int ModelCalls, double EstimatedUsd, string CalibrationStatus,
-        int? SuggestedThreshold, List<CaseResult> Cases);
+        int? SuggestedThreshold, List<CaseResult> Cases,
+        RateInterval? Precision95, RateInterval? FalseApprovalRate95,
+        List<SourceMetrics> Sources, int IdentityConflictCases, int IdentityConflictAutoApproved);
 
     internal static Report Evaluate(Fixture fixture)
     {
@@ -65,7 +73,7 @@ internal static class AiScrapeEvaluation
                 ? (row.InputTokens * fixture.InputUsdPerMillion +
                    row.OutputTokens * fixture.OutputUsdPerMillion) / 1_000_000d
                 : 0d;
-            results.Add(new(row.Id, row.GoldSameWork!.Value, status,
+            results.Add(new(row.Id, SourceGroup(row.Candidate.Source), row.GoldSameWork!.Value, status,
                 status == "approved", eligible, cost));
         }
 
@@ -83,7 +91,48 @@ internal static class AiScrapeEvaluation
             fixture.Cases.Count(x => x.ModelCalled), results.Sum(x => x.EstimatedUsd),
             fixture.Provenance == "synthetic" ? "synthetic-cannot-calibrate" :
                 suggestion is null ? "insufficient-or-no-safe-threshold" : "advisory-only-not-trained",
-            suggestion, results);
+            suggestion, results,
+            Wilson(approved - falseApproved, approved), Wilson(falseApproved, nonMatches),
+            results.GroupBy(x => x.SourceGroup, StringComparer.Ordinal).OrderBy(x => x.Key, StringComparer.Ordinal)
+                .Select(group => SummarizeSource(group.Key, group.ToList())).ToList(),
+            fixture.Cases.Count(x => x.Candidate.SourceConflictFields?.Count > 0),
+            fixture.Cases.Zip(results).Count(pair => pair.First.Candidate.SourceConflictFields?.Count > 0 && pair.Second.AutoApproved));
+    }
+
+    static SourceMetrics SummarizeSource(string source, List<CaseResult> cases)
+    {
+        var approved = cases.Count(x => x.AutoApproved);
+        var falseApproved = cases.Count(x => x.AutoApproved && !x.GoldSameWork);
+        var negatives = cases.Count(x => !x.GoldSameWork);
+        return new(source, cases.Count, negatives, approved, falseApproved,
+            approved == 0 ? null : (double)(approved - falseApproved) / approved,
+            Wilson(approved - falseApproved, approved),
+            negatives == 0 ? null : (double)falseApproved / negatives,
+            Wilson(falseApproved, negatives));
+    }
+
+    // Fixed public catalog names only. Plugin-supplied names may contain a
+    // private path, title, or other user data and must never enter the report.
+    static string SourceGroup(string? source) => source?.Trim().ToLowerInvariant() switch
+    {
+        "javdb" => "JavDB", "javdatabase" => "JAVDatabase", "javinfo" => "Javinfo",
+        "bangumi" => "Bangumi", "anilist" => "AniList", "mikan" => "Mikan",
+        "fankuhub" => "FankuHub", "tvmaze" => "TVmaze", "kitsu" => "Kitsu",
+        "trakt" => "Trakt", "omdb" => "OMDb", "pornhub" => "Pornhub",
+        "tmdb" or "tmdb 电影" or "tmdb 剧集" => "TMDB",
+        _ => "Other / plugin"
+    };
+
+    // Wilson score interval, 95% two-sided. Undefined denominators stay null.
+    internal static RateInterval? Wilson(int successes, int total)
+    {
+        if (total <= 0) return null;
+        const double z = 1.959963984540054;
+        var p = (double)successes / total;
+        var denominator = 1 + z * z / total;
+        var center = (p + z * z / (2 * total)) / denominator;
+        var spread = z / denominator * Math.Sqrt(p * (1 - p) / total + z * z / (4d * total * total));
+        return new(Math.Max(0, center - spread), Math.Min(1, center + spread));
     }
 
     static int? SuggestThreshold(Fixture fixture, int matches, int nonMatches)
@@ -103,8 +152,10 @@ internal static class AiScrapeEvaluation
                 approved++;
                 if (row.GoldSameWork == false) falseApproved++;
             }
-            if (approved >= 10 && (double)falseApproved / approved <= 0.01 &&
-                (double)falseApproved / nonMatches <= 0.01) return threshold;
+            var approvalError95 = Wilson(falseApproved, approved);
+            var negativeError95 = Wilson(falseApproved, nonMatches);
+            if (approved >= 10 && approvalError95?.Upper <= 0.01 &&
+                negativeError95?.Upper <= 0.01) return threshold;
         }
         return null;
     }
@@ -133,7 +184,8 @@ internal static class AiScrapeEvaluation
         var ids = new HashSet<string>(StringComparer.Ordinal);
         foreach (var row in fixture.Cases)
         {
-            if (string.IsNullOrWhiteSpace(row.Id) || !ids.Add(row.Id) ||
+            if (string.IsNullOrWhiteSpace(row.Id) || row.Id.Length > 64 ||
+                !Regex.IsMatch(row.Id, "^[A-Za-z0-9_-]+$", RegexOptions.CultureInvariant) || !ids.Add(row.Id) ||
                 string.IsNullOrWhiteSpace(row.LocalTitle) || row.Candidate is null ||
                 row.GoldSameWork is null ||
                 row.ProposedConfidence is < 0 or > 100 ||

@@ -42,6 +42,12 @@ public partial class MainWindow
         var roles = new Button { Content = "人物 / 角色档案…", Style = (Style)FindResource("Action") };
         roles.Click += (_, _) => { dialog.Close(); OpenRoleProfiles(video, record); };
         buttons.Children.Add(roles);
+        if (video is not null && config.AiReviews.TryGetValue(video.Id, out var coverReview))
+        {
+            var compare = new Button { Content = "比较封面…", Style = (Style)FindResource("Action") };
+            compare.Click += (_, _) => ShowScrapeCoverComparison(video, coverReview);
+            buttons.Children.Add(compare);
+        }
         if (Uri.TryCreate(record.SourceUrl, UriKind.Absolute, out var sourceUri) &&
             sourceUri.Scheme == Uri.UriSchemeHttps &&
             (sourceUri.Host == "javdb.com" || sourceUri.Host == "www.javdb.com" ||

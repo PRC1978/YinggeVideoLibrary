@@ -3395,7 +3395,14 @@ public partial class MainWindow : Window
     void ClearPoster(VideoItem video)
     {
         if (config.CustomPosters.TryGetValue(video.Id, out var oldPoster)) VideoItem.InvalidatePoster(oldPoster);
-        if (config.CustomPosters.Remove(video.Id, out var path)) try { if (File.Exists(path)) File.Delete(path); } catch { }
+        if (config.CustomPosters.Remove(video.Id, out var path))
+            try
+            {
+                // A selected scrape cover is shared with review evidence.
+                // Clearing the visual override must not delete that cache.
+                if (IsOwnedCustomPosterPath(ThumbDir, video.Id, path)) File.Delete(path);
+            }
+            catch { }
         video.Poster = null; SaveConfig(); RenderCards();
     }
 
@@ -4025,6 +4032,11 @@ public partial class MainWindow : Window
             detail.Children.Add(new TextBlock { Text = review.CandidateTitle, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(55, 70, 95)), TextTrimming = TextTrimming.CharacterEllipsis });
             detail.Children.Add(new TextBlock { Text = $"{available[review.VideoId].DisplayTitle} · {review.CandidateSource} · {review.CandidateCode}", Foreground = new SolidColorBrush(Color.FromRgb(131, 144, 163)), FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis });
             detail.Children.Add(new TextBlock { Text = $"评估：{review.Model} · 依据：{review.Reason}", Foreground = new SolidColorBrush(Color.FromRgb(111, 122, 143)), FontSize = 11, TextWrapping = TextWrapping.Wrap });
+            var compareCovers = new Button { Content = "比较封面", Style = (Style)FindResource("Action"),
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Left, Margin = new Thickness(0, 4, 0, 0),
+                Padding = new Thickness(8, 0, 8, 0) };
+            compareCovers.Click += (_, _) => ShowScrapeCoverComparison(available[review.VideoId], review);
+            detail.Children.Add(compareCovers);
             // A plugin may return several candidates for one video. They are all
             // kept on disk; this selector decides which one the record points at.
             if (review.DecisionSource == "plugin" && pluginCandidates.TryGetValue(review.VideoId, out var storedCandidates) && storedCandidates.Count > 1)
@@ -4054,7 +4066,7 @@ public partial class MainWindow : Window
             Grid.SetColumn(detail, 3); grid.Children.Add(detail);
             var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             var information = new Button { Content = "资料", Style = (Style)FindResource("Action"), Padding = new Thickness(10, 0, 10, 0) };
-            information.Click += (_, _) => ShowMetadataDetails(review.ToMetadata(), review.Confidence, review.Status);
+            information.Click += (_, _) => ShowMetadataDetails(review.ToMetadata(), review.Confidence, review.Status, available[review.VideoId]);
             var approve = new Button { Content = "通过", Style = (Style)FindResource("Action"), Padding = new Thickness(10, 0, 10, 0) }; approve.Click += (_, _) =>
             {
                 if (!TryCommitReviewDecisionsWithPreview([review.VideoId], true, out var error)) { if (error.Length > 0) MessageBox.Show(this, "通过操作未完成：" + error + (ReviewTransactionStore.HasPending(DataDir) ? "；待恢复记录会在下次启动检查。" : ""), "审核保存失败", MessageBoxButton.OK, MessageBoxImage.Warning); return; }

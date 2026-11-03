@@ -290,6 +290,13 @@ public partial class MainWindow
                 TextWrapping = TextWrapping.Wrap, Foreground = Brushes.SlateGray, Margin = new Thickness(0, 7, 0, 10) });
             var posterRecord = full ?? source;
             detail.Children.Add(CreateScrapeCover(posterRecord, 120, 170));
+            if (ManagedScrapeCoverPath(posterRecord) is not null)
+            {
+                var zoomCover = new Button { Content = "放大封面", Style = (Style)FindResource("Action"),
+                    HorizontalAlignment = System.Windows.HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 8) };
+                zoomCover.Click += (_, _) => ShowScrapeCoverZoom(posterRecord);
+                detail.Children.Add(zoomCover);
+            }
             if (string.IsNullOrWhiteSpace(posterRecord.Poster) && !string.IsNullOrWhiteSpace(posterRecord.PosterUrl))
             {
                 var loadCover = new Button { Content = "加载此候选封面", Style = (Style)FindResource("Action"),
@@ -414,7 +421,37 @@ public partial class MainWindow
             list.Items.Add(row);
         }
         list.MouseDoubleClick += (_, _) => { if (list.SelectedIndex >= 0) dialog.DialogResult = true; };
-        layout.Children.Add(list); dialog.Content = layout;
+        var body = new Grid();
+        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(165) });
+        body.Children.Add(list);
+        var coverPanel = new StackPanel { Margin = new Thickness(12, 0, 0, 0) };
+        Grid.SetColumn(coverPanel, 1); body.Children.Add(coverPanel);
+        void RenderSelectedCover()
+        {
+            coverPanel.Children.Clear();
+            if (list.SelectedIndex < 0 || list.SelectedIndex >= candidates.Count) return;
+            var candidate = candidates[list.SelectedIndex].candidate;
+            coverPanel.Children.Add(CreateScrapeCover(candidate, 140, 185));
+            var zoom = new Button { Content = "放大封面", Style = (Style)FindResource("Action"),
+                IsEnabled = ManagedScrapeCoverPath(candidate) is not null };
+            zoom.Click += (_, _) => ShowScrapeCoverZoom(candidate);
+            coverPanel.Children.Add(zoom);
+            if (ManagedScrapeCoverPath(candidate) is null && !string.IsNullOrWhiteSpace(candidate.PosterUrl))
+            {
+                var load = new Button { Content = "加载封面", Style = (Style)FindResource("Action") };
+                load.Click += async (_, _) =>
+                {
+                    load.IsEnabled = false;
+                    await AdditionalScrapers.DownloadPosterAsync(candidate, video.Id, DataDir);
+                    RenderSelectedCover();
+                };
+                coverPanel.Children.Add(load);
+            }
+        }
+        list.SelectionChanged += (_, _) => RenderSelectedCover();
+        RenderSelectedCover();
+        layout.Children.Add(body); dialog.Content = layout;
         return dialog.ShowDialog() == true && list.SelectedIndex >= 0 ? candidates[list.SelectedIndex].candidate : null;
     }
 

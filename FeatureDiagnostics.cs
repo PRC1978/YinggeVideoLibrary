@@ -808,6 +808,11 @@ internal static class FeatureDiagnostics
             File.WriteAllBytes(Path.Combine(backupData, "posters", "abc.jpg"), [1, 2, 3]);
             Directory.CreateDirectory(Path.Combine(backupData, "thumbs"));
             File.WriteAllBytes(Path.Combine(backupData, "thumbs", "abc-custom.png"), [4, 5, 6]);
+            findings["scrapeCoverClearPreservesSharedCache"] =
+                !MainWindow.IsOwnedCustomPosterPath(Path.Combine(backupData, "thumbs"), "abc",
+                    Path.Combine(backupData, "posters", "abc.jpg")) &&
+                MainWindow.IsOwnedCustomPosterPath(Path.Combine(backupData, "thumbs"), "abc",
+                    Path.Combine(backupData, "thumbs", "abc-custom.png"));
             ScrapeQueueStore.Add(backupData, [new ScrapeQueueItem { VideoId = "video-1", Code = "ABC-123" }]);
             var backupPackage = LibraryBackupService.Create(backupData);
             var backupCheck = LibraryBackupService.Verify(backupPackage);

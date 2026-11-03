@@ -2,18 +2,18 @@
   <img src="docs/images/yingge-mark.svg" width="80" height="80" alt="映格视频库图标">
   <h1>映格视频库</h1>
   <p>把分散在硬盘里的视频，整理成可搜索、可审核、可探索的个人资料库。</p>
-  <p><strong>Windows x64</strong> · <strong>v1.6.5</strong> · <a href="LICENSE">源码公开 · 仅限非商业使用</a></p>
+  <p><strong>Windows x64</strong> · <strong>v1.6.6</strong> · <a href="LICENSE">源码公开 · 仅限非商业使用</a></p>
   <p>
-    <a href="https://github.com/PRC1978/YinggeVideoLibrary/releases/download/v1.6.5/YinggeVideoLibrary-Setup.exe"><strong>下载安装版</strong></a>
+    <a href="https://github.com/PRC1978/YinggeVideoLibrary/releases/download/v1.6.6/YinggeVideoLibrary-Setup.exe"><strong>下载安装版</strong></a>
     &nbsp;·&nbsp;
-    <a href="https://github.com/PRC1978/YinggeVideoLibrary/releases/download/v1.6.5/YinggeVideoLibrary-win-x64.exe"><strong>下载免安装版</strong></a>
+    <a href="https://github.com/PRC1978/YinggeVideoLibrary/releases/download/v1.6.6/YinggeVideoLibrary-win-x64.exe"><strong>下载免安装版</strong></a>
   </p>
   <p>
     <a href="#它能做什么">功能</a> ·
     <a href="#开始使用">上手</a> ·
     <a href="#数据与联网">数据与联网</a> ·
     <a href="docs/USER_GUIDE.md">详细指南</a> ·
-    <a href="docs/RELEASE_NOTES_1.6.5.md">1.6.5 发布说明</a>
+    <a href="docs/RELEASE_NOTES_1.6.6.md">1.6.6 发布说明</a>
   </p>
 </div>
 
@@ -38,11 +38,11 @@
 
 ## 开始使用
 
-1. **下载并打开。** 推荐使用[安装版](https://github.com/PRC1978/YinggeVideoLibrary/releases/download/v1.6.5/YinggeVideoLibrary-Setup.exe)，按向导安装即可；也可把[免安装版](https://github.com/PRC1978/YinggeVideoLibrary/releases/download/v1.6.5/YinggeVideoLibrary-win-x64.exe)放在当前用户可写的文件夹中直接运行。安装版只为当前 Windows 用户安装，无需管理员权限。
+1. **下载并打开。** 推荐使用[安装版](https://github.com/PRC1978/YinggeVideoLibrary/releases/download/v1.6.6/YinggeVideoLibrary-Setup.exe)，按向导安装即可；也可把[免安装版](https://github.com/PRC1978/YinggeVideoLibrary/releases/download/v1.6.6/YinggeVideoLibrary-win-x64.exe)放在当前用户可写的文件夹中直接运行。安装版只为当前 Windows 用户安装，无需管理员权限。
 2. **添加视频文件夹。** 在“全部”页点击“添加文件夹”。扫描后可用列表、分类页或“文件夹”页浏览；视频仍保留在原目录。
 3. **按需搜刮。** 在“搜刮”页选择来源和跳过条件，先预览入队范围。搜刮会显示多个候选和来源证据；在审核页确认后再采用不确定的资料。
 
-安装版与免安装版共用当前 Windows 用户的数据目录。软件可检查 GitHub Release 中的新版本，显示更新内容；选择更新后下载并校验独立程序，退出旧程序、替换并重启。**软件所在目录须可写**，否则按提示手动下载安装包。下载文件及校验值见[本版 Release](https://github.com/PRC1978/YinggeVideoLibrary/releases/tag/v1.6.5)。
+安装版与免安装版共用当前 Windows 用户的数据目录。启用启动检查后，软件每次启动查询 GitHub Release；选择更新后下载并校验独立程序，退出旧程序、替换并重启。**软件所在目录须可写**，否则按提示手动下载安装包。下载文件及校验值见[本版 Release](https://github.com/PRC1978/YinggeVideoLibrary/releases/tag/v1.6.6)。
 
 **从 1.5.1 或 1.5.2 升级：** 这两个版本的软件内下载校验有缺陷，可能在下载完成后提示“大小、SHA-256 或程序身份与目标版本不符”。首次升级到 1.5.3 时，请关闭旧版并运行本页的安装包；使用免安装版的用户可下载新版程序，将其改名为 `映格视频库.exe` 后替换原目录中的同名文件。此操作不移动当前 Windows 用户的数据目录。升到 1.5.3 后，后续版本可继续使用软件内更新。具体原因见[1.5.3 发布说明](RELEASE_NOTES_1.5.3.md)。
 
@@ -55,7 +55,8 @@
 ## 更多文档
 
 - [使用与维护指南](docs/USER_GUIDE.md)：搜刮来源、队列、审核、分类、人物、备份、设置和源码构建。
-- [1.6.5 发布说明](docs/RELEASE_NOTES_1.6.5.md)：本版功能、修复与验收边界。
+- [1.6.6 发布说明](docs/RELEASE_NOTES_1.6.6.md)：本版功能、修复与验收边界。
+- [1.6.5 发布说明](docs/RELEASE_NOTES_1.6.5.md)：上一版的审核恢复与拖放修复。
 - [1.5.4 发布说明](RELEASE_NOTES_1.5.4.md)：番剧作品来源与发布线索。
 - [1.5.3 发布说明](RELEASE_NOTES_1.5.3.md)：本次更新修复与升级方法。
 - [1.5.2 发布说明](RELEASE_NOTES_1.5.2.md)：人物档案自动搜刮与非商业许可变更。

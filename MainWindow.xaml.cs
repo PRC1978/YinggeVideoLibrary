@@ -775,10 +775,11 @@ public partial class MainWindow : Window
         finally { try { if (File.Exists(temporary)) File.Delete(temporary); } catch { } }
     }
 
-    void SaveConfig()
+    void SaveConfig(bool allowJournaledReviewTransition = false)
     {
         configSaveVersion++;
-        var merged = WriteConfigSnapshot(configBaseline, config, ConfigPath, credentialStoreReady, javinfoCredentialReady);
+        var merged = WriteConfigSnapshot(configBaseline, config, ConfigPath, credentialStoreReady,
+            javinfoCredentialReady, allowJournaledReviewTransition);
         var graphDataChanged = !GraphRelevantConfigEquals(configBaseline, merged);
         merged.TmdbToken = config.TmdbToken;
         merged.AiKey = config.AiKey;
@@ -790,7 +791,7 @@ public partial class MainWindow : Window
     }
 
     static LibraryConfig WriteConfigSnapshot(LibraryConfig baseline, LibraryConfig current, string path,
-        bool scrubCredentials, bool scrubJavinfo)
+        bool scrubCredentials, bool scrubJavinfo, bool allowJournaledReviewTransition = false)
     {
         var temporary = $"{path}.{Environment.ProcessId}.{Environment.CurrentManagedThreadId}.tmp";
         var ownsMutex = false;
@@ -816,7 +817,7 @@ public partial class MainWindow : Window
                 !SiteListLocalActionStore.IsHistoryWellFormed(current) ||
                 !SiteListLocalActionStore.IsHistoryWellFormed(baseline))
                 throw new InvalidDataException("审核或片单操作历史需要修复；已停止保存以免覆盖历史记录。");
-            var merged = MergeLibraryConfig(baseline, current, latest);
+            var merged = MergeLibraryConfig(baseline, current, latest, allowJournaledReviewTransition);
             if (!SiteListLocalActionStore.IsHistoryWellFormed(merged))
                 throw new InvalidDataException("合并后的片单操作历史无效，已停止保存。");
             merged.SchemaVersion = 2;

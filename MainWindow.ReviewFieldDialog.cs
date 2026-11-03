@@ -115,7 +115,8 @@ public partial class MainWindow
             Owner = this, Title = rows.Count == 1 ? "逐字段审核候选" : $"逐字段批量审核 · {rows.Count} 条",
             Width = 1050, Height = 720, MinWidth = 780, MinHeight = 520,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Background = UiTheme.SurfaceBrush
+            Background = UiTheme.SurfaceBrush,
+            Foreground = UiTheme.TextPrimaryBrush
         };
         var layout = new Grid { Margin = new Thickness(18) };
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -188,20 +189,22 @@ public partial class MainWindow
         {
             Text = $"{row.VideoTitle}\n候选：{row.Candidate.Source} · {row.Before.Review?.Confidence ?? 0}% · {row.Candidate.Code}",
             FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap,
+            Foreground = UiTheme.TextPrimaryBrush,
             Margin = new Thickness(0, 0, 0, 10)
         });
         foreach (var field in ReviewFieldApproval.Fields)
         {
             var border = new Border
             {
-                BorderBrush = UiTheme.AccentSoftBackgroundBrush, BorderThickness = new Thickness(1),
+                Background = UiTheme.SurfaceAltBrush,
+                BorderBrush = UiTheme.BorderBrushToken, BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(7), Margin = new Thickness(0, 0, 0, 8), Padding = new Thickness(10)
             };
             var content = new StackPanel();
             border.Child = content;
             var conflicted = row.Candidate.SourceConflictFields?.Contains(field.Key, StringComparer.Ordinal) == true;
             content.Children.Add(new TextBlock { Text = field.Label + (conflicted ? " · 来源冲突，请明确选择" : ""),
-                FontWeight = FontWeights.SemiBold, Foreground = conflicted ? UiTheme.DangerBrush : Brushes.DarkSlateGray });
+                FontWeight = FontWeights.SemiBold, Foreground = conflicted ? UiTheme.DangerBrush : UiTheme.TextPrimaryBrush });
             AddReviewFieldValue(content, "原值", ReviewFieldApproval.Value(row.Before.Metadata, field.Key));
             AddReviewFieldValue(content, "候选", ReviewFieldApproval.Value(row.Candidate, field.Key));
             var selector = new ComboBox { MinWidth = 190, Height = 30, HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
@@ -230,7 +233,7 @@ public partial class MainWindow
                         (option.Observation?.Source == current.Observation?.Source && option.Observation?.Value == current.Observation?.Value));
                 });
             }
-            var resulting = new TextBlock { Foreground = Brushes.SteelBlue, TextWrapping = TextWrapping.Wrap };
+            var resulting = new TextBlock { Foreground = UiTheme.AccentSoftForegroundBrush, TextWrapping = TextWrapping.Wrap };
             void UpdateResult()
             {
                 try

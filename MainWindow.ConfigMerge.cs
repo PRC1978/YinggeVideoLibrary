@@ -122,7 +122,8 @@ public partial class MainWindow
         ReviewedAt = review.ReviewedAt
     };
 
-    static LibraryConfig MergeLibraryConfig(LibraryConfig baseline, LibraryConfig current, LibraryConfig latest)
+    static LibraryConfig MergeLibraryConfig(LibraryConfig baseline, LibraryConfig current, LibraryConfig latest,
+        bool allowJournaledReviewTransition = false)
     {
         // A legacy or concurrent writer may replace the shared config with an
         // unmarked empty folder list. Do not let an unrelated setting save
@@ -154,7 +155,8 @@ public partial class MainWindow
             RecommendationOnlineTopics = MergeScalar(baseline.RecommendationOnlineTopics, current.RecommendationOnlineTopics, latest.RecommendationOnlineTopics),
             RecommendationLessLikeVideoIds = MergeList(baseline.RecommendationLessLikeVideoIds, current.RecommendationLessLikeVideoIds,
                 latest.RecommendationLessLikeVideoIds, StringComparer.OrdinalIgnoreCase),
-            AiReviews = MergeMap(baseline.AiReviews, current.AiReviews, latest.AiReviews, StringComparer.OrdinalIgnoreCase),
+            AiReviews = MergeMap(baseline.AiReviews, current.AiReviews, latest.AiReviews,
+                StringComparer.OrdinalIgnoreCase, preserveManualReview: !allowJournaledReviewTransition),
             AiSuggestions = MergeMap(baseline.AiSuggestions, current.AiSuggestions, latest.AiSuggestions, StringComparer.OrdinalIgnoreCase),
             AiSuggestionActions = MergeMap(baseline.AiSuggestionActions, current.AiSuggestionActions, latest.AiSuggestionActions, StringComparer.OrdinalIgnoreCase),
             SiteListLocalActions = MergeMap(baseline.SiteListLocalActions, current.SiteListLocalActions,
@@ -228,6 +230,31 @@ public partial class MainWindow
         return merged;
     }
 
+    internal static IReadOnlyDictionary<string, bool> VerifyJournaledReviewMergeForDiagnostics()
+    {
+        const string id = "review-undo-merge-fixture";
+        var approved = new LibraryConfig();
+        approved.AiReviews[id] = new AiReviewRecord
+        {
+            VideoId = id, CandidateCode = "EX-002", Status = "approved", DecisionSource = "manual"
+        };
+        var undo = CloneLibraryConfig(approved);
+        undo.AiReviews[id] = new AiReviewRecord
+        {
+            VideoId = id, CandidateCode = "EX-002", Status = "pending", DecisionSource = "plugin"
+        };
+        var ordinary = MergeLibraryConfig(approved, undo, CloneLibraryConfig(approved));
+        var journaled = MergeLibraryConfig(approved, undo, CloneLibraryConfig(approved),
+            allowJournaledReviewTransition: true);
+        return new Dictionary<string, bool>
+        {
+            ["ordinarySaveProtectsManualVerdict"] = ordinary.AiReviews[id].Status == "approved"
+                && ordinary.AiReviews[id].DecisionSource == "manual",
+            ["journaledUndoRestoresPendingPluginCandidate"] = journaled.AiReviews[id].Status == "pending"
+                && journaled.AiReviews[id].DecisionSource == "plugin"
+        };
+    }
+
     static T MergeScalar<T>(T baseline, T current, T latest) =>
         EqualityComparer<T>.Default.Equals(baseline, current) ? latest : current;
 
@@ -286,7 +313,7 @@ public partial class MainWindow
     }
 
     static Dictionary<string, T> MergeMap<T>(IDictionary<string, T>? baseline, IDictionary<string, T>? current,
-        IDictionary<string, T>? latest, IEqualityComparer<string> comparer)
+        IDictionary<string, T>? latest, IEqualityComparer<string> comparer, bool preserveManualReview = true)
     {
         var before = CleanMap(baseline, comparer);
         var ours = CleanMap(current, comparer);
@@ -298,7 +325,7 @@ public partial class MainWindow
             if (hadBefore == hasNow && (!hasNow || ValuesEqual(oldValue, newValue))) continue;
             // A delayed automatic scrape from another window must not undo a
             // human approval or rejection that was saved in the meantime.
-            if (hasNow && newValue is AiReviewRecord incomingReview
+            if (preserveManualReview && hasNow && newValue is AiReviewRecord incomingReview
                 && merged.TryGetValue(key, out var diskValue) && diskValue is AiReviewRecord savedReview
                 && string.Equals(savedReview.DecisionSource, "manual", StringComparison.OrdinalIgnoreCase)
                 && !string.Equals(incomingReview.DecisionSource, "manual", StringComparison.OrdinalIgnoreCase)) continue;

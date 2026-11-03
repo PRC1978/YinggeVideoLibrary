@@ -506,7 +506,11 @@ public partial class MainWindow
             ReviewTransactionStore.Begin(DataDir, transaction);
             begun = true;
             ApplyReviewStates(transaction.After);
-            SaveConfig();
+            // The journal and the held config mutex authorize this exact
+            // transition, including undoing a manual approval back to its
+            // previous plugin/rules review. Ordinary saves still protect a
+            // manual verdict from delayed background results.
+            SaveConfig(allowJournaledReviewTransition: true);
             if (transaction.Before.Any(pair =>
                 System.Text.Json.JsonSerializer.Serialize(pair.Value.Metadata) !=
                 System.Text.Json.JsonSerializer.Serialize(transaction.After[pair.Key].Metadata)))

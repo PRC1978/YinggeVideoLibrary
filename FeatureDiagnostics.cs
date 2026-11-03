@@ -62,6 +62,8 @@ internal static class FeatureDiagnostics
                 ProjectLicenseMigration.VerifyForDiagnostics(Path.Combine(directory, "license-migration"));
             foreach (var (name, passed) in MainWindow.VerifyLibraryFormatMigrationForDiagnostics(
                          Path.Combine(directory, "library-format"))) findings[name] = passed;
+            foreach (var (name, passed) in MainWindow.VerifyJournaledReviewMergeForDiagnostics())
+                findings[name] = passed;
             // The copy-and-upgrade check is the only sub-test that touches the
             // live library, so it stays opt-in. With a redirected data
             // directory it still runs, but against the isolated copy, and the

@@ -1,4 +1,4 @@
-#define MyAppVersion "1.6.0"
+#define MyAppVersion "1.6.1"
 
 [Setup]
 AppId=PRC1978.YinggeVideoLibrary
@@ -25,7 +25,7 @@ SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
-VersionInfoVersion=1.6.0.0
+VersionInfoVersion=1.6.1.0
 
 [Languages]
 Name: "zhcn"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"

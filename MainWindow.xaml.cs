@@ -61,6 +61,7 @@ public sealed class LibraryConfig
     [JsonPropertyName("enableExtension")] public bool EnableExtension { get; set; } = true;
     [JsonPropertyName("autoStart")] public bool AutoStart { get; set; }
     [JsonPropertyName("minimizeToTray")] public bool MinimizeToTray { get; set; }
+    [JsonPropertyName("closeToTray")] public bool CloseToTray { get; set; } = true;
     [JsonPropertyName("startMinimized")] public bool StartMinimized { get; set; }
     [JsonPropertyName("startPage")] public string StartPage { get; set; } = "all";
     [JsonPropertyName("gpuThumbnails")] public bool GpuThumbnails { get; set; } = true;
@@ -394,7 +395,8 @@ public partial class MainWindow : Window
     int posterVersion;
     int backgroundPosterVersion;
     int posterWarmCursor = FixedPosterWarmCursorForUiDiagnostic ? 0 : ReadPosterWarmCursor();
-    readonly SemaphoreSlim posterGate = new(1, 1);
+    // Allow two thumbnail decoders at once while keeping disk and CPU load bounded.
+    readonly SemaphoreSlim posterGate = new(2, 2);
     readonly DispatcherTimer posterScrollTimer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(140) };
     // Keep search input responsive while a large library is being filtered.  A
     // short debounce avoids rebuilding the visual tree for every keystroke.
@@ -535,9 +537,17 @@ public partial class MainWindow : Window
         Closing += (_, e) =>
         {
             if (!TryConfirmEmbeddedRolesClose()) { e.Cancel = true; return; }
-            if (!batchOperationInProgress) return;
-            e.Cancel = true;
-            Log("正在完成批量保存，保存完成后即可关闭窗口");
+            if (batchOperationInProgress)
+            {
+                e.Cancel = true;
+                Log("正在完成批量保存，保存完成后即可关闭窗口");
+                return;
+            }
+            if (ShouldHideOnClose(config.CloseToTray, exitingFromTray, isClosing, updateCloseAllowed))
+            {
+                e.Cancel = true;
+                HideInTray();
+            }
         };
         Closed += (_, _) =>
         {
@@ -1428,10 +1438,9 @@ public partial class MainWindow : Window
         await Task.Run(() =>
         {
             var ffmpeg = FindFfmpeg();
-            foreach (var item in items)
+            Parallel.ForEach(items, new ParallelOptions { MaxDegreeOfParallelism = 3 }, item =>
             {
-                if (version != posterVersion) break;
-                if (isClosing || version != posterVersion) break;
+                if (isClosing || version != posterVersion) return;
                 if (!string.IsNullOrWhiteSpace(item.Poster))
                 {
                     // Metadata/custom covers also need an asynchronous decode;
@@ -1440,7 +1449,7 @@ public partial class MainWindow : Window
                     var existing = item.Poster;
                     VideoItem.PreloadPoster(existing);
                     QueuePosterUpdate(item, version, () => item.RefreshPosterSource());
-                    continue;
+                    return;
                 }
                 var poster = Sidecar(item.Path);
                 if (poster is null && ffmpeg is not null)
@@ -1448,7 +1457,7 @@ public partial class MainWindow : Window
                     posterGate.Wait();
                     try
                     {
-                        if (isClosing || version != posterVersion) continue;
+                        if (isClosing || version != posterVersion) return;
                         poster = GeneratePoster(item, ffmpeg);
                     }
                     finally { posterGate.Release(); }
@@ -1460,7 +1469,7 @@ public partial class MainWindow : Window
                     VideoItem.PreloadPoster(poster);
                     QueuePosterUpdate(item, version, () => item.Poster = poster);
                 }
-            }
+            });
         });
     }
 
@@ -1554,9 +1563,9 @@ public partial class MainWindow : Window
     {
         var destination = System.IO.Path.Combine(ThumbDir, item.Id + ".jpg");
         try { if (File.Exists(destination) && File.GetLastWriteTime(destination) >= item.Modified) return destination; } catch { }
-        // Include the process id so two published copies sharing LocalAppData
-        // cannot make FFmpeg write into the same temporary image at once.
-        var temporary = System.IO.Path.Combine(ThumbDir, $"{item.Id}.{Environment.ProcessId}.tmp.jpg");
+        // Visible and background workers may request the same poster at once.
+        // Give every attempt its own temporary file, including across processes.
+        var temporary = System.IO.Path.Combine(ThumbDir, $"{item.Id}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp.jpg");
         foreach (var timestamp in new[] { "00:00:10", "00:00:01" })
         {
             try

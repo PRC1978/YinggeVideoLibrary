@@ -28,6 +28,7 @@ public partial class MainWindow
     Forms.ContextMenuStrip? startupTrayMenu;
     Drawing.Icon? startupTrayDrawingIcon;
     bool startupOptionsUpdating;
+    bool exitingFromTray;
 
     internal static string NormalizeStartupPage(string? page) =>
         StartupPages.Any(option => option.Id == page) ? page! : "all";
@@ -65,6 +66,9 @@ public partial class MainWindow
     internal static bool ShouldHideInTray(bool visible, WindowState state, bool minimizeToTray,
         bool closing) => visible && state == WindowState.Minimized && minimizeToTray && !closing;
 
+    internal static bool ShouldHideOnClose(bool closeToTray, bool exitingFromTray, bool closing,
+        bool updateCloseAllowed) => closeToTray && !exitingFromTray && !closing && !updateCloseAllowed;
+
     internal static Forms.ContextMenuStrip CreateTrayContextMenu(Action restore, Action exit)
     {
         var menu = new Forms.ContextMenuStrip();
@@ -101,7 +105,7 @@ public partial class MainWindow
                     ? Drawing.Icon.ExtractAssociatedIcon(path) : null;
                 startupTrayMenu = CreateTrayContextMenu(
                     () => Dispatcher.BeginInvoke(RestoreFromTray),
-                    () => Dispatcher.BeginInvoke(new Action(Close)));
+                    () => Dispatcher.BeginInvoke(new Action(ExitFromTray)));
                 startupTrayIcon = new Forms.NotifyIcon
                 {
                     Icon = startupTrayDrawingIcon ?? Drawing.SystemIcons.Application,
@@ -130,6 +134,13 @@ public partial class MainWindow
         PresentDeferredUpdateIfAvailable();
     }
 
+    void ExitFromTray()
+    {
+        exitingFromTray = true;
+        try { Close(); }
+        finally { exitingFromTray = false; }
+    }
+
     StackPanel BuildStartupOptions()
     {
         if (AutoStartBox.Parent is System.Windows.Controls.Panel oldParent) oldParent.Children.Remove(AutoStartBox);
@@ -147,6 +158,13 @@ public partial class MainWindow
         tray.Unchecked += (_, _) => SaveStartupToggle(() => config.MinimizeToTray = false);
         section.Children.Add(StartupRow("最小化到系统托盘", "最小化后留在通知区域；双击图标可恢复，右键图标可退出。",
             StartupToggle(tray, "最小化到系统托盘", "最小化后留在通知区域；双击图标可恢复，右键图标可退出。")));
+
+        var closeToTray = new CheckBox { IsChecked = config.CloseToTray,
+            Style = (Style)FindResource("StartupSwitch") };
+        closeToTray.Checked += (_, _) => SaveStartupToggle(() => config.CloseToTray = true);
+        closeToTray.Unchecked += (_, _) => SaveStartupToggle(() => config.CloseToTray = false);
+        section.Children.Add(StartupRow("关闭时缩到系统托盘", "点 × 后留在通知区域；右键托盘图标选择“退出映格”才会结束程序。",
+            StartupToggle(closeToTray, "关闭时缩到系统托盘", "点 × 后留在通知区域；右键图标可退出。")));
 
         var minimized = new CheckBox { IsChecked = config.StartMinimized,
             Style = (Style)FindResource("StartupSwitch") };

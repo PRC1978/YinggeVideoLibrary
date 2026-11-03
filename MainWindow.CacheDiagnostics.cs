@@ -626,6 +626,12 @@ public partial class MainWindow
                     || ShouldStartMinimized(true, false, true)
                     || ShouldStartMinimized(true, true, false))
                     throw new InvalidOperationException("手动启动或关闭自启时仍被错误地最小化");
+                if (!ShouldHideOnClose(true, false, false, false)
+                    || ShouldHideOnClose(false, false, false, false)
+                    || ShouldHideOnClose(true, true, false, false)
+                    || ShouldHideOnClose(true, false, true, false)
+                    || ShouldHideOnClose(true, false, false, true))
+                    throw new InvalidOperationException("关闭到托盘与托盘退出的判定不正确");
                 startupSection.IsExpanded = false;
                 await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
                 if (SettingsPanel.ActualWidth < 500 || PlayerPathBox.Parent is null || TmdbTokenBox.Parent is null)
@@ -634,13 +640,14 @@ public partial class MainWindow
                 {
                     UpdateAutoCheck = false, UpdateCheckIntervalHours = 24,
                     ScrapeRequestIntervalSeconds = 5, ScrapeRefreshIncompleteMetadata = true,
-                    CardPageSize = 30, PosterCacheLimitMb = 0, MinimizeToTray = true, StartMinimized = true,
+                    CardPageSize = 30, PosterCacheLimitMb = 0, MinimizeToTray = true, CloseToTray = false, StartMinimized = true,
                     StartPage = "categories"
                 };
                 var optionClone = CloneLibraryConfig(optionProbe);
                 if (optionClone.UpdateAutoCheck || optionClone.UpdateCheckIntervalHours != 24
                     || optionClone.ScrapeRequestIntervalSeconds != 5 || !optionClone.ScrapeRefreshIncompleteMetadata
                     || optionClone.CardPageSize != 30 || optionClone.PosterCacheLimitMb != 0 || !optionClone.MinimizeToTray
+                    || optionClone.CloseToTray
                     || !optionClone.StartMinimized || optionClone.StartPage != "categories")
                     throw new InvalidOperationException("设置选项在配置快照中丢失");
                 RecordCacheDiagnostic("settings ui verified", $"分组 {sections} 个，宽度 {SettingsPanel.ActualWidth:F0}");

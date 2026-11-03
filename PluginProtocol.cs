@@ -11,6 +11,7 @@ internal sealed class PluginRequest
     [JsonPropertyName("id")] public string Id { get; set; } = "";
     [JsonPropertyName("method")] public string Method { get; set; } = "";
     [JsonPropertyName("params")] public PluginSearchParameters? Parameters { get; set; }
+    [JsonPropertyName("aiPayload")] public JsonElement? AiPayload { get; set; }
 }
 
 internal sealed class PluginSearchParameters
@@ -60,6 +61,8 @@ internal static class PluginProtocol
 {
     internal const string MethodDescribe = "describe";
     internal const string MethodSearch = "search";
+    internal const string MethodAiComplete = "ai.complete";
+    internal const string MethodToolRun = "tool.run";
     internal const int MaxCandidates = 20;
     internal const int MaxTitleLength = 300;
     internal const int MaxUrlLength = 2048;

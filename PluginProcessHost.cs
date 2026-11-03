@@ -70,6 +70,50 @@ internal static class PluginProcessHost
         }
     }
 
+    // The host AI queue reserves budget and records a durable job before this
+    // transport is called. The plugin receives the model payload, never a key.
+    internal static async Task<JsonDocument> AiCompleteAsync(PluginDescriptor plugin, string requestJson,
+        CancellationToken cancellationToken)
+    {
+        if (plugin.Manifest?.Capabilities.Contains("ai.service", StringComparer.OrdinalIgnoreCase) != true)
+            throw new InvalidOperationException("插件没有声明 AI 服务能力。");
+        using var requestBody = JsonDocument.Parse(requestJson);
+        var request = new PluginRequest { Id = Guid.NewGuid().ToString("N"),
+            Method = PluginProtocol.MethodAiComplete, AiPayload = requestBody.RootElement.Clone() };
+        var response = await InvokeAsync(plugin, request, plugin.Timeout, cancellationToken);
+        if (!response.Ok || response.Payload is null)
+            throw response.ErrorCode == "cancelled" ? new OperationCanceledException(cancellationToken) :
+                new InvalidDataException("AI 插件调用失败：" + PluginLog.Redact(response.ErrorMessage));
+        var document = JsonDocument.Parse(response.Payload);
+        if (!document.RootElement.TryGetProperty("choices", out var choices) ||
+            choices.ValueKind != JsonValueKind.Array || choices.GetArrayLength() == 0 ||
+            !choices[0].TryGetProperty("message", out var message) ||
+            !message.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.String)
+        {
+            document.Dispose();
+            throw new InvalidDataException("AI 插件没有返回有效的 choices[0].message.content。");
+        }
+        return document;
+    }
+
+    internal static async Task<string> RunReadOnlyToolAsync(PluginDescriptor plugin, string title,
+        CancellationToken cancellationToken)
+    {
+        if (plugin.Manifest?.Capabilities.Contains("tool.command", StringComparer.OrdinalIgnoreCase) != true)
+            throw new InvalidOperationException("插件没有声明工具能力。");
+        var request = new PluginRequest { Id = Guid.NewGuid().ToString("N"), Method = PluginProtocol.MethodToolRun,
+            Parameters = new PluginSearchParameters { Token = Guid.NewGuid().ToString("N"), Query = title,
+                Kind = "title", Limit = 1 } };
+        var response = await InvokeAsync(plugin, request, plugin.Timeout, cancellationToken);
+        if (!response.Ok || response.Payload is null)
+            throw new InvalidDataException("工具插件调用失败：" + PluginLog.Redact(response.ErrorMessage));
+        using var document = JsonDocument.Parse(response.Payload);
+        if (!document.RootElement.TryGetProperty("text", out var node) || node.ValueKind != JsonValueKind.String ||
+            node.GetString() is not { Length: > 0 and <= 2000 } text)
+            throw new InvalidDataException("工具插件必须返回 1–2000 字的说明文本。");
+        return text;
+    }
+
     static bool TryReadCandidate(JsonElement item, PluginDescriptor plugin, out PluginCandidate? candidate, out string reason)
     {
         candidate = null;
@@ -246,6 +290,8 @@ internal static class PluginProcessHost
                 try { response = JsonSerializer.Deserialize<PluginResponse>(line); }
                 catch (JsonException) { continue; }
                 if (response is null || !string.Equals(response.Id, request.Id, StringComparison.Ordinal)) continue;
+                if (response.Version != request.Version)
+                    return new InvocationResult(false, "invalid_response", "插件响应接口版本与请求不一致。", null, null);
                 if (!response.Ok)
                 {
                     var error = response.Error ?? new PluginErrorPayload();

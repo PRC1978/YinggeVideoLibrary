@@ -96,6 +96,12 @@ internal static class Program
             Error(id, "rate_limited", "示例插件模拟限流", retryAfterSeconds: 900);
             return;
         }
+        if (query.Contains("wrongversion", StringComparison.OrdinalIgnoreCase))
+        {
+            Respond(new JsonObject { ["v"] = 2, ["id"] = id, ["ok"] = true,
+                ["result"] = new JsonObject { ["candidates"] = new JsonArray() } });
+            return;
+        }
         if (query.Contains("stream", StringComparison.OrdinalIgnoreCase))
         {
             // 8 MB without a single newline: the host must stop at its cap

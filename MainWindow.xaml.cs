@@ -3013,6 +3013,9 @@ public partial class MainWindow : Window
         var information = new MenuItem { Header = "查看完整搜刮资料…", IsEnabled = metadata.ContainsKey(video.Id) || config.AiReviews.ContainsKey(video.Id) };
         information.Click += (_, _) => ShowMetadataDetailsForVideo(video);
         menu.Items.Add(information);
+        var pluginTool = new MenuItem { Header = "插件只读工具…" };
+        pluginTool.Click += (_, _) => Dispatcher.BeginInvoke(() => ShowPluginToolPicker(video));
+        menu.Items.Add(pluginTool);
         var personProfile = new MenuItem { Header = "人物 / 角色档案…" };
         personProfile.Click += (_, _) => Dispatcher.BeginInvoke(() =>
             OpenRoleProfiles(video, metadata.GetValueOrDefault(video.Id)));
@@ -3104,6 +3107,7 @@ public partial class MainWindow : Window
     string GetAiChatEndpoint()
     {
         var endpoint = config.AiEndpoint.Trim().TrimEnd('/');
+        if (endpoint.StartsWith("plugin-ai://", StringComparison.OrdinalIgnoreCase)) return endpoint;
         return endpoint.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase) ? endpoint : endpoint + "/chat/completions";
     }
 
@@ -4154,7 +4158,8 @@ public partial class MainWindow : Window
         if (records.Count == 0) { MessageBox.Show(this, "没有可供 AI 重新评估的待审核匹配。", "AI 可信度审核", MessageBoxButton.OK, MessageBoxImage.Information); return; }
         try
         {
-            var localEndpoint = new Uri(GetAiChatEndpoint()).IsLoopback;
+            var aiUri = new Uri(GetAiChatEndpoint());
+            var localEndpoint = aiUri.IsLoopback || PluginAiTransport.IsEndpoint(aiUri);
             var requestBodies = records.Select(review => JsonSerializer.Serialize(
                 BuildScrapeAiPayload(available[review.VideoId], review.ToMetadata()))).ToArray();
             var preview = AiCostPreview.Build(config, localEndpoint, requestBodies);

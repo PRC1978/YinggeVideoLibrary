@@ -100,11 +100,11 @@ internal static class PluginManifestReader
     static readonly HashSet<string> KnownCapabilities =
         new(StringComparer.OrdinalIgnoreCase) { "scrape.source", "ai.service", "tool.command", "ui.theme" };
     static readonly HashSet<string> SupportedCapabilities =
-        new(StringComparer.OrdinalIgnoreCase) { "scrape.source" };
+        new(StringComparer.OrdinalIgnoreCase) { "scrape.source", "ai.service", "tool.command" };
     // Anything else would have to be sent to the plugin, so it is refused
     // until a later batch implements and documents it.
     static readonly HashSet<string> SupportedDataScopes =
-        new(StringComparer.OrdinalIgnoreCase) { "query.text", "query.code", "query.year" };
+        new(StringComparer.OrdinalIgnoreCase) { "query.text", "query.code", "query.year", "ai.prompt" };
 
     static readonly Regex IdPattern = new("^[a-z0-9][a-z0-9._-]{2,63}$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     static readonly Regex VersionPattern = new(@"^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -257,6 +257,23 @@ internal static class PluginManifestReader
             return PluginStatus.UnsupportedCapability;
         }
         var hosts = manifest.Permissions?.Network ?? [];
+        if (manifest.Capabilities.Contains("ai.service", StringComparer.OrdinalIgnoreCase) &&
+            !dataScopes.Contains("ai.prompt", StringComparer.OrdinalIgnoreCase))
+        {
+            message = "AI 服务插件必须声明 ai.prompt 数据权限。";
+            return PluginStatus.UnsupportedCapability;
+        }
+        if (manifest.Capabilities.Contains("tool.command", StringComparer.OrdinalIgnoreCase) &&
+            !dataScopes.Contains("query.text", StringComparer.OrdinalIgnoreCase))
+        {
+            message = "只读工具插件必须声明 query.text 数据权限。";
+            return PluginStatus.UnsupportedCapability;
+        }
+        if (manifest.Capabilities.Contains("ai.service", StringComparer.OrdinalIgnoreCase) && hosts.Count > 0)
+        {
+            message = "当前 AI 插件仅支持本机模型，不能声明远程域名。";
+            return PluginStatus.UnsupportedCapability;
+        }
         if (hosts.Count > 16)
         {
             message = "网络域名最多声明 16 个。";

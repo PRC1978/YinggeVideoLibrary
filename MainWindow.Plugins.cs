@@ -11,6 +11,8 @@ using HorizontalAlignment = System.Windows.HorizontalAlignment;
 using MessageBox = System.Windows.MessageBox;
 using Orientation = System.Windows.Controls.Orientation;
 using TextBlock = System.Windows.Controls.TextBlock;
+using ContextMenu = System.Windows.Controls.ContextMenu;
+using MenuItem = System.Windows.Controls.MenuItem;
 
 namespace YinggeVideoLibrary;
 
@@ -136,6 +138,21 @@ public partial class MainWindow
         // would fail later; the reason is already on the card.
         toggle.IsEnabled = plugin.Manifest is not null && plugin.Status is PluginStatus.Ready or PluginStatus.Disabled;
         actions.Children.Add(toggle);
+        if (plugin.Enabled && plugin.Status == PluginStatus.Ready &&
+            plugin.Manifest?.Capabilities.Contains("ai.service", StringComparer.OrdinalIgnoreCase) == true)
+        {
+            var useAi = new Button { Content = "用作 AI 服务", Height = 32, Padding = new Thickness(10, 0, 10, 0),
+                Style = (Style)FindResource("Action"), Margin = new Thickness(0, 0, 6, 0) };
+            useAi.Click += (_, _) =>
+            {
+                config.AiEndpoint = $"plugin-ai://{plugin.Id}";
+                config.AiModel = plugin.Id;
+                SaveConfig();
+                MessageBox.Show(this, "已设为本机 AI 服务。请求仍经过现有队列、费用上限与审核；插件会收到本轮 AI 提示文本，不会收到 API Key。",
+                    "插件 AI 服务", MessageBoxButton.OK, MessageBoxImage.Information);
+            };
+            actions.Children.Add(useAi);
+        }
         if (plugin.Manifest?.Settings.Count > 0 && plugin.Status is PluginStatus.Ready or PluginStatus.Disabled)
         {
             var configure = new Button { Content = "设置", Height = 32, Padding = new Thickness(10, 0, 10, 0),
@@ -205,7 +222,7 @@ public partial class MainWindow
         var selected = (PluginScrapeSourceBox.SelectedItem as PluginDescriptor)?.Id;
         PluginScrapeSourceBox.Items.Clear();
         PluginScrapeSourceBox.DisplayMemberPath = nameof(PluginDescriptor.DisplayName);
-        foreach (var plugin in pluginCatalog.Where(item => item.Enabled && item.Status is PluginStatus.Ready or PluginStatus.Disabled))
+        foreach (var plugin in ScrapeSourcePlugins(pluginCatalog))
             PluginScrapeSourceBox.Items.Add(plugin);
         if (PluginScrapeSourceBox.Items.Count == 0)
         {
@@ -239,7 +256,7 @@ public partial class MainWindow
                 var data = plugin.Manifest.Permissions.Data.Count == 0 ? "（不接收任何数据）" : string.Join("、", plugin.Manifest.Permissions.Data);
                 var answer = MessageBox.Show(this,
                     $"启用“{plugin.DisplayName}”后，程序会：\n\n" +
-                    $"· 只把标题或番号发送给它（数据范围：{data}）\n" +
+                    $"· 向插件发送已声明的数据（范围：{data}；AI 服务可收到完整提示文本）\n" +
                     $"· 接受它返回的、位于这些域名下的链接：{network}\n\n" +
                     "清单里的域名只用于声明和校验插件返回的链接，**不是**网络隔离：插件是独立进程，但它仍可以自行连接任何地址。程序只保证不把完整路径、私有标签和密钥交给它。\n\n" +
                     "确认启用？",
@@ -404,7 +421,44 @@ public partial class MainWindow
     // rebuilt whenever the catalog is (re)loaded so enable/disable is reflected.
     // Only enabled, healthy plugins may appear as a scrape source.
     internal static IEnumerable<PluginDescriptor> ScrapeSourcePlugins(IEnumerable<PluginDescriptor> catalog) =>
-        catalog.Where(item => item.Enabled && item.Status == PluginStatus.Ready);
+        catalog.Where(item => item.Enabled && item.Status == PluginStatus.Ready &&
+            item.Manifest?.Capabilities.Contains("scrape.source", StringComparer.OrdinalIgnoreCase) == true);
+
+    void ShowPluginToolPicker(VideoItem video)
+    {
+        EnsurePluginCatalog();
+        var tools = pluginCatalog.Where(item => item.Enabled && item.Status == PluginStatus.Ready &&
+            item.Manifest?.Capabilities.Contains("tool.command", StringComparer.OrdinalIgnoreCase) == true).ToList();
+        if (tools.Count == 0)
+        {
+            MessageBox.Show(this, "没有已启用的只读工具插件。可在设置 → 插件中启用。", "插件工具");
+            return;
+        }
+        var menu = new ContextMenu();
+        foreach (var plugin in tools)
+        {
+            var item = new MenuItem { Header = plugin.DisplayName };
+            item.Click += async (_, _) =>
+            {
+                try
+                {
+                    // Only a display title is sent. The tool response is text
+                    // shown to the user; it has no write capability in the host.
+                    var result = await PluginProcessHost.RunReadOnlyToolAsync(plugin, video.DisplayTitle,
+                        CancellationToken.None);
+                    MessageBox.Show(this, result, "插件工具 · " + plugin.DisplayName);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, PluginLog.Redact(ex.Message), "插件工具", MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                }
+            };
+            menu.Items.Add(item);
+        }
+        menu.PlacementTarget = this;
+        menu.IsOpen = true;
+    }
 
     void RefreshScrapeSourcePlugins()
     {

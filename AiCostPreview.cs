@@ -8,7 +8,9 @@ internal static class AiCostPreview
         var attempts = checked(requestBodies.Count * (retries + 1));
         var heading = $"本轮 {requestBodies.Count} 条，最多 {attempts} 次请求（含重试）。\n";
         if (localEndpoint)
-            return heading + "当前使用本机模型；不会发送到云端。\n开始评估？";
+            return heading + (config.AiEndpoint.StartsWith("plugin-ai://", StringComparison.OrdinalIgnoreCase)
+                ? "当前使用本机 AI 插件；插件会收到提示文本，进程本身不受网络隔离。\n开始评估？"
+                : "当前使用本机模型；不会发送到云端。\n开始评估？");
 
         var perAttempt = requestBodies.Sum(body => AiRequestQueue.EstimateReservedUsd(config, body));
         var maximum = perAttempt * (retries + 1);

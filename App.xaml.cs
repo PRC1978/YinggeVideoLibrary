@@ -101,11 +101,12 @@ public partial class App : System.Windows.Application
             Shutdown(await Task.Run(() => MissingFileDiagnostics.RunToFile(e.Args[1], e.Args[2])));
             return;
         }
-        // --self-test-plugins <隔离工作目录> <结果 JSON> [示例插件构建输出目录]
+        // --self-test-plugins <隔离工作目录> <结果 JSON> [搜刮示例目录] [本机 AI 示例目录]
         if (e.Args.Length > 2 && e.Args[0] == "--self-test-plugins")
         {
             var sample = e.Args.Length > 3 ? e.Args[3] : null;
-            Shutdown(await Task.Run(() => PluginDiagnostics.RunToFile(e.Args[1], e.Args[2], sample)));
+            var localAiSample = e.Args.Length > 4 ? e.Args[4] : null;
+            Shutdown(await Task.Run(() => PluginDiagnostics.RunToFile(e.Args[1], e.Args[2], sample, localAiSample)));
             return;
         }
         if (e.Args.Length > 1 && e.Args[0] == "--ui-fixture")

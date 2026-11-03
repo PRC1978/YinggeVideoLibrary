@@ -78,6 +78,7 @@ internal static class AiRequestQueue
     public static bool CanUse(LibraryConfig config)
     {
         if (!Uri.TryCreate(config.AiEndpoint, UriKind.Absolute, out var uri)) return false;
+        if (PluginAiTransport.IsEndpoint(uri)) return true;
         return !string.IsNullOrWhiteSpace(config.AiKey) || uri.IsLoopback;
     }
 
@@ -322,7 +323,7 @@ internal static class AiRequestQueue
 
     static ChannelPolicy PolicyFor(LibraryConfig config, Uri endpoint)
     {
-        var local = endpoint.IsLoopback;
+        var local = endpoint.IsLoopback || PluginAiTransport.IsEndpoint(endpoint);
         var intervalMs = local ? config.AiLocalRequestIntervalMs : config.AiCloudRequestIntervalMs;
         if (intervalMs <= 0) intervalMs = config.AiRequestIntervalMs;
         return new ChannelPolicy(local, TimeSpan.FromMilliseconds(Math.Clamp(intervalMs, 500, 60000)),
@@ -382,18 +383,22 @@ internal static class AiRequestQueue
         ChannelPolicy policy,
         string body, string dataDir, CancellationToken cancellationToken)
     {
-            if (uri.Scheme != Uri.UriSchemeHttps && !uri.IsLoopback)
+            var aiPlugin = PluginAiTransport.IsEndpoint(uri) ? PluginAiTransport.Resolve(uri, dataDir) : null;
+            if (aiPlugin is not null && !string.IsNullOrEmpty(config.AiKey) &&
+                body.Contains(config.AiKey, StringComparison.Ordinal))
+                throw new InvalidOperationException("AI 请求包含当前接口凭据，已拒绝发送给插件。");
+            if (aiPlugin is null && uri.Scheme != Uri.UriSchemeHttps && !uri.IsLoopback)
                 throw new InvalidOperationException("远程 AI 接口必须使用 HTTPS；本机接口可使用 HTTP。");
             if (!string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Fragment) ||
                 HasCredentialInQuery(uri))
                 throw new InvalidOperationException("AI 接口地址不得包含登录信息或凭据参数；请使用单独保存的 API Key。");
-            if (!uri.IsLoopback && string.IsNullOrWhiteSpace(config.AiKey))
+            if (!policy.IsLocal && string.IsNullOrWhiteSpace(config.AiKey))
                 throw new InvalidOperationException("云端 AI 接口缺少 API Key，未发送请求。");
             if (!double.IsFinite(config.AiInputUsdPerMillion) || config.AiInputUsdPerMillion < 0 ||
                 !double.IsFinite(config.AiOutputUsdPerMillion) || config.AiOutputUsdPerMillion < 0 ||
                 !double.IsFinite(config.AiDailyBudgetUsd) || config.AiDailyBudgetUsd < 0)
                 throw new InvalidOperationException("AI 费率无效，请检查设置。");
-            if (!uri.IsLoopback && config.AiDailyBudgetUsd > 0 &&
+            if (!policy.IsLocal && config.AiDailyBudgetUsd > 0 &&
                 (config.AiInputUsdPerMillion <= 0 || config.AiOutputUsdPerMillion <= 0))
                 throw new InvalidOperationException("云端 AI 费率未完整设置，无法执行每日费用上限。");
             var inputEstimate = EstimateInputTokens(body);
@@ -409,6 +414,14 @@ internal static class AiRequestQueue
 
                 try
                 {
+                    if (aiPlugin is not null)
+                    {
+                        using var pluginResult = await PluginProcessHost.AiCompleteAsync(aiPlugin, body, cancellationToken);
+                        if (TryReadReportedTokens(pluginResult, out var pluginInput, out var pluginOutput))
+                            await ReconcileAttemptAsync(dataDir, reservation,
+                                Cost(pluginInput, pluginOutput, config), pluginInput, pluginOutput);
+                        return JsonDocument.Parse(pluginResult.RootElement.GetRawText());
+                    }
                     using var request = new HttpRequestMessage(HttpMethod.Post, uri)
                     { Content = new StringContent(body, Encoding.UTF8, "application/json") };
                     // A saved cloud credential must never be handed to a
@@ -444,6 +457,12 @@ internal static class AiRequestQueue
                 }
                 catch (HttpRequestException error) when (attempt < policy.RetryCount && IsRetryable(error))
                 {
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt + 1)), cancellationToken);
+                }
+                catch (InvalidDataException) when (aiPlugin is not null && attempt < policy.RetryCount)
+                {
+                    // A crashed or timed-out local plugin gets the same bounded
+                    // retry budget. Each attempt reserves its own cost first.
                     await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt + 1)), cancellationToken);
                 }
                 catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested && attempt < policy.RetryCount)

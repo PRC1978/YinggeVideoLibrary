@@ -96,6 +96,7 @@ public partial class MainWindow
         ,PluginQueueEnabled = source.PluginQueueEnabled
         ,CardPageSize = source.CardPageSize
         ,PosterCacheLimitMb = source.PosterCacheLimitMb
+        ,UiTheme = source.UiTheme
     };
 
     static AiReviewRecord CloneReview(AiReviewRecord review) => new()
@@ -197,6 +198,7 @@ public partial class MainWindow
             CardPageSize = MergeScalar(baseline.CardPageSize, current.CardPageSize, latest.CardPageSize),
             PosterCacheLimitMb = VideoItem.NormalizePosterCacheLimitMiB(
                 MergeScalar(baseline.PosterCacheLimitMb, current.PosterCacheLimitMb, latest.PosterCacheLimitMb)),
+            UiTheme = UiTheme.Normalize(MergeScalar(baseline.UiTheme, current.UiTheme, latest.UiTheme)),
             Player = MergeScalar(baseline.Player, current.Player, latest.Player) ?? "",
             AutoCategorize = MergeScalar(baseline.AutoCategorize, current.AutoCategorize, latest.AutoCategorize),
             ShowAll = MergeScalar(baseline.ShowAll, current.ShowAll, latest.ShowAll),

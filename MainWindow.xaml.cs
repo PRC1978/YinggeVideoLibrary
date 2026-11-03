@@ -131,6 +131,11 @@ public sealed class LibraryConfig
     // 0 intentionally means no in-memory poster cache limit. Disk thumbnails
     // remain under the shared user data directory either way.
     [JsonPropertyName("posterCacheLimitMb")] public int PosterCacheLimitMb { get; set; } = 128;
+    // Interface mode: classic keeps the original shell as a full fallback; the
+    // other four are the redesigned shell with different token palettes.
+    // Existing users (config written before this key existed) stay on classic
+    // until they explicitly pick a new mode in Settings -> Appearance.
+    [JsonPropertyName("uiTheme")] public string UiTheme { get; set; } = global::YinggeVideoLibrary.UiTheme.Classic;
 }
 
 public sealed class IndexEntry
@@ -477,6 +482,9 @@ public partial class MainWindow : Window
         var cacheMigration = TryMigrateLegacyCaches(DataDir);
         Directory.CreateDirectory(ThumbDir);
         config = LoadConfig(out configSource);
+        // Token brushes are shared and mutable, so applying the saved mode here
+        // recolors everything InitializeComponent already built, in place.
+        UiTheme.Apply(config.UiTheme);
         VideoItem.ConfigurePosterCache(config.PosterCacheLimitMb);
         var hadLegacySecrets = MigrateSecretsToWindows();
         configBaseline = CloneLibraryConfig(config);

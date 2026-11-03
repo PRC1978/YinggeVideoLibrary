@@ -18,7 +18,14 @@ using TextBox = System.Windows.Controls.TextBox;
 
 namespace YinggeVideoLibrary;
 
-internal sealed class RoleProfilesWindow : Window
+/// <summary>
+/// Role profile browser content. Lives in a plain Grid so the classic shell
+/// (<see cref="RoleProfilesWindow"/>) and the redesigned main-window page can
+/// both host the same instance of the logic — no duplicated data or scraping
+/// code. Window-only concerns (title, size, owner, close-cancel) stay in the
+/// shell class at the bottom of this file.
+/// </summary>
+internal sealed class RoleProfilesView : Grid
 {
     readonly string dataDir;
     readonly IReadOnlyList<VideoItem> videos;
@@ -53,13 +60,38 @@ internal sealed class RoleProfilesWindow : Window
             Math.Max(0, selected.Works.Count - workPage * WorksPerPage)) : 0;
     internal void SelectProfileForDiagnostics(string id) { selectedProfileId = id; RefreshList(); }
 
+    /// <summary>True while a save or auto-discovery run must not be interrupted
+    /// (the classic window shell refuses to close in that state).</summary>
+    internal bool IsBusy => saving || autoRunning;
+
+    /// <summary>Close the classic host window, if hosted in one. When the view
+    /// is embedded in the redesigned main window there is nothing to close.</summary>
+    void CloseHostWindow()
+    {
+        if (Window.GetWindow(this) is RoleProfilesWindow shell) shell.Close();
+    }
+
+    /// <summary>Ask the running auto-discovery to stop (idempotent).</summary>
+    internal void RequestAutoStop()
+    {
+        if (!autoRunning) return;
+        autoCancellation?.Cancel();
+        autoStatus.Text = "正在停止搜刮…";
+    }
+
+    internal void Cleanup()
+    {
+        profileSearchTimer.Stop();
+        autoCancellation?.Dispose();
+    }
+
     sealed record VerifiedPersonOption(string Name, string Provider, string PersonId, string PersonUrl,
         string OriginWorkUrl, string CharacterName)
     {
         public string Display => Provider + " · " + Name + (CharacterName.Length == 0 ? "" : " 饰 " + CharacterName);
     }
 
-    internal RoleProfilesWindow(string dataDir, IReadOnlyList<VideoItem> videos,
+    internal RoleProfilesView(string dataDir, IReadOnlyList<VideoItem> videos,
         MovieMetadata? origin, VideoItem? originVideo, string tmdbToken,
         Action<string> openVideoDetails, bool preloadForDiagnostics = false,
         IReadOnlyDictionary<string, MovieMetadata>? savedMetadata = null)
@@ -81,20 +113,8 @@ internal sealed class RoleProfilesWindow : Window
             state = RoleProfileStore.Load(dataDir);
         }
         else state = new RoleProfileStore.State();
-        Title = "人物与角色档案";
-        Width = 1110; Height = 750; MinWidth = 760; MinHeight = 520;
-        Closing += (_, args) =>
-        {
-            if (saving || autoRunning) args.Cancel = true;
-            if (autoRunning)
-            {
-                autoCancellation?.Cancel();
-                autoStatus.Text = "正在停止搜刮…";
-            }
-        };
-        Closed += (_, _) => { profileSearchTimer.Stop(); autoCancellation?.Dispose(); };
-        WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = new SolidColorBrush(Color.FromRgb(247, 249, 253));
+        Unloaded += (_, _) => Cleanup();
         BuildVerifiedOptions();
 
         var root = new Grid { Margin = new Thickness(20) };
@@ -157,7 +177,7 @@ internal sealed class RoleProfilesWindow : Window
                 if (pick.SelectedItem is not VerifiedPersonOption option) return;
                 link.IsEnabled = false;
                 try { await CreateOrOpenVerified(option); }
-                catch (Exception ex) { MessageBox.Show(this, "本地作品无法核对：" + ex.Message, "角色档案"); }
+                catch (Exception ex) { MessageBox.Show(Window.GetWindow(this), "本地作品无法核对：" + ex.Message, "角色档案"); }
                 finally { link.IsEnabled = true; }
             };
             actions.Children.Add(link);
@@ -192,7 +212,7 @@ internal sealed class RoleProfilesWindow : Window
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
         right.Child = scroller;
-        Content = root;
+        Children.Add(root);
         if (preloadForDiagnostics) RefreshList();
         else
         {
@@ -211,9 +231,9 @@ internal sealed class RoleProfilesWindow : Window
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(this, "角色档案无法读取：" + ex.Message, "人物与角色档案",
+                    MessageBox.Show(Window.GetWindow(this), "角色档案无法读取：" + ex.Message, "人物与角色档案",
                         MessageBoxButton.OK, MessageBoxImage.Warning);
-                    Close();
+                    CloseHostWindow();
                 }
             };
         }
@@ -311,7 +331,7 @@ internal sealed class RoleProfilesWindow : Window
         catch (Exception ex)
         {
             if (revision == listRevision)
-                MessageBox.Show(this, "档案搜索失败：" + ex.Message, "角色档案");
+                MessageBox.Show(Window.GetWindow(this), "档案搜索失败：" + ex.Message, "角色档案");
         }
     }
 
@@ -390,7 +410,7 @@ internal sealed class RoleProfilesWindow : Window
                 + (result.SkippedChanged > 0 ? $" {result.SkippedChanged:N0} 位因作品资料变更而跳过，请重新预览。" : "")
                 + (result.SkippedRateLimited > 0 ? $" {result.SkippedRateLimited:N0} 位详情因来源限速暂未读取，稍后可重试。" : "");
             if (result.Failures.Count > 0)
-                MessageBox.Show(this, "部分人物详情暂未读取，档案中已保存可核实的来源身份：\n"
+                MessageBox.Show(Window.GetWindow(this), "部分人物详情暂未读取，档案中已保存可核实的来源身份：\n"
                     + string.Join("\n", result.Failures.Take(8)), "自动搜刮人物",
                     MessageBoxButton.OK, MessageBoxImage.Information);
         }
@@ -403,7 +423,7 @@ internal sealed class RoleProfilesWindow : Window
         catch (Exception ex)
         {
             autoStatus.Text = "自动搜刮未完成。";
-            MessageBox.Show(this, "自动搜刮人物失败：" + ex.Message,
+            MessageBox.Show(Window.GetWindow(this), "自动搜刮人物失败：" + ex.Message,
                 "人物与角色档案", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         finally
@@ -417,7 +437,7 @@ internal sealed class RoleProfilesWindow : Window
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(this, "人物档案已写入，但重新读取失败：" + ex.Message,
+                    MessageBox.Show(Window.GetWindow(this), "人物档案已写入，但重新读取失败：" + ex.Message,
                         "人物与角色档案", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
             }
@@ -438,7 +458,7 @@ internal sealed class RoleProfilesWindow : Window
     {
         var dialog = new Window
         {
-            Title = "预览自动搜刮人物", Owner = this, Width = 680, Height = 540,
+            Title = "预览自动搜刮人物", Owner = Window.GetWindow(this), Width = 680, Height = 540,
             MinWidth = 520, MinHeight = 400,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Background = new SolidColorBrush(Color.FromRgb(247, 249, 253))
@@ -634,7 +654,7 @@ internal sealed class RoleProfilesWindow : Window
                     }
                     catch (Exception ex)
                     {
-                        MessageBox.Show(this, "读取来源详情失败：" + ex.Message,
+                        MessageBox.Show(Window.GetWindow(this), "读取来源详情失败：" + ex.Message,
                             "角色档案", MessageBoxButton.OK, MessageBoxImage.Warning);
                         fetch.IsEnabled = true;
                         fetch.Content = fetchLabel;
@@ -697,7 +717,7 @@ internal sealed class RoleProfilesWindow : Window
                     var prompt = "这条作品关系来自已核实的来源资料，但本地文件尚未核对。\n\n"
                         + "来源作品：" + work.WorkTitle + "\n本地文件：" + local.DisplayTitle
                         + "\n\n确认这是对应的当前文件？软件会读取文件内容来建立校验，文件很大时可能需要一些时间。";
-                    if (MessageBox.Show(this, prompt, "核对本地作品",
+                    if (MessageBox.Show(Window.GetWindow(this), prompt, "核对本地作品",
                             MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
                     verify.IsEnabled = false;
                     verify.Content = "正在核对文件…";
@@ -708,7 +728,7 @@ internal sealed class RoleProfilesWindow : Window
                     }
                     catch (Exception ex)
                     {
-                        MessageBox.Show(this, "本地文件核对失败：" + ex.Message,
+                        MessageBox.Show(Window.GetWindow(this), "本地文件核对失败：" + ex.Message,
                             "角色档案", MessageBoxButton.OK, MessageBoxImage.Warning);
                         verify.IsEnabled = true;
                         verify.Content = "核对并关联当前文件";
@@ -733,15 +753,15 @@ internal sealed class RoleProfilesWindow : Window
                         }
                         if (!await RoleLocalWorkIdentity.MatchesAsync(local, work))
                         {
-                            MessageBox.Show(this, "本地文件与建立关联时的内容不一致，已阻止跳转。请取消旧关联后重新关联当前文件。",
+                            MessageBox.Show(Window.GetWindow(this), "本地文件与建立关联时的内容不一致，已阻止跳转。请取消旧关联后重新关联当前文件。",
                                 "角色档案", MessageBoxButton.OK, MessageBoxImage.Warning);
                             return;
                         }
-                        Close(); openVideoDetails(local.Id);
+                        CloseHostWindow(); openVideoDetails(local.Id);
                     }
                     catch (Exception ex)
                     {
-                        MessageBox.Show(this, "无法核对本地文件：" + ex.Message, "角色档案",
+                        MessageBox.Show(Window.GetWindow(this), "无法核对本地文件：" + ex.Message, "角色档案",
                             MessageBoxButton.OK, MessageBoxImage.Warning);
                     }
                     finally { details.IsEnabled = true; details.Content = "查看本地作品资料"; }
@@ -756,7 +776,7 @@ internal sealed class RoleProfilesWindow : Window
             var remove = UiButton("取消关联");
             remove.Click += async (_, _) =>
             {
-                if (MessageBox.Show(this, "取消此作品与该档案的关联？", "角色档案",
+                if (MessageBox.Show(Window.GetWindow(this), "取消此作品与该档案的关联？", "角色档案",
                         MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
                 await MutateAsync(() => profile.Works.Remove(work));
             };
@@ -777,7 +797,7 @@ internal sealed class RoleProfilesWindow : Window
                 current.IsEnabled = false;
                 current.Content = "正在核对本地文件…";
                 try { await AddCurrentWork(profile); }
-                catch (Exception ex) { MessageBox.Show(this, "本地作品无法核对：" + ex.Message, "角色档案"); }
+                catch (Exception ex) { MessageBox.Show(Window.GetWindow(this), "本地作品无法核对：" + ex.Message, "角色档案"); }
                 finally { current.IsEnabled = true; current.Content = "关联当前作品：" + originVideo.DisplayTitle; }
             };
             content.Children.Add(current);
@@ -814,7 +834,7 @@ internal sealed class RoleProfilesWindow : Window
                 if (revision == searchRevision && find.IsLoaded) matches.ItemsSource = found;
             }
             catch (Exception ex) { if (revision == searchRevision)
-                MessageBox.Show(this, "本地作品搜索失败：" + ex.Message, "角色档案"); }
+                MessageBox.Show(Window.GetWindow(this), "本地作品搜索失败：" + ex.Message, "角色档案"); }
         };
         find.TextChanged += (_, _) => { searchRevision++; debounce.Stop(); debounce.Start(); };
         find.Unloaded += (_, _) => { searchRevision++; debounce.Stop(); };
@@ -828,12 +848,12 @@ internal sealed class RoleProfilesWindow : Window
         add.Click += async (_, _) =>
         {
             if (matches.SelectedItem is not VideoItem video)
-            { MessageBox.Show(this, "请先从搜索结果中选择一部本地视频。", "角色档案"); return; }
+            { MessageBox.Show(Window.GetWindow(this), "请先从搜索结果中选择一部本地视频。", "角色档案"); return; }
             if (profile.Works.Any(work => work.LocalVideoId.Equals(video.Id, StringComparison.OrdinalIgnoreCase)))
-            { MessageBox.Show(this, "这部本地视频已经关联。", "角色档案"); return; }
+            { MessageBox.Show(Window.GetWindow(this), "这部本地视频已经关联。", "角色档案"); return; }
             var relation = role.Text.Trim();
             if (relation.Length > 180)
-            { MessageBox.Show(this, "角色或关系说明最多 180 字。", "角色档案"); return; }
+            { MessageBox.Show(Window.GetWindow(this), "角色或关系说明最多 180 字。", "角色档案"); return; }
             add.IsEnabled = false;
             add.Content = "正在核对本地文件…";
             try
@@ -847,7 +867,7 @@ internal sealed class RoleProfilesWindow : Window
                 RoleLocalWorkIdentity.Apply(work, captured);
                 await MutateAsync(() => profile.Works.Add(work));
             }
-            catch (Exception ex) { MessageBox.Show(this, "本地作品无法核对：" + ex.Message, "角色档案"); }
+            catch (Exception ex) { MessageBox.Show(Window.GetWindow(this), "本地作品无法核对：" + ex.Message, "角色档案"); }
             finally { add.IsEnabled = true; add.Content = "明确关联所选本地视频"; }
         };
         content.Children.Add(add);
@@ -894,7 +914,7 @@ internal sealed class RoleProfilesWindow : Window
             if (originVideo is not null && !found.Works.Any(work => work.LocalVideoId.Equals(originVideo.Id,
                     StringComparison.OrdinalIgnoreCase)))
             {
-                if (MessageBox.Show(this, "将当前已核实作品关联到此人物档案？", "角色档案",
+                if (MessageBox.Show(Window.GetWindow(this), "将当前已核实作品关联到此人物档案？", "角色档案",
                         MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
                 {
                     var work = VerifiedWork(option, originVideo.Id);
@@ -925,7 +945,7 @@ internal sealed class RoleProfilesWindow : Window
         if (autoRunning) throw new InvalidOperationException("正在自动搜刮人物，请先等待完成或取消。 ");
         if (saving) throw new InvalidOperationException("角色档案正在保存，请稍后重试。");
         saving = true;
-        var visual = (UIElement)Content;
+        UIElement visual = this;
         visual.IsEnabled = false;
         try
         {
@@ -939,7 +959,7 @@ internal sealed class RoleProfilesWindow : Window
         catch (Exception ex)
         {
             try { state = await Task.Run(() => RoleProfileStore.Load(dataDir)); } catch { }
-            MessageBox.Show(this, ex.Message, "角色档案未保存", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(Window.GetWindow(this), ex.Message, "角色档案未保存", MessageBoxButton.OK, MessageBoxImage.Warning);
             RefreshList();
         }
         finally { saving = false; visual.IsEnabled = true; }
@@ -952,7 +972,7 @@ internal sealed class RoleProfilesWindow : Window
             RoleProfileStore.Parse(System.Text.Json.JsonSerializer.Serialize(new RoleProfileStore.State
             { Profiles = [existing] })).Profiles[0];
         var editor = new Window { Title = existing is null ? "新建角色档案" : "编辑角色档案",
-            Owner = this, Width = 650, Height = 690, MinWidth = 500, MinHeight = 500,
+            Owner = Window.GetWindow(this), Width = 650, Height = 690, MinWidth = 500, MinHeight = 500,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Background = new SolidColorBrush(Color.FromRgb(247, 249, 253)) };
         var layout = new DockPanel { Margin = new Thickness(20) };
@@ -1062,6 +1082,47 @@ internal sealed class RoleProfilesWindow : Window
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps
             || uri.UserInfo.Length > 0) return;
         try { Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true }); }
-        catch (Exception ex) { MessageBox.Show(this, "无法打开来源页面：" + ex.Message, "角色档案"); }
+        catch (Exception ex) { MessageBox.Show(Window.GetWindow(this), "无法打开来源页面：" + ex.Message, "角色档案"); }
     }
+}
+
+/// <summary>
+/// Classic-mode shell for the role profile browser: a plain window hosting
+/// <see cref="RoleProfilesView"/>. Kept so the original interface mode keeps
+/// its standalone window, offscreen diagnostics keep working, and the caller
+/// contract (ctor signature, diagnostic pass-throughs) does not change.
+/// </summary>
+internal sealed class RoleProfilesWindow : Window
+{
+    readonly RoleProfilesView view;
+
+    internal RoleProfilesWindow(string dataDir, IReadOnlyList<VideoItem> videos,
+        MovieMetadata? origin, VideoItem? originVideo, string tmdbToken,
+        Action<string> openVideoDetails, bool preloadForDiagnostics = false,
+        IReadOnlyDictionary<string, MovieMetadata>? savedMetadata = null)
+    {
+        view = new RoleProfilesView(dataDir, videos, origin, originVideo, tmdbToken,
+            openVideoDetails, preloadForDiagnostics, savedMetadata);
+        Title = "人物与角色档案";
+        Width = 1110; Height = 750; MinWidth = 760; MinHeight = 520;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Content = view;
+        Closing += (_, args) =>
+        {
+            if (view.IsBusy) args.Cancel = true;
+            view.RequestAutoStop();
+        };
+        Closed += (_, _) => view.Cleanup();
+    }
+
+    internal RoleProfilesView ContentView => view;
+    internal int VerifiedOptionCountForDiagnostics => view.VerifiedOptionCountForDiagnostics;
+    internal int DisplayedWorkCountForDiagnostics => view.DisplayedWorkCountForDiagnostics;
+    internal void SelectProfileForDiagnostics(string id) => view.SelectProfileForDiagnostics(id);
+
+    internal static bool TmdbWorkIsAllowed(RoleProfileStore.WorkLink work,
+        IReadOnlyDictionary<string, VideoItem> videosById,
+        IReadOnlyDictionary<string, MovieMetadata> savedMetadata,
+        MovieMetadata? origin = null, VideoItem? originVideo = null) =>
+        RoleProfilesView.TmdbWorkIsAllowed(work, videosById, savedMetadata, origin, originVideo);
 }

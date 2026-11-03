@@ -1,0 +1,309 @@
+using System.ComponentModel;
+using System.Windows.Media;
+
+namespace YinggeVideoLibrary;
+
+/// <summary>
+/// Token-based visual theme system. All five interface modes share one set of
+/// semantic tokens; a mode is only a palette plus density values. Style setters
+/// freeze the brushes they consume, so Apply() replaces each token's brush with
+/// a fresh instance and UiThemeState raises PropertyChanged for every accessor;
+/// XAML binds through UiThemeState.Instance and updates without rebuilding the
+/// visual tree. The "classic" mode keeps the original palette values, so the
+/// original look is expressed through the same tokens, not a second code path.
+/// </summary>
+public static class UiTheme
+{
+    public const string Classic = "classic";
+    public const string Tech = "tech";
+    public const string Cinema = "cinema";
+    public const string Compact = "compact";
+    public const string Contrast = "contrast";
+
+    public static readonly (string Id, string Label, string Hint)[] Modes =
+    [
+        (Classic, "原版界面", "原有布局与配色，完整回退模式"),
+        (Tech, "科技浅色", "清爽浅色底，钴蓝品牌色"),
+        (Cinema, "深色影院", "深色背景，海报优先，暖金点缀"),
+        (Compact, "紧凑高密度", "同屏更多内容，文字保持可读"),
+        (Contrast, "高对比护眼", "高对比文字，明显焦点框"),
+    ];
+
+    public static string Current { get; private set; } = Classic;
+    public static bool IsClassicMode => Current == Classic;
+
+    public static string Normalize(string? id) =>
+        Modes.Any(mode => mode.Id.Equals(id, StringComparison.OrdinalIgnoreCase))
+            ? id!.ToLowerInvariant() : Classic;
+
+    public static string LabelOf(string id) =>
+        Modes.FirstOrDefault(mode => mode.Id == Normalize(id)).Label ?? "原版界面";
+
+    static readonly Dictionary<string, SolidColorBrush> brushes = new(StringComparer.Ordinal);
+    static readonly Dictionary<string, double> numbers = new(StringComparer.Ordinal);
+
+    public static SolidColorBrush Brush(string token) =>
+        brushes.TryGetValue(token, out var brush) ? brush : throw new InvalidOperationException("未知主题令牌：" + token);
+
+    public static double Num(string token) =>
+        numbers.TryGetValue(token, out var value) ? value : throw new InvalidOperationException("未知主题数值：" + token);
+
+    // Named accessors so XAML can bind once through x:Static and still follow
+    // every later theme switch (the shared brush instances are mutated).
+    public static SolidColorBrush PageBackgroundBrush => Brush(nameof(PageBackground));
+    public static SolidColorBrush ChromeBackgroundBrush => Brush(nameof(ChromeBackground));
+    public static SolidColorBrush SurfaceBrush => Brush(nameof(Surface));
+    public static SolidColorBrush SurfaceAltBrush => Brush(nameof(SurfaceAlt));
+    public static SolidColorBrush BorderBrushToken => Brush(nameof(Border));
+    public static SolidColorBrush BorderStrongBrush => Brush(nameof(BorderStrong));
+    public static SolidColorBrush TextPrimaryBrush => Brush(nameof(TextPrimary));
+    public static SolidColorBrush TextSecondaryBrush => Brush(nameof(TextSecondary));
+    public static SolidColorBrush TextTertiaryBrush => Brush(nameof(TextTertiary));
+    public static SolidColorBrush AccentBrush => Brush(nameof(Accent));
+    public static SolidColorBrush AccentHoverBrush => Brush(nameof(AccentHover));
+    public static SolidColorBrush AccentForegroundBrush => Brush(nameof(AccentForeground));
+    public static SolidColorBrush AccentSoftBackgroundBrush => Brush(nameof(AccentSoftBackground));
+    public static SolidColorBrush AccentSoftForegroundBrush => Brush(nameof(AccentSoftForeground));
+    public static SolidColorBrush AccentAltBrush => Brush(nameof(AccentAlt));
+    public static SolidColorBrush SelectionBackgroundBrush => Brush(nameof(SelectionBackground));
+    public static SolidColorBrush SelectionForegroundBrush => Brush(nameof(SelectionForeground));
+    public static SolidColorBrush WarningBrush => Brush(nameof(Warning));
+    public static SolidColorBrush DangerBrush => Brush(nameof(Danger));
+    public static SolidColorBrush SuccessBrush => Brush(nameof(Success));
+    public static SolidColorBrush FocusRingBrush => Brush(nameof(FocusRing));
+    public static SolidColorBrush PosterFallbackBrush => Brush(nameof(PosterFallback));
+    public static SolidColorBrush OverlayBackdropBrush => Brush(nameof(OverlayBackdrop));
+
+    // Token names (also usable from code via Brush(nameof(...))).
+    public const string PageBackground = nameof(PageBackground);
+    public const string ChromeBackground = nameof(ChromeBackground);
+    public const string Surface = nameof(Surface);
+    public const string SurfaceAlt = nameof(SurfaceAlt);
+    public const string Border = nameof(Border);
+    public const string BorderStrong = nameof(BorderStrong);
+    public const string TextPrimary = nameof(TextPrimary);
+    public const string TextSecondary = nameof(TextSecondary);
+    public const string TextTertiary = nameof(TextTertiary);
+    public const string Accent = nameof(Accent);
+    public const string AccentHover = nameof(AccentHover);
+    public const string AccentForeground = nameof(AccentForeground);
+    public const string AccentSoftBackground = nameof(AccentSoftBackground);
+    public const string AccentSoftForeground = nameof(AccentSoftForeground);
+    public const string AccentAlt = nameof(AccentAlt);
+    public const string SelectionBackground = nameof(SelectionBackground);
+    public const string SelectionForeground = nameof(SelectionForeground);
+    public const string Warning = nameof(Warning);
+    public const string Danger = nameof(Danger);
+    public const string Success = nameof(Success);
+    public const string FocusRing = nameof(FocusRing);
+    public const string PosterFallback = nameof(PosterFallback);
+    public const string OverlayBackdrop = nameof(OverlayBackdrop);
+
+    sealed record Palette(
+        string PageBackground, string ChromeBackground, string Surface, string SurfaceAlt,
+        string Border, string BorderStrong,
+        string TextPrimary, string TextSecondary, string TextTertiary,
+        string Accent, string AccentHover, string AccentForeground,
+        string AccentSoftBackground, string AccentSoftForeground, string AccentAlt,
+        string SelectionBackground, string SelectionForeground,
+        string Warning, string Danger, string Success,
+        string FocusRing, string PosterFallback, string OverlayBackdrop);
+
+    sealed record Density(
+        double FontBase, double FontSmall, double FontTiny, double FontTitle, double FontSection,
+        double CardWidth, double CardHeight, double CardRadius,
+        double SidebarWidth, double NavHeight, double ControlHeight,
+        double PageMarginH, double PageMarginTop, double CardGap);
+
+    static readonly Dictionary<string, (Palette Colors, Density Density)> themes = new(StringComparer.Ordinal)
+    {
+        // 原版界面：与 1.6.0 硬编码颜色逐项一致，保证回退模式视觉不变。
+        [Classic] = (new Palette(
+            "#F7F8FB", "#FFFFFF", "#FFFFFF", "#F7F9FF", "#E3E8EF", "#BCC8D8",
+            "#263347", "#52647A", "#8390A3",
+            "#4B6FE1", "#3E63D5", "#FFFFFF", "#EAF0FF", "#4669D9", "#7B67B1",
+            "#EEF3FF", "#435FAD",
+            "#C27A2E", "#B4232A", "#0F6E56",
+            "#5477DF", "#8397BE", "#6B14243B"),
+            new Density(13, 12, 11, 29, 17, 170, 230, 13, 78, 50, 40, 48, 42, 22)),
+        // 科技浅色：钴蓝品牌色，清爽浅色底。
+        [Tech] = (new Palette(
+            "#F3F5FB", "#FFFFFF", "#FFFFFF", "#EEF3FE", "#DFE6F2", "#B9C6E4",
+            "#16233B", "#4A5B76", "#7C8BA3",
+            "#2B4BEB", "#1B2FBF", "#FFFFFF", "#E9EEFE", "#2440C9", "#7C5CFC",
+            "#E9EEFE", "#2440C9",
+            "#B26A1B", "#B4232A", "#0E7A5F",
+            "#2B4BEB", "#5D74C9", "#8014223B"),
+            new Density(13, 12, 11, 26, 17, 172, 232, 12, 88, 52, 36, 44, 34, 18)),
+        // 深色影院：深色底、海报优先、暖金点缀。
+        [Cinema] = (new Palette(
+            "#10141B", "#151A23", "#1B222D", "#222B38", "#2C3543", "#44506A",
+            "#EDF1F7", "#A9B4C4", "#71809A",
+            "#E0A458", "#ECB878", "#1A1409", "#2A2418", "#E0A458", "#B08BD9",
+            "#33291A", "#ECB878",
+            "#D8A04C", "#E26D5A", "#5BBF98",
+            "#E0A458", "#3A4A66", "#B3000000"),
+            new Density(13.5, 12, 11, 27, 17, 188, 256, 14, 88, 54, 38, 48, 38, 20)),
+        // 紧凑高密度：小字号小卡片，同屏更多内容。
+        [Compact] = (new Palette(
+            "#F2F3F5", "#FFFFFF", "#FFFFFF", "#F6F7F9", "#D9DCE1", "#B4BAC4",
+            "#1F2937", "#556070", "#6B7280",
+            "#2B4BEB", "#1B2FBF", "#FFFFFF", "#E9EEFE", "#2440C9", "#6D55C9",
+            "#E9EEFE", "#2440C9",
+            "#B45309", "#B4232A", "#0F6E56",
+            "#2B4BEB", "#8B9DC3", "#8014223B"),
+            new Density(12, 11, 10, 20, 15, 132, 180, 8, 60, 42, 30, 22, 16, 10)),
+        // 高对比护眼：低蓝光绿底、高对比文字、明显焦点框。
+        [Contrast] = (new Palette(
+            "#E4EFE0", "#D8E8D2", "#F2F8EE", "#E9F3E3", "#5C7350", "#3E5A3E",
+            "#16240F", "#334730", "#40543A",
+            "#2C5223", "#1E3D17", "#F2F8EE", "#D2E5C8", "#1E3D17", "#4B3A8C",
+            "#CFE4C2", "#16240F",
+            "#7A4A00", "#8F1D1D", "#1E5E2E",
+            "#16240F", "#6E8A66", "#8014223B"),
+            new Density(13.5, 12.5, 11.5, 24, 16, 170, 230, 8, 92, 54, 40, 44, 34, 20)),
+    };
+
+    static UiTheme()
+    {
+        // Create every token brush once so later Apply() calls only mutate colors.
+        var first = themes[Classic].Colors;
+        foreach (var token in new[]
+        {
+            PageBackground, ChromeBackground, Surface, SurfaceAlt, Border, BorderStrong,
+            TextPrimary, TextSecondary, TextTertiary,
+            Accent, AccentHover, AccentForeground, AccentSoftBackground, AccentSoftForeground, AccentAlt,
+            SelectionBackground, SelectionForeground,
+            Warning, Danger, Success, FocusRing, PosterFallback, OverlayBackdrop
+        })
+            brushes[token] = new SolidColorBrush(Pick(first, token));
+        ApplyDensity(themes[Classic].Density);
+        UiThemeState.NotifyAll();
+    }
+
+    static System.Windows.Media.Color Pick(Palette palette, string token) =>
+        (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(token switch
+    {
+        nameof(PageBackground) => palette.PageBackground,
+        nameof(ChromeBackground) => palette.ChromeBackground,
+        nameof(Surface) => palette.Surface,
+        nameof(SurfaceAlt) => palette.SurfaceAlt,
+        nameof(Border) => palette.Border,
+        nameof(BorderStrong) => palette.BorderStrong,
+        nameof(TextPrimary) => palette.TextPrimary,
+        nameof(TextSecondary) => palette.TextSecondary,
+        nameof(TextTertiary) => palette.TextTertiary,
+        nameof(Accent) => palette.Accent,
+        nameof(AccentHover) => palette.AccentHover,
+        nameof(AccentForeground) => palette.AccentForeground,
+        nameof(AccentSoftBackground) => palette.AccentSoftBackground,
+        nameof(AccentSoftForeground) => palette.AccentSoftForeground,
+        nameof(AccentAlt) => palette.AccentAlt,
+        nameof(SelectionBackground) => palette.SelectionBackground,
+        nameof(SelectionForeground) => palette.SelectionForeground,
+        nameof(Warning) => palette.Warning,
+        nameof(Danger) => palette.Danger,
+        nameof(Success) => palette.Success,
+        nameof(FocusRing) => palette.FocusRing,
+        nameof(PosterFallback) => palette.PosterFallback,
+        _ => palette.OverlayBackdrop,
+    });
+
+    /// <summary>Switch the active mode. XAML style setters freeze the brushes
+    /// they consume, so we cannot mutate shared instances; instead each token
+    /// gets a fresh brush and bound elements pick it up via UiThemeState
+    /// PropertyChanged. The visual tree is never rebuilt.</summary>
+    public static void Apply(string? id)
+    {
+        var normalized = Normalize(id);
+        Current = normalized;
+        var (colors, density) = themes[normalized];
+        foreach (var token in brushes.Keys.ToArray())
+            brushes[token] = new SolidColorBrush(Pick(colors, token));
+        ApplyDensity(density);
+        UiThemeState.NotifyAll();
+    }
+
+    static void ApplyDensity(Density density)
+    {
+        numbers[nameof(FontBase)] = density.FontBase;
+        numbers[nameof(FontSmall)] = density.FontSmall;
+        numbers[nameof(FontTiny)] = density.FontTiny;
+        numbers[nameof(FontTitle)] = density.FontTitle;
+        numbers[nameof(FontSection)] = density.FontSection;
+        numbers[nameof(CardWidth)] = density.CardWidth;
+        numbers[nameof(CardHeight)] = density.CardHeight;
+        numbers[nameof(CardRadius)] = density.CardRadius;
+        numbers[nameof(SidebarWidth)] = density.SidebarWidth;
+        numbers[nameof(NavHeight)] = density.NavHeight;
+        numbers[nameof(ControlHeight)] = density.ControlHeight;
+        numbers[nameof(PageMarginH)] = density.PageMarginH;
+        numbers[nameof(PageMarginTop)] = density.PageMarginTop;
+        numbers[nameof(CardGap)] = density.CardGap;
+    }
+
+    public const string FontBase = nameof(FontBase);
+    public const string FontSmall = nameof(FontSmall);
+    public const string FontTiny = nameof(FontTiny);
+    public const string FontTitle = nameof(FontTitle);
+    public const string FontSection = nameof(FontSection);
+    public const string CardWidth = nameof(CardWidth);
+    public const string CardHeight = nameof(CardHeight);
+    public const string CardRadius = nameof(CardRadius);
+    public const string SidebarWidth = nameof(SidebarWidth);
+    public const string NavHeight = nameof(NavHeight);
+    public const string ControlHeight = nameof(ControlHeight);
+    public const string PageMarginH = nameof(PageMarginH);
+    public const string PageMarginTop = nameof(PageMarginTop);
+    public const string CardGap = nameof(CardGap);
+}
+
+/// <summary>
+/// Binding source for density values (doubles cannot be mutated in place like
+/// brush colors, so XAML binds to these properties and gets PropertyChanged on
+/// every theme switch).
+/// </summary>
+public sealed class UiThemeState : INotifyPropertyChanged
+{
+    public static readonly UiThemeState Instance = new();
+    UiThemeState() { }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    internal static void NotifyAll() =>
+        Instance.PropertyChanged?.Invoke(Instance, new PropertyChangedEventArgs(null));
+
+    public double FontBase => UiTheme.Num(UiTheme.FontBase);
+    public double FontSmall => UiTheme.Num(UiTheme.FontSmall);
+    public double FontTiny => UiTheme.Num(UiTheme.FontTiny);
+    public double FontTitle => UiTheme.Num(UiTheme.FontTitle);
+    public double CardWidth => UiTheme.Num(UiTheme.CardWidth);
+    public double CardHeight => UiTheme.Num(UiTheme.CardHeight);
+    public double CardRadius => UiTheme.Num(UiTheme.CardRadius);
+    public double ControlHeight => UiTheme.Num(UiTheme.ControlHeight);
+
+    // Brush accessors for XAML binding (PropertyChanged(null) refreshes all).
+    public SolidColorBrush PageBackgroundBrush => UiTheme.PageBackgroundBrush;
+    public SolidColorBrush ChromeBackgroundBrush => UiTheme.ChromeBackgroundBrush;
+    public SolidColorBrush SurfaceBrush => UiTheme.SurfaceBrush;
+    public SolidColorBrush SurfaceAltBrush => UiTheme.SurfaceAltBrush;
+    public SolidColorBrush BorderBrushToken => UiTheme.BorderBrushToken;
+    public SolidColorBrush BorderStrongBrush => UiTheme.BorderStrongBrush;
+    public SolidColorBrush TextPrimaryBrush => UiTheme.TextPrimaryBrush;
+    public SolidColorBrush TextSecondaryBrush => UiTheme.TextSecondaryBrush;
+    public SolidColorBrush TextTertiaryBrush => UiTheme.TextTertiaryBrush;
+    public SolidColorBrush AccentBrush => UiTheme.AccentBrush;
+    public SolidColorBrush AccentHoverBrush => UiTheme.AccentHoverBrush;
+    public SolidColorBrush AccentForegroundBrush => UiTheme.AccentForegroundBrush;
+    public SolidColorBrush AccentSoftBackgroundBrush => UiTheme.AccentSoftBackgroundBrush;
+    public SolidColorBrush AccentSoftForegroundBrush => UiTheme.AccentSoftForegroundBrush;
+    public SolidColorBrush AccentAltBrush => UiTheme.AccentAltBrush;
+    public SolidColorBrush SelectionBackgroundBrush => UiTheme.SelectionBackgroundBrush;
+    public SolidColorBrush SelectionForegroundBrush => UiTheme.SelectionForegroundBrush;
+    public SolidColorBrush WarningBrush => UiTheme.WarningBrush;
+    public SolidColorBrush DangerBrush => UiTheme.DangerBrush;
+    public SolidColorBrush SuccessBrush => UiTheme.SuccessBrush;
+    public SolidColorBrush FocusRingBrush => UiTheme.FocusRingBrush;
+    public SolidColorBrush PosterFallbackBrush => UiTheme.PosterFallbackBrush;
+    public SolidColorBrush OverlayBackdropBrush => UiTheme.OverlayBackdropBrush;
+}

@@ -17,7 +17,8 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\安装包
 OutputBaseFilename=YinggeVideoLibrary-Setup
-SetupIconFile=app.ico
+; 安装包图标：v2 品牌图标；回退时改回 app.ico（仓库根目录保留）。
+SetupIconFile=assets\branding\yingge-icon-v2.ico
 UninstallDisplayIcon={app}\映格视频库.exe
 Compression=lzma2
 SolidCompression=yes

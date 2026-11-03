@@ -21,6 +21,8 @@ public partial class MainWindow
     bool periodicBackupEnabled;
     DateTimeOffset? periodicBackupNextDueUtc;
 
+    readonly List<System.Windows.Controls.RadioButton> themeModeButtons = new();
+
     void InitializeSettingsOptions()
     {
         if (SettingsPanel.Child is not StackPanel panel) return;
@@ -56,7 +58,31 @@ public partial class MainWindow
     StackPanel BuildAppearanceOptions()
     {
         var section = new StackPanel { Name = "SettingsAppearanceOptions", Margin = new Thickness(0, 16, 0, 8) };
-        section.Children.Add(new TextBlock { Text = "列表密度", FontWeight = FontWeights.SemiBold });
+        section.Children.Add(new TextBlock { Text = "界面模式", FontWeight = FontWeights.SemiBold });
+        section.Children.Add(SettingsHint("原版界面保留原有布局作为完整回退；其余四种为新版界面。切换立即生效并随配置保存。"));
+        var themeRow = new WrapPanel();
+        foreach (var (id, label, hint) in UiTheme.Modes)
+        {
+            var choice = new System.Windows.Controls.RadioButton
+            {
+                Content = label + " · " + hint,
+                GroupName = "UiThemeMode",
+                IsChecked = UiTheme.Normalize(config.UiTheme) == id,
+                Margin = new Thickness(0, 3, 18, 3),
+                Tag = id
+            };
+            choice.Checked += (_, _) =>
+            {
+                if (config.UiTheme == id) return;
+                config.UiTheme = id;
+                UiTheme.Apply(id);
+                SaveConfig();
+            };
+            themeModeButtons.Add(choice);
+            themeRow.Children.Add(choice);
+        }
+        section.Children.Add(themeRow);
+        section.Children.Add(new TextBlock { Text = "列表密度", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 10, 0, 0) });
         section.Children.Add(SettingsHint("分页列表每页显示的卡片数。完整列表仍使用虚拟滚动。"));
         var row = new StackPanel { Orientation = Orientation.Horizontal };
         row.Children.Add(new TextBlock { Text = "每页卡片", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) });

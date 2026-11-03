@@ -640,13 +640,16 @@ public partial class MainWindow
                 {
                     UpdateAutoCheck = false, UpdateCheckIntervalHours = 24,
                     ScrapeRequestIntervalSeconds = 5, ScrapeRefreshIncompleteMetadata = true,
-                    CardPageSize = 30, PosterCacheLimitMb = 0, MinimizeToTray = true, CloseToTray = false, StartMinimized = true,
+                    CardPageSize = 30, PosterCacheLimitMb = 0, UiTheme = UiTheme.LineField,
+                    UiMotion = UiMotion.Smooth, MinimizeToTray = true, CloseToTray = false, StartMinimized = true,
                     StartPage = "categories"
                 };
                 var optionClone = CloneLibraryConfig(optionProbe);
                 if (optionClone.UpdateAutoCheck || optionClone.UpdateCheckIntervalHours != 24
                     || optionClone.ScrapeRequestIntervalSeconds != 5 || !optionClone.ScrapeRefreshIncompleteMetadata
-                    || optionClone.CardPageSize != 30 || optionClone.PosterCacheLimitMb != 0 || !optionClone.MinimizeToTray
+                    || optionClone.CardPageSize != 30 || optionClone.PosterCacheLimitMb != 0
+                    || optionClone.UiTheme != UiTheme.LineField || optionClone.UiMotion != UiMotion.Smooth
+                    || !optionClone.MinimizeToTray
                     || optionClone.CloseToTray
                     || !optionClone.StartMinimized || optionClone.StartPage != "categories")
                     throw new InvalidOperationException("设置选项在配置快照中丢失");

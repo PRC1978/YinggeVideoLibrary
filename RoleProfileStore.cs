@@ -42,6 +42,9 @@ internal static class RoleProfileStore
         public string PortraitBase64 { get; set; } = "";
         public List<SourceIdentity> Sources { get; set; } = [];
         public List<SourceDetails> SourcedDetails { get; set; } = [];
+        // User-confirmed public biography references are separate from work-
+        // verified source identities. A same-name article never links a video.
+        public List<WikipediaReference> WikipediaReferences { get; set; } = [];
         public List<WorkLink> Works { get; set; } = [];
         public DateTimeOffset UpdatedUtc { get; set; } = DateTimeOffset.UtcNow;
     }
@@ -91,6 +94,16 @@ internal static class RoleProfileStore
         public string PortraitUrl { get; set; } = "";
         public string PortraitMime { get; set; } = "";
         public string PortraitBase64 { get; set; } = "";
+        public DateTimeOffset FetchedUtc { get; set; } = DateTimeOffset.UtcNow;
+    }
+
+    internal sealed class WikipediaReference
+    {
+        public long PageId { get; set; }
+        public string Title { get; set; } = "";
+        public string Url { get; set; } = "";
+        public string Description { get; set; } = "";
+        public string Extract { get; set; } = "";
         public DateTimeOffset FetchedUtc { get; set; } = DateTimeOffset.UtcNow;
     }
 
@@ -151,6 +164,7 @@ internal static class RoleProfileStore
                 || !TextOk(p.BloodType, 80) || !TextOk(p.Biography, 20000)
                 || p.Sources is null || p.Sources.Count > 30
                 || p.SourcedDetails is null || p.SourcedDetails.Count > 30
+                || p.WikipediaReferences is null || p.WikipediaReferences.Count > 5
                 || p.Works is null || p.Works.Count > 20000)
                 throw new InvalidDataException("角色档案包含无效字段。");
             if (p.PortraitBase64 is null || p.PortraitMime is null ||
@@ -175,6 +189,13 @@ internal static class RoleProfileStore
                 if (!identities.Add(source.Provider + "\n" + source.PersonId))
                     throw new InvalidDataException("同一来源人物被关联到多个角色档案。");
             }
+            var wikiPages = new HashSet<long>();
+            foreach (var reference in p.WikipediaReferences)
+                if (reference is null || reference.PageId <= 0 || !wikiPages.Add(reference.PageId)
+                    || !TextOk(reference.Title, 180) || reference.Title.Length == 0
+                    || !TextOk(reference.Description, 300) || !TextOk(reference.Extract, 6000)
+                    || !WikipediaPersonScraper.IsCanonicalPageUrl(reference.Url, reference.Title))
+                    throw new InvalidDataException("维基百科人物资料格式无效。");
             var sourcedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var details in p.SourcedDetails)
             {

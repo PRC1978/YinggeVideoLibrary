@@ -218,7 +218,8 @@ public partial class MainWindow
         section.Expanded += (_, _) =>
         {
             chevron.Text = "⌃";
-            body.BeginAnimation(OpacityProperty, new DoubleAnimation(0.15, 1, TimeSpan.FromMilliseconds(160)));
+            var fade = UiMotion.FeedbackMilliseconds(config.UiMotion);
+            if (fade > 0) body.BeginAnimation(OpacityProperty, new DoubleAnimation(0.15, 1, TimeSpan.FromMilliseconds(fade)));
             if (key == "ai") _ = RefreshAiJobsAsync();
         };
         section.Collapsed += (_, _) => chevron.Text = "⌄";

@@ -18,6 +18,13 @@ internal static class RoleProfileDiagnostics
             {
                 LocalVideoId = "local-1", WorkTitle = "作品 A", LinkOrigin = "manual"
             });
+            first.WikipediaReferences.Add(new RoleProfileStore.WikipediaReference
+            {
+                PageId = 8731741, Title = "森日向子",
+                Url = WikipediaPersonScraper.PageUrl("森日向子"),
+                Description = "日本演员", Extract = "公开人物简介",
+                FetchedUtc = DateTimeOffset.UtcNow
+            });
             var state = new RoleProfileStore.State { Profiles = [first, second] };
             RoleProfileStore.Save(root, state);
             var loaded = RoleProfileStore.Load(root);
@@ -25,6 +32,11 @@ internal static class RoleProfileDiagnostics
                 && loaded.Profiles[0].Id != loaded.Profiles[1].Id
                 && loaded.Profiles[0].Works.Single().LocalVideoId == "local-1"
                 && loaded.Profiles[1].Works.Count == 0;
+            result["wikipediaPersonStaysLocalAndManualWorkSurvivesRestart"] =
+                loaded.Profiles[0].WikipediaReferences.Single().PageId == 8731741
+                && loaded.Profiles[0].WikipediaReferences.Single().Extract == "公开人物简介"
+                && loaded.Profiles[0].Works.Single().LinkOrigin == "manual"
+                && loaded.Profiles[1].WikipediaReferences.Count == 0;
             var stale = RoleProfileStore.Load(root);
             loaded.Profiles[0].Role = "主演";
             RoleProfileStore.Save(root, loaded);

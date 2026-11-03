@@ -96,6 +96,54 @@ public partial class MainWindow
             themeRow.Children.Add(choice);
         }
         section.Children.Add(themeRow);
+        var restoreTheme = new System.Windows.Controls.Button
+        {
+            Content = "恢复原版主题", Style = (Style)FindResource("Action"),
+            Margin = new Thickness(0, 4, 0, 8), HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
+            ToolTip = "只恢复原版界面与默认动画；不删除视频、分类或标签"
+        };
+        restoreTheme.Click += (_, _) =>
+        {
+            config.UiTheme = UiTheme.Classic;
+            config.UiMotion = UiMotion.Balanced;
+            UiTheme.Apply(UiTheme.Classic);
+            foreach (var choice in themeModeButtons)
+                choice.IsChecked = Equals(choice.Tag, UiTheme.Classic);
+            ApplyInterfaceMode();
+            SaveConfig();
+            ShowView("settings");
+        };
+        section.Children.Add(restoreTheme);
+        section.Children.Add(new TextBlock { Text = "界面动画", FontWeight = FontWeights.SemiBold,
+            Foreground = UiTheme.TextPrimaryBrush, Margin = new Thickness(0, 10, 0, 0) });
+        section.Children.Add(SettingsHint("可随时调整。流畅优先关闭装饰动画；列表与分类图不会因动画选项减少内容。"));
+        var motionRow = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
+        var motionButtons = new List<System.Windows.Controls.RadioButton>();
+        foreach (var (id, label) in new[]
+        {
+            (UiMotion.Smooth, "流畅优先"), (UiMotion.Balanced, "平衡"), (UiMotion.Animated, "动画优先")
+        })
+        {
+            var motion = new System.Windows.Controls.RadioButton
+            {
+                Content = label, GroupName = "UiMotionMode", Tag = id,
+                IsChecked = UiMotion.Normalize(config.UiMotion) == id,
+                Margin = new Thickness(0, 0, 18, 8), Foreground = UiTheme.TextPrimaryBrush
+            };
+            motion.Checked += (_, _) =>
+            {
+                if (config.UiMotion == id) return;
+                config.UiMotion = id;
+                SaveConfig();
+            };
+            motionButtons.Add(motion);
+            motionRow.Children.Add(motion);
+        }
+        restoreTheme.Click += (_, _) =>
+        {
+            foreach (var motion in motionButtons) motion.IsChecked = Equals(motion.Tag, UiMotion.Balanced);
+        };
+        section.Children.Add(motionRow);
         section.Children.Add(new TextBlock { Text = "列表密度", FontWeight = FontWeights.SemiBold,
             Foreground = UiTheme.TextPrimaryBrush, Margin = new Thickness(0, 10, 0, 0) });
         section.Children.Add(SettingsHint("分页列表每页显示的卡片数。完整列表仍使用虚拟滚动。"));
@@ -123,6 +171,9 @@ public partial class MainWindow
             UiTheme.Cinema => ("#171D28", "#28313D", "#343E4E", "#D5A24C"),
             UiTheme.Compact => ("#F5F7FA", "#E6ECF6", "#FFFFFF", "#476BDD"),
             UiTheme.Contrast => ("#E8F2E4", "#C7DCC4", "#F8FFF5", "#275E3E"),
+            UiTheme.Neumorphism => ("#E0E5EC", "#D3DAE4", "#E0E5EC", "#6652BD"),
+            UiTheme.LineField => ("#FAFAF8", "#EEEEEB", "#FFFFFF", "#2152E7"),
+            UiTheme.Editorial => ("#F5F1E9", "#EDE8DD", "#FAF7F0", "#62563F"),
             UiTheme.Tech => ("#EFF5FF", "#DDEAFF", "#FFFFFF", "#4169E1"),
             _ => ("#F8FAFD", "#E8EFF9", "#FFFFFF", "#4C6BDC")
         };
@@ -144,7 +195,8 @@ public partial class MainWindow
         content.Children.Add(new TextBlock { Text = id switch
             {
                 UiTheme.Classic => "熟悉的原版布局", UiTheme.Tech => "明亮清爽", UiTheme.Cinema => "深色海报优先",
-                UiTheme.Compact => "同屏更多内容", _ => "文字更清楚"
+                UiTheme.Compact => "同屏更多内容", UiTheme.Neumorphism => "柔和立体光影",
+                UiTheme.LineField => "纸白与蓝色线条", UiTheme.Editorial => "温暖的档案纸感", _ => "文字更清楚"
             }, FontSize = 11, Foreground = UiTheme.TextTertiaryBrush, TextTrimming = TextTrimming.CharacterEllipsis });
         content.ToolTip = hint;
         return content;

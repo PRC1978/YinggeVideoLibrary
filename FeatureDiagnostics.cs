@@ -140,6 +140,10 @@ internal static class FeatureDiagnostics
             findings["refreshCannotEraseAcceptedFields"] = MetadataRefreshPolicy.VerifyForDiagnostics();
             foreach (var (name, checkPassed) in JavDbCatalogDiagnostics.Verify())
                 findings[name] = checkPassed;
+            foreach (var (name, checkPassed) in AvScanEligibility.Verify())
+                findings[name] = checkPassed;
+            foreach (var (name, checkPassed) in WikipediaPersonScraper.Verify())
+                findings[name] = checkPassed;
             foreach (var (name, checkPassed) in JavDatabaseCatalogDiagnostics.Verify())
                 findings[name] = checkPassed;
             foreach (var (name, checkPassed) in JavDatabaseActorSearchDiagnostics.Verify())

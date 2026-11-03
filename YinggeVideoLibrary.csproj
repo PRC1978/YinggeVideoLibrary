@@ -12,10 +12,10 @@
     <FileVersion>1.6.6.0</FileVersion>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <Copyright>Copyright (c) 2026 PRC1978</Copyright>
-    <!-- Program icon: v2 brand mark (cobalt/indigo film frames). The original
+    <!-- Program icon: v3 line-field play mark. The original
          app.ico stays in the repo root as the rollback option — to revert,
          point ApplicationIcon and the .iss SetupIconFile back to app.ico. -->
-    <ApplicationIcon>assets\branding\yingge-icon-v2.ico</ApplicationIcon>
+    <ApplicationIcon>assets\branding\yingge-icon-v3.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <!-- The sample plugin is a separate executable with its own obj/bin. Keep
@@ -26,8 +26,8 @@
   </ItemGroup>
   <ItemGroup>
     <Resource Include="app.ico" />
-    <Resource Include="assets\branding\yingge-icon-v2.ico" />
-    <Resource Include="assets\branding\yingge-icon-v2.png" />
+    <Resource Include="assets\branding\yingge-icon-v3.ico" />
+    <Resource Include="assets\branding\yingge-icon-v3.png" />
     <Resource Include="third-party\TMDB\tmdb-primary-short-blue.png" />
   </ItemGroup>
   <ItemGroup>

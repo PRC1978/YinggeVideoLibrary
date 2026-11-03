@@ -137,6 +137,7 @@ public sealed class LibraryConfig
     // Existing users (config written before this key existed) stay on classic
     // until they explicitly pick a new mode in Settings -> Appearance.
     [JsonPropertyName("uiTheme")] public string UiTheme { get; set; } = global::YinggeVideoLibrary.UiTheme.Classic;
+    [JsonPropertyName("uiMotion")] public string UiMotion { get; set; } = global::YinggeVideoLibrary.UiMotion.Balanced;
 }
 
 public sealed class IndexEntry
@@ -681,6 +682,7 @@ public partial class MainWindow : Window
                 .ToDictionary(pair => pair.Key, pair => ScrapeSourcePolicy.Normalize(pair.Value,
                     loaded.ScrapeRequestIntervalSeconds), StringComparer.OrdinalIgnoreCase);
             loaded.CardPageSize = loaded.CardPageSize is 30 or 60 or 90 ? loaded.CardPageSize : 60;
+            loaded.UiMotion = global::YinggeVideoLibrary.UiMotion.Normalize(loaded.UiMotion);
             loaded.PosterCacheLimitMb = VideoItem.NormalizePosterCacheLimitMiB(loaded.PosterCacheLimitMb);
             loaded.Folders = loaded.Folders.Where(folder => !string.IsNullOrWhiteSpace(folder)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             if (loaded.Folders.Count > 0) loaded.FoldersClearedByUser = false;
@@ -1690,6 +1692,9 @@ public partial class MainWindow : Window
         // Switching pages used to inherit the previous page's offset, so the
         // new page opened mid-scroll. Only reset when the page really changed.
         if (changedView) LibraryScroll.ScrollToTop();
+        if (changedView && target != "online" && UiMotion.PageFadeMilliseconds(config.UiMotion) is var fade && fade > 0)
+            LibraryScroll.BeginAnimation(OpacityProperty,
+                new DoubleAnimation(0.72, 1, TimeSpan.FromMilliseconds(fade)));
     }
 
     void RenderCards()
@@ -2949,8 +2954,12 @@ public partial class MainWindow : Window
         {
             if (tile.RenderTransform is ScaleTransform scale)
             {
-                scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(1, 1.045, TimeSpan.FromMilliseconds(140)));
-                scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(1, 1.045, TimeSpan.FromMilliseconds(140)));
+                var duration = UiMotion.FeedbackMilliseconds(config.UiMotion);
+                if (duration > 0)
+                {
+                    scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(1, 1.045, TimeSpan.FromMilliseconds(duration)));
+                    scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(1, 1.045, TimeSpan.FromMilliseconds(duration)));
+                }
             }
         }
         else if (sender is System.Windows.Controls.Control control)
@@ -2962,7 +2971,7 @@ public partial class MainWindow : Window
     }
     void CategoryDragLeave(object sender, System.Windows.DragEventArgs e)
     {
-        if (sender is Border tile) { if (tile.RenderTransform is ScaleTransform scale) { scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(1.045, 1, TimeSpan.FromMilliseconds(120))); scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(1.045, 1, TimeSpan.FromMilliseconds(120))); } }
+        if (sender is Border tile) { if (tile.RenderTransform is ScaleTransform scale) { var duration = UiMotion.FeedbackMilliseconds(config.UiMotion); if (duration > 0) { scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(1.045, 1, TimeSpan.FromMilliseconds(duration))); scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(1.045, 1, TimeSpan.FromMilliseconds(duration))); } else { scale.ScaleX = 1; scale.ScaleY = 1; } } }
         else if (sender is TreeViewItem node) node.Background = Brushes.Transparent;
     }
 
@@ -3094,6 +3103,13 @@ public partial class MainWindow : Window
         var information = new MenuItem { Header = "查看完整搜刮资料…", IsEnabled = metadata.ContainsKey(video.Id) || config.AiReviews.ContainsKey(video.Id) };
         information.Click += (_, _) => ShowMetadataDetailsForVideo(video);
         menu.Items.Add(information);
+        if (AvScanEligibility.CanOffer(video, metadata.GetValueOrDefault(video.Id)))
+        {
+            var avScan = new MenuItem { Header = "AVScan 搜图（确认上传）…" };
+            avScan.Click += OpenAvScanHandoff;
+            avScan.DataContext = video;
+            menu.Items.Add(avScan);
+        }
         var personProfile = new MenuItem { Header = "人物 / 角色档案…" };
         personProfile.Click += (_, _) => Dispatcher.BeginInvoke(() =>
             OpenRoleProfiles(video, metadata.GetValueOrDefault(video.Id)));
@@ -4174,6 +4190,14 @@ public partial class MainWindow : Window
                 ToolTip = "手动输入正确番号，只重新搜刮这一部视频" };
             retryCode.Click += ScrapeVideo;
             quickActions.Children.Add(retryCode);
+            if (AvScanEligibility.CanOffer(localVideo, metadata.GetValueOrDefault(localVideo.Id)))
+            {
+                var avScan = new Button { Content = "AVScan 搜图", Style = (Style)FindResource("Action"),
+                    Padding = new Thickness(10, 0, 10, 0), Margin = new Thickness(6, 4, 0, 0),
+                    DataContext = localVideo, ToolTip = "本地截帧，由你确认上传到 AVScan，再输入找到的番号" };
+                avScan.Click += OpenAvScanHandoff;
+                quickActions.Children.Add(avScan);
+            }
             detail.Children.Add(quickActions);
             var approve = new Button { Content = "通过", Style = (Style)FindResource("Action"), Padding = new Thickness(10, 0, 10, 0) }; approve.Click += (_, _) =>
             {
@@ -4361,6 +4385,11 @@ public partial class MainWindow : Window
         if ((sender as FrameworkElement)?.DataContext is not VideoItem video) return;
         var code = PromptText("番号完整资料搜刮", "确认视频番号：", JavDbScraper.GuessCode(video.Title));
         if (string.IsNullOrEmpty(code)) return;
+        await ScrapeVideoWithCodeAsync(video, code);
+    }
+
+    async Task ScrapeVideoWithCodeAsync(VideoItem video, string code)
+    {
         PageSubtitle.Text = $"正在从已启用来源查找 {code}…";
         TaskStatusText.Text = $"正在搜刮 {code}";
         Log("开始搜刮：" + code);

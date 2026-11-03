@@ -17,8 +17,8 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\安装包
 OutputBaseFilename=YinggeVideoLibrary-Setup
-; 安装包图标：v2 品牌图标；回退时改回 app.ico（仓库根目录保留）。
-SetupIconFile=assets\branding\yingge-icon-v2.ico
+; 安装包图标：v3 线场播放标志；回退时改回 app.ico（仓库根目录保留）。
+SetupIconFile=assets\branding\yingge-icon-v3.ico
 UninstallDisplayIcon={app}\映格视频库.exe
 Compression=lzma2
 SolidCompression=yes
@@ -35,7 +35,7 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 
 [Files]
 Source: "..\发布\映格视频库.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "assets\branding\yingge-icon-v2.ico"; DestDir: "{app}"; DestName: "yingge-icon-v2.ico"; Flags: ignoreversion
+Source: "assets\branding\yingge-icon-v3.ico"; DestDir: "{app}"; DestName: "yingge-icon-v3.ico"; Flags: ignoreversion
 Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "third-party\Microsoft.Web.WebView2\1.0.3595.46\LICENSE.txt"; DestDir: "{app}\third-party\Microsoft.Web.WebView2\1.0.3595.46"; Flags: ignoreversion
 Source: "third-party\Microsoft.Web.WebView2\1.0.3595.46\NOTICE.txt"; DestDir: "{app}\third-party\Microsoft.Web.WebView2\1.0.3595.46"; Flags: ignoreversion
@@ -44,8 +44,8 @@ Source: "third-party\Microsoft.NETCore.App.Runtime.win-x64\9.0.17\THIRD-PARTY-NO
 Source: "third-party\Microsoft.WindowsDesktop.App.Runtime.win-x64\9.0.17\LICENSE"; DestDir: "{app}\third-party\Microsoft.WindowsDesktop.App.Runtime.win-x64\9.0.17"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\映格视频库"; Filename: "{app}\映格视频库.exe"; IconFilename: "{app}\yingge-icon-v2.ico"
-Name: "{autodesktop}\映格视频库"; Filename: "{app}\映格视频库.exe"; IconFilename: "{app}\yingge-icon-v2.ico"; Tasks: desktopicon
+Name: "{group}\映格视频库"; Filename: "{app}\映格视频库.exe"; IconFilename: "{app}\yingge-icon-v3.ico"
+Name: "{autodesktop}\映格视频库"; Filename: "{app}\映格视频库.exe"; IconFilename: "{app}\yingge-icon-v3.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\映格视频库.exe"; Description: "启动映格视频库"; Flags: nowait postinstall skipifsilent

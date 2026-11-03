@@ -31,13 +31,21 @@ public partial class MainWindow
                     // The review page only exists outside classic mode; the
                     // status page only exists in classic mode.
                     var pages = UiTheme.IsClassicMode
-                        ? new[] { "all", "categories", "scrape", "status", "settings" }
-                        : new[] { "all", "categories", "scrape", "review", "roles", "settings" };
+                        ? new[] { "all", "categories", "recommendations", "scrape", "status", "settings" }
+                        : new[] { "all", "categories", "recommendations", "scrape", "review", "roles", "settings" };
                     foreach (var page in pages)
                     {
                         ShowView(page);
+                        if (page == "recommendations")
+                        {
+                            for (var attempt = 0; attempt < 30 &&
+                                !RecommendationPanel.Children.OfType<System.Windows.Controls.Border>().Any(); attempt++)
+                                await Task.Delay(50);
+                        }
+                        var cardPopulationTimedOut = false;
                         if (page == "all" && categoryCardPopulationCompletion is { } population)
-                            await population.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                            cardPopulationTimedOut = await Task.WhenAny(population.Task,
+                                Task.Delay(TimeSpan.FromSeconds(3))) != population.Task;
                         LibraryScroll.ScrollToTop();
                         UpdateLayout();
                         await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
@@ -64,6 +72,7 @@ public partial class MainWindow
                             reviewNavVisible = ReviewNav.Visibility == Visibility.Visible,
                             pluginsNavVisible = PluginsNav.Visibility == Visibility.Visible,
                             cardWidthExpected = UiTheme.Num(UiTheme.CardWidth),
+                            cardPopulationTimedOut,
                             cardWidthActual = page == "all" && Cards.VisibleCardCount > 0
                                 ? ((FrameworkElement)Cards.Children[0]).ActualWidth : (double?)null,
                             sphereNodeCount = page == "categories" ? sphereMapSurface?.NodeCount : null,

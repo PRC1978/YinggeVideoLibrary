@@ -192,9 +192,9 @@ internal static class StartupRegistration
     {
         var directory = Path.Combine(AppPaths.DataDirectory, "branding");
         Directory.CreateDirectory(directory);
-        var path = Path.Combine(directory, "yingge-icon-v2.ico");
+        var path = Path.Combine(directory, "yingge-icon-v3.ico");
         var resource = System.Windows.Application.GetResourceStream(
-            new Uri("pack://application:,,,/assets/branding/yingge-icon-v2.ico"))
+            new Uri("pack://application:,,,/assets/branding/yingge-icon-v3.ico"))
             ?? throw new IOException("无法读取映格图标资源。");
         using var input = resource.Stream;
         using var output = File.Create(path);

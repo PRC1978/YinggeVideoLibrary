@@ -1,11 +1,13 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
+using FontFamily = System.Windows.Media.FontFamily;
 
 namespace YinggeVideoLibrary;
 
 /// <summary>
-/// Token-based visual theme system. All five interface modes share one set of
+/// Token-based visual theme system. All interface modes share one set of
 /// semantic tokens; a mode is only a palette plus density values. Style setters
 /// freeze the brushes they consume, so Apply() replaces each token's brush with
 /// a fresh instance and UiThemeState raises PropertyChanged for every accessor;
@@ -20,6 +22,9 @@ public static class UiTheme
     public const string Cinema = "cinema";
     public const string Compact = "compact";
     public const string Contrast = "contrast";
+    public const string Neumorphism = "neumorphism";
+    public const string LineField = "line-field";
+    public const string Editorial = "editorial";
 
     public static readonly (string Id, string Label, string Hint)[] Modes =
     [
@@ -28,6 +33,9 @@ public static class UiTheme
         (Cinema, "深色影院", "深色背景，海报优先，暖金点缀"),
         (Compact, "紧凑高密度", "同屏更多内容，文字保持可读"),
         (Contrast, "高对比护眼", "高对比文字，明显焦点框"),
+        (Neumorphism, "新拟物派", "柔和灰底、圆角与双向光影"),
+        (LineField, "量化线场", "纸白底、钴蓝线条、清晰的资料层级"),
+        (Editorial, "纸感档案", "暖纸色、克制分隔与作品优先"),
     ];
 
     public static string Current { get; private set; } = Classic;
@@ -204,6 +212,28 @@ public static class UiTheme
             "#7A4A00", "#8F1D1D", "#1E5E2E",
             "#16240F", "#6E8A66", "#8014223B"),
             new Density(13.5, 12.5, 11.5, 24, 16, 170, 230, 8, 92, 54, 40, 44, 34, 20)),
+        [Neumorphism] = (new Palette(
+            "#E0E5EC", "#E0E5EC", "#E0E5EC", "#E9EDF3", "#C8D0DA", "#AAB7C8",
+            "#263449", "#4C5C72", "#607188",
+            "#6652BD", "#5340A5", "#F4F1FC", "#DCD5F4", "#493796", "#7865C5",
+            "#DCD5F4", "#352477",
+            "#986018", "#AA3745", "#277456",
+            "#6652BD", "#8D9BAE", "#701B2538"),
+            new Density(13.5, 12, 11, 27, 17, 174, 234, 18, 88, 54, 40, 46, 36, 20)),
+        [LineField] = (new Palette(
+            "#FAFAF8", "#F1F2EF", "#FFFFFF", "#EEEEEB", "#D9DBD5", "#A9B4C5",
+            "#202A38", "#4A586B", "#66758A",
+            "#2152E7", "#1742C2", "#FFFFFF", "#DEE8FF", "#153BA8", "#496DCE",
+            "#DDE8FF", "#153BA8", "#9C621F", "#B43B45", "#247553",
+            "#2152E7", "#95A9CF", "#701B2538"),
+            new Density(13, 12, 11, 27, 17, 178, 238, 16, 88, 54, 40, 46, 36, 20)),
+        [Editorial] = (new Palette(
+            "#F5F1E9", "#EDE8DD", "#FAF7F0", "#F0EBE1", "#D5CFC3", "#9B9488",
+            "#282722", "#575349", "#746E63",
+            "#62563F", "#483D2D", "#FFFFFF", "#E8E0D1", "#443927", "#87735A",
+            "#E7DFD0", "#392F21", "#966019", "#A33936", "#3D7052",
+            "#62563F", "#A8A093", "#701B2538"),
+            new Density(13.5, 12, 11, 29, 18, 178, 238, 9, 88, 54, 40, 46, 38, 21)),
     };
 
     static UiTheme()
@@ -334,6 +364,24 @@ public sealed class UiThemeState : INotifyPropertyChanged
     public double CardGap => UiTheme.Num(UiTheme.CardGap);
     public Thickness CardMargin => new(0, 0, CardGap, CardGap + 5);
     public double ControlHeight => UiTheme.Num(UiTheme.ControlHeight);
+    public FontFamily HeadingFontFamily => UiTheme.Current switch
+    {
+        UiTheme.Editorial => new FontFamily("SimSun"),
+        UiTheme.LineField => new FontFamily("Segoe UI"),
+        _ => new FontFamily("Microsoft YaHei UI")
+    };
+    public FontFamily MetricFontFamily => new("Segoe UI");
+    public bool IsNeumorphism => UiTheme.Current == UiTheme.Neumorphism;
+    public Effect? SoftShadow => IsNeumorphism ? new DropShadowEffect
+    {
+        Color = System.Windows.Media.Color.FromRgb(160, 169, 183), Direction = 315, BlurRadius = 12,
+        ShadowDepth = 4, Opacity = 0.52
+    } : null;
+    public Effect? SoftHighlight => IsNeumorphism ? new DropShadowEffect
+    {
+        Color = System.Windows.Media.Color.FromRgb(255, 255, 255),
+        Direction = 135, BlurRadius = 12, ShadowDepth = 4, Opacity = 0.85
+    } : null;
 
     // Brush accessors for XAML binding (PropertyChanged(null) refreshes all).
     // These read the DISPLAY set: replaceable instances that style

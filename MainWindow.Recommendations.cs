@@ -126,6 +126,7 @@ public partial class MainWindow
             RecommendationPanel.Children.Clear();
             CountText.Text = $"从 {snapshot.Length:N0} 部视频中挑选";
             RenderRecommendationIntro(snapshot.Length);
+            RenderLibraryDashboard();
             RenderRecommendationSettings();
             if (options.EnableOnlineTopics) RenderRecommendationTopics(result.Topics);
             RenderRecommendationCards();
@@ -222,7 +223,7 @@ public partial class MainWindow
     {
         var header = new Border
         {
-            Background = new LinearGradientBrush(ColorOf("#213A66"), ColorOf("#4666C8"), 0),
+            Background = UiTheme.AccentBrush,
             CornerRadius = new CornerRadius(20), Padding = new Thickness(22, 19, 22, 18),
             Margin = new Thickness(0, 0, 0, 16)
         };
@@ -230,19 +231,19 @@ public partial class MainWindow
         var refresh = new Button
         {
             Content = "↻ 更新推荐", Padding = new Thickness(13, 8, 13, 8),
-            BorderThickness = new Thickness(0), Background = Brush("#E6FFFFFF"),
-            Foreground = Brush("#25375C"), VerticalAlignment = VerticalAlignment.Center,
+            BorderThickness = new Thickness(0), Background = UiTheme.AccentSoftBackgroundBrush,
+            Foreground = UiTheme.AccentSoftForegroundBrush, VerticalAlignment = VerticalAlignment.Center,
             Cursor = System.Windows.Input.Cursors.Hand
         };
         refresh.Click += (_, _) => RenderRecommendations();
         DockPanel.SetDock(refresh, Dock.Right);
         layout.Children.Add(refresh);
         var copy = new StackPanel();
-        copy.Children.Add(new TextBlock { Text = "为你挑选", FontSize = 20, FontWeight = FontWeights.SemiBold, Foreground = System.Windows.Media.Brushes.White });
+        copy.Children.Add(new TextBlock { Text = "为你挑选", FontSize = 20, FontWeight = FontWeights.SemiBold, Foreground = UiTheme.AccentForegroundBrush });
         copy.Children.Add(new TextBlock
         {
             Text = count == 0 ? "添加本地视频后，这里会给出推荐。" : "根据收藏、观看状态、标签、分类和新近程度，在本机挑选。",
-            FontSize = 12, Foreground = Brush("#E5EBFF"), Margin = new Thickness(0, 7, 0, 0),
+            FontSize = 12, Foreground = UiTheme.AccentForegroundBrush, Margin = new Thickness(0, 7, 0, 0),
             TextWrapping = TextWrapping.Wrap
         });
         layout.Children.Add(copy);

@@ -25,7 +25,7 @@ namespace YinggeVideoLibrary;
 /// code. Window-only concerns (title, size, owner, close-cancel) stay in the
 /// shell class at the bottom of this file.
 /// </summary>
-internal sealed class RoleProfilesView : Grid
+internal sealed partial class RoleProfilesView : Grid
 {
     readonly string dataDir;
     readonly IReadOnlyList<VideoItem> videos;
@@ -217,6 +217,15 @@ internal sealed class RoleProfilesView : Grid
                     if (actorPicker.SelectedItem is string name) EditProfile(null, name);
                 };
                 actions.Children.Add(createFromName);
+                var wikipedia = UiButton("维基百科查找所选姓名");
+                wikipedia.Margin = new Thickness(0, 0, 0, 6);
+                wikipedia.ToolTip = "只发送所选姓名；核对条目后保存公开简介，不会自动关联作品";
+                wikipedia.Click += async (_, _) =>
+                {
+                    if (actorPicker.SelectedItem is string name)
+                        await SearchWikipediaForNameAsync(name, null);
+                };
+                actions.Children.Add(wikipedia);
                 if (originVideo is not null && origin.Source == "JavDB")
                 {
                     var discover = UiButton("自动查找并入档");
@@ -656,6 +665,11 @@ internal sealed class RoleProfilesView : Grid
         var edit = UiButton("✎ 编辑档案"); edit.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
         edit.Click += (_, _) => EditProfile(profile);
         title.Children.Add(edit);
+        var wikiSearch = UiButton("维基百科搜刮人物…");
+        wikiSearch.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
+        wikiSearch.ToolTip = "搜索公开人物条目；你确认候选后才保存，不按同名自动关联视频";
+        wikiSearch.Click += async (_, _) => await SearchWikipediaForNameAsync(profile.Name, profile);
+        title.Children.Add(wikiSearch);
         if (profile.PortraitBase64.Length == 0 && profile.SourcedDetails.Any(item =>
                 item.PortraitBase64.Length > 0 && (item.Provider != "TMDB" || tmdbAllowed)))
             title.Children.Add(new TextBlock { Text = "当前肖像来自已核实的人物来源；手工肖像优先显示。",
@@ -754,6 +768,19 @@ internal sealed class RoleProfilesView : Grid
             open.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
             open.Click += (_, _) => OpenHttps(source.PersonUrl);
             content.Children.Add(open);
+        }
+        Section("维基百科公开资料");
+        if (profile.WikipediaReferences.Count == 0)
+            Hint("尚未添加维基百科条目。条目姓名相同不代表作品关系已核实。");
+        foreach (var reference in profile.WikipediaReferences)
+        {
+            Field("条目", reference.Title + (reference.Description.Length == 0 ? "" : " · " + reference.Description));
+            Field("公开简介", reference.Extract);
+            Hint("维基百科贡献者 · CC BY-SA · 读取于 " + reference.FetchedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm"));
+            var openWiki = UiButton("查看条目与编辑历史");
+            openWiki.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
+            openWiki.Click += (_, _) => OpenHttps(reference.Url);
+            content.Children.Add(openWiki);
         }
         Section("关联作品");
         if (profile.Works.Count == 0) Hint("尚无作品关联。添加时须明确选择本地视频；未核实的姓名不会建立关系。 ");

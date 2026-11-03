@@ -139,7 +139,7 @@ internal static class StartupUpdateGateDiagnostics
     {
         var shellType = Type.GetTypeFromProgID("WScript.Shell");
         if (shellType is null) return false;
-        var icon = Path.Combine(directory, "yingge-icon-v2.ico");
+        var icon = Path.Combine(directory, "yingge-icon-v3.ico");
         using (var extracted = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!))
         using (var output = File.Create(icon)) extracted!.Save(output);
         var shortcutPath = Path.Combine(directory, "映格视频库.lnk");

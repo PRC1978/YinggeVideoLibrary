@@ -157,7 +157,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="RadioButton">
-                        <Border x:Name="ThemeCard" Background="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"
+                        <Border x:Name="ThemeCard" Effect="{Binding SoftShadow, Source={x:Static local:UiThemeState.Instance}}" Background="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"
                                 BorderBrush="{Binding BorderBrushToken, Source={x:Static local:UiThemeState.Instance}}"
                                 BorderThickness="1" CornerRadius="12" Padding="9" Margin="0,0,8,8">
                             <ContentPresenter HorizontalAlignment="Stretch"/>

@@ -100,6 +100,14 @@ public partial class MainWindow
             ReflowVirtualRows();
             if (currentFilteredVideos.Count >= 5 && VirtualCards.ActualWidth > 900 && virtualColumns < 4)
                 throw new InvalidOperationException("主题切换后完整列表仍只显示一列");
+            ShowView("review");
+            RefreshCardsAfterReview();
+            if (ReviewPanel.Visibility != Visibility.Visible || LibraryScroll.Visibility != Visibility.Visible ||
+                AllListPanel.Visibility == Visibility.Visible)
+                throw new InvalidOperationException("审核刷新错误地切回视频完整列表");
+            if (reviewTopNextPageButton is null || reviewTopPageJumpBox is null ||
+                ReviewQueuePanel.Parent is not System.Windows.Controls.ScrollViewer queue || queue.Height < 500)
+                throw new InvalidOperationException("审核队列缺少上方翻页、跳转或足够的可视高度");
             var navPanel = BuildSphereNavigator([]) as System.Windows.Controls.StackPanel
                 ?? throw new InvalidOperationException("节点导航未创建");
             var navBar = (System.Windows.Controls.DockPanel)navPanel.Children[0];

@@ -100,26 +100,19 @@ public partial class MainWindow
         section.Children.Add(updateStatus);
         var autoCheck = new CheckBox
         {
-            Content = "启动后自动检查更新",
+            Content = "每次启动时检查更新",
             IsChecked = config.UpdateAutoCheck,
             Margin = new Thickness(0, 2, 0, 10)
         };
         autoCheck.Checked += (_, _) => { config.UpdateAutoCheck = true; SaveConfig(); };
         autoCheck.Unchecked += (_, _) => { config.UpdateAutoCheck = false; SaveConfig(); };
         section.Children.Add(autoCheck);
-        var intervalRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12) };
-        intervalRow.Children.Add(new TextBlock { Text = "自动检查间隔", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) });
-        var intervals = new[] { 1, 6, 12, 24, 72, 168 }.Append(config.UpdateCheckIntervalHours).Distinct().Order().ToArray();
-        var interval = new ComboBox { Width = 90, Height = 34, ItemsSource = intervals, SelectedItem = config.UpdateCheckIntervalHours };
-        interval.SelectionChanged += (_, _) =>
+        section.Children.Add(new TextBlock
         {
-            if (interval.SelectedItem is not int hours || hours == config.UpdateCheckIntervalHours) return;
-            config.UpdateCheckIntervalHours = hours;
-            SaveConfig();
-        };
-        intervalRow.Children.Add(interval);
-        intervalRow.Children.Add(new TextBlock { Text = "小时", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) });
-        section.Children.Add(intervalRow);
+            Text = "开启后每次启动都会查询 GitHub；只有发现新版本时才弹出提示。",
+            Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 12)
+        });
         updateButton = new System.Windows.Controls.Button
         {
             Content = "检查更新", Padding = new Thickness(16, 8, 16, 8),
@@ -442,13 +435,6 @@ public partial class MainWindow
         if (!interactive)
         {
             if (!config.UpdateAutoCheck) return;
-            try
-            {
-                var stamp = Path.Combine(DataDir, "last-update-check.txt");
-                var interval = TimeSpan.FromHours(Math.Clamp(config.UpdateCheckIntervalHours, 1, 168));
-                if (File.Exists(stamp) && DateTime.UtcNow - File.GetLastWriteTimeUtc(stamp) < interval) return;
-            }
-            catch { /* A failed timestamp read should not block the check. */ }
         }
         updateCheckRunning = true;
         if (updateButton is not null) updateButton.IsEnabled = false;
@@ -475,6 +461,7 @@ public partial class MainWindow
                 availableUpdate = null;
                 updatePromptDeferred = false;
                 if (updateStatus is not null) updateStatus.Text = $"当前已是最新版 {FormatUpdateVersion(CurrentUpdateVersion())}";
+                if (!interactive) Log($"启动更新检查完成：当前已是最新版 {FormatUpdateVersion(CurrentUpdateVersion())}");
                 updatePromptWindow?.Close();
                 return;
             }
@@ -493,6 +480,7 @@ public partial class MainWindow
         catch (Exception ex)
         {
             if (interactive && updateStatus is not null) updateStatus.Text = "检查更新失败：" + ex.Message;
+            else Log("启动更新检查失败：" + ex.Message);
         }
         finally
         {

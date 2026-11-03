@@ -42,6 +42,12 @@ public partial class MainWindow
         var roles = new Button { Content = "人物 / 角色档案…", Style = (Style)FindResource("Action") };
         roles.Click += (_, _) => { dialog.Close(); OpenRoleProfiles(video, record); };
         buttons.Children.Add(roles);
+        if (video is not null)
+        {
+            var reveal = new Button { Content = "定位本地文件", Style = (Style)FindResource("Action") };
+            reveal.Click += (_, _) => RevealVideoFor(video);
+            buttons.Children.Add(reveal);
+        }
         if (video is not null && config.AiReviews.TryGetValue(video.Id, out var coverReview))
         {
             var compare = new Button { Content = "比较封面…", Style = (Style)FindResource("Action") };
@@ -94,7 +100,10 @@ public partial class MainWindow
             AddMetadataRow(panel, label, value, origin, showProvenance: true);
         }
         if (video is not null)
+        {
             AddMetadataRow(panel, "本地文件", Path.GetFileName(video.Path));
+            AddMetadataRow(panel, "完整路径", video.Path);
+        }
         if (status == "local-only")
         {
             scroll.Content = panel;

@@ -4058,10 +4058,16 @@ public partial class MainWindow : Window
             .ThenByDescending(review => review.CreatedAt)
             .ToList();
         var reviewPageCount = Math.Max(1, (records.Count + ReviewPageSize - 1) / ReviewPageSize);
+        this.reviewPageCount = reviewPageCount;
         reviewPageIndex = Math.Clamp(reviewPageIndex, 0, reviewPageCount - 1);
         if (reviewPreviousPageButton is not null) reviewPreviousPageButton.IsEnabled = reviewPageIndex > 0;
         if (reviewNextPageButton is not null) reviewNextPageButton.IsEnabled = reviewPageIndex + 1 < reviewPageCount;
         if (reviewPageLabel is not null) reviewPageLabel.Text = $"第 {reviewPageIndex + 1} / {reviewPageCount} 页 · 每页最多 {ReviewPageSize} 条";
+        if (reviewTopPreviousPageButton is not null) reviewTopPreviousPageButton.IsEnabled = reviewPageIndex > 0;
+        if (reviewTopNextPageButton is not null) reviewTopNextPageButton.IsEnabled = reviewPageIndex + 1 < reviewPageCount;
+        if (reviewTopPageLabel is not null) reviewTopPageLabel.Text = $"{reviewPageIndex + 1} / {reviewPageCount} 页";
+        if (reviewPageJumpBox is not null) reviewPageJumpBox.Text = (reviewPageIndex + 1).ToString();
+        if (reviewTopPageJumpBox is not null) reviewTopPageJumpBox.Text = (reviewPageIndex + 1).ToString();
         var ids = records.Select(review => review.VideoId).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var pluginCandidates = PluginCandidateStore.Load(DataDir).Videos;
         reviewSelection.RemoveWhere(id => !ids.Contains(id));
@@ -4114,14 +4120,18 @@ public partial class MainWindow : Window
             Grid.SetColumn(cover, 2); grid.Children.Add(cover);
             var detail = new StackPanel();
             detail.Children.Add(new TextBlock { Text = review.CandidateTitle, FontWeight = FontWeights.SemiBold, FontSize = 14, Foreground = UiTheme.TextPrimaryBrush, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = review.CandidateTitle });
-            detail.Children.Add(new TextBlock { Text = $"本地：{available[review.VideoId].DisplayTitle}", Foreground = UiTheme.TextSecondaryBrush, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis });
+            var localVideo = available[review.VideoId];
+            detail.Children.Add(new TextBlock { Text = $"本地：{localVideo.DisplayTitle}", Foreground = UiTheme.TextSecondaryBrush, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis });
+            detail.Children.Add(new TextBlock { Text = localVideo.Path, Foreground = UiTheme.TextTertiaryBrush,
+                FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = localVideo.Path });
             detail.Children.Add(new TextBlock { Text = $"来源：{review.CandidateSource}    编号：{review.CandidateCode}", Foreground = UiTheme.TextTertiaryBrush, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis });
             detail.Children.Add(new TextBlock { Text = $"匹配依据：{review.Reason}", Foreground = UiTheme.TextTertiaryBrush, FontSize = 12, TextWrapping = TextWrapping.Wrap, MaxHeight = 42, ToolTip = review.Reason });
             var compareCovers = new Button { Content = "对比封面", Style = (Style)FindResource("Action"),
                 HorizontalAlignment = System.Windows.HorizontalAlignment.Left, Margin = new Thickness(0, 4, 0, 0),
                 Padding = new Thickness(8, 0, 8, 0) };
             compareCovers.Click += (_, _) => ShowScrapeCoverComparison(available[review.VideoId], review);
-            detail.Children.Add(compareCovers);
+            var quickActions = new WrapPanel { Margin = new Thickness(0, 2, 0, 0) };
+            quickActions.Children.Add(compareCovers);
             // A plugin may return several candidates for one video. They are all
             // kept on disk; this selector decides which one the record points at.
             if (review.DecisionSource == "plugin" && pluginCandidates.TryGetValue(review.VideoId, out var storedCandidates) && storedCandidates.Count > 1)
@@ -4152,15 +4162,28 @@ public partial class MainWindow : Window
             var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             var information = new Button { Content = "查看详情", Style = (Style)FindResource("Action"), Padding = new Thickness(10, 0, 10, 0) };
             information.Click += (_, _) => ShowMetadataDetails(review.ToMetadata(), review.Confidence, review.Status, available[review.VideoId]);
+            var reveal = new Button { Content = "定位文件", Style = (Style)FindResource("Action"), Padding = new Thickness(10, 0, 10, 0),
+                ToolTip = "在资源管理器中选中本地视频文件" };
+            reveal.Click += (_, _) => RevealVideoFor(localVideo);
+            reveal.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
+            reveal.Margin = new Thickness(6, 4, 0, 0);
+            quickActions.Children.Add(reveal);
+            var retryCode = new Button { Content = "按番号重搜", Style = (Style)FindResource("Action"),
+                Padding = new Thickness(10, 0, 10, 0), HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
+                Margin = new Thickness(6, 4, 0, 0), DataContext = localVideo,
+                ToolTip = "手动输入正确番号，只重新搜刮这一部视频" };
+            retryCode.Click += ScrapeVideo;
+            quickActions.Children.Add(retryCode);
+            detail.Children.Add(quickActions);
             var approve = new Button { Content = "通过", Style = (Style)FindResource("Action"), Padding = new Thickness(10, 0, 10, 0) }; approve.Click += (_, _) =>
             {
                 if (!TryCommitReviewDecisionsWithPreview([review.VideoId], true, out var error)) { if (error.Length > 0) MessageBox.Show(this, "通过操作未完成：" + error + (ReviewTransactionStore.HasPending(DataDir) ? "；待恢复记录会在下次启动检查。" : ""), "审核保存失败", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
-                RefreshReviewQueue(); RenderCards(); Log($"人工通过搜刮匹配：{review.CandidateCode}");
+                RefreshReviewQueue(); RefreshCardsAfterReview(); Log($"人工通过搜刮匹配：{review.CandidateCode}");
             };
             var reject = new Button { Content = "否决", Style = (Style)FindResource("Action"), Padding = new Thickness(10, 0, 10, 0) }; reject.Click += (_, _) =>
             {
                 if (!TryCommitReviewDecisionsWithPreview([review.VideoId], false, out var error)) { if (error.Length > 0) MessageBox.Show(this, "否决操作未完成：" + error + (ReviewTransactionStore.HasPending(DataDir) ? "；待恢复记录会在下次启动检查。" : ""), "审核保存失败", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
-                RefreshReviewQueue(); RenderCards(); Log($"人工否决搜刮匹配：{review.CandidateCode}");
+                RefreshReviewQueue(); RefreshCardsAfterReview(); Log($"人工否决搜刮匹配：{review.CandidateCode}");
             };
             System.Windows.Automation.AutomationProperties.SetAutomationId(approve, "ReviewRowApprove");
             System.Windows.Automation.AutomationProperties.SetAutomationId(reject, "ReviewRowReject");
@@ -4212,12 +4235,12 @@ public partial class MainWindow : Window
         if (!TryCommitReviewDecisionsWithPreview(ids, approved, out var error))
         {
             if (error.Length > 0) MessageBox.Show(this, "批量操作未完成：" + error + (ReviewTransactionStore.HasPending(DataDir) ? "；待恢复记录会在下次启动检查。" : ""), "审核保存失败", MessageBoxButton.OK, MessageBoxImage.Warning);
-            RefreshReviewQueue(); RenderCards();
+            RefreshReviewQueue(); RefreshCardsAfterReview();
             return;
         }
         reviewSelection.Clear();
         RefreshReviewQueue();
-        RenderCards();
+        RefreshCardsAfterReview();
         Log($"已{(approved ? "通过" : "否决")} {ids.Count} 条搜刮信息");
     }
 
@@ -4322,13 +4345,13 @@ public partial class MainWindow : Window
                 finally { if (locked) ConfigWriteMutex.ReleaseMutex(); }
             }
             reviewSelection.Clear();
-            RefreshReviewQueue(); RenderCards();
+            RefreshReviewQueue(); RefreshCardsAfterReview();
         }
         catch (Exception ex)
         {
             Log("AI 审核未提交：" + ex.Message);
             MessageBox.Show(this, ex.Message, "AI 可信度审核", MessageBoxButton.OK, MessageBoxImage.Warning);
-            RefreshReviewQueue(); RenderCards();
+            RefreshReviewQueue(); RefreshCardsAfterReview();
         }
         finally { ReviewEvaluateButton.IsEnabled = true; TaskStatusText.Text = "空闲"; }
     }
@@ -4345,7 +4368,8 @@ public partial class MainWindow : Window
         {
             var record = await ScrapeCodeFromEnabledSourcesAsync(code, video.Id, CancellationToken.None);
             var status = await StoreScrapeReviewAsync(video, record);
-            RenderCards();
+            if (view is "review" or "scrape") RefreshReviewQueue();
+            RefreshCardsAfterReview();
             TaskStatusText.Text = status == "approved" ? "搜刮完成 · 已自动通过" : status == "rejected" ? "搜刮完成 · AI 否决" : "搜刮完成 · 待人工审核";
             Log($"搜刮成功：{record.Code} · 可信度审核={status}");
             MessageBox.Show(this, status switch

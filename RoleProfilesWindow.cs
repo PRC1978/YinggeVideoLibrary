@@ -47,6 +47,7 @@ internal sealed class RoleProfilesView : Grid
     readonly Button autoCancel = UiButton("取消搜刮");
     CancellationTokenSource? autoCancellation;
     bool autoRunning;
+    bool actorLookupRunning;
     readonly System.Windows.Threading.DispatcherTimer profileSearchTimer = new()
     { Interval = TimeSpan.FromMilliseconds(170) };
     string? selectedProfileId;
@@ -62,7 +63,7 @@ internal sealed class RoleProfilesView : Grid
 
     /// <summary>True while a save or auto-discovery run must not be interrupted
     /// (the classic window shell refuses to close in that state).</summary>
-    internal bool IsBusy => saving || autoRunning;
+    internal bool IsBusy => saving || autoRunning || actorLookupRunning;
 
     /// <summary>Close the classic host window, if hosted in one. When the view
     /// is embedded in the redesigned main window there is nothing to close.</summary>
@@ -74,7 +75,7 @@ internal sealed class RoleProfilesView : Grid
     /// <summary>Ask the running auto-discovery to stop (idempotent).</summary>
     internal void RequestAutoStop()
     {
-        if (!autoRunning || cleanedUp) return;
+        if ((!autoRunning && !actorLookupRunning) || cleanedUp) return;
         autoCancellation?.Cancel();
         autoStatus.Text = "正在停止搜刮…";
     }
@@ -196,12 +197,39 @@ internal sealed class RoleProfilesView : Grid
             actions.Children.Add(link);
         }
         else if (origin is not null && origin.Actors is { Count: > 0 })
+        {
             actions.Children.Add(new TextBlock
             {
-                Text = "这部作品只有演员姓名，尚无核实的人物 ID。可新建手工档案，再明确关联本地视频。",
+                Text = "作品资料只有演员姓名。可自动查找人物目录并核对作品；找不到唯一对应关系时再手工建档。",
                 TextWrapping = TextWrapping.Wrap, Foreground = Muted(), FontSize = 12,
-                Margin = new Thickness(0, 8, 0, 11)
+                Margin = new Thickness(0, 8, 0, 6)
             });
+            var actorNames = origin.Actors.Where(name => !string.IsNullOrWhiteSpace(name))
+                .Select(name => name.Trim()).Distinct(StringComparer.CurrentCultureIgnoreCase).Take(20).ToArray();
+            if (actorNames.Length > 0)
+            {
+                var actorPicker = new ComboBox { Height = 35, ItemsSource = actorNames, SelectedIndex = 0 };
+                actions.Children.Add(actorPicker);
+                var createFromName = UiButton("用所选姓名新建手工档案");
+                createFromName.Margin = new Thickness(0, 6, 0, 11);
+                createFromName.Click += (_, _) =>
+                {
+                    if (actorPicker.SelectedItem is string name) EditProfile(null, name);
+                };
+                actions.Children.Add(createFromName);
+                if (originVideo is not null && origin.Source == "JavDB")
+                {
+                    var discover = UiButton("自动查找并入档");
+                    discover.ToolTip = "按演员姓名查找公开目录，再用当前作品的准确番号和来源链接核对身份";
+                    discover.Click += async (_, _) =>
+                    {
+                        if (actorPicker.SelectedItem is string name)
+                            await DiscoverNamedActorAsync(name, discover);
+                    };
+                    actions.Children.Add(discover);
+                }
+            }
+        }
         profiles.DisplayMemberPath = nameof(RoleProfileStore.Profile.Name);
         profiles.BorderThickness = new Thickness(0);
         VirtualizingPanel.SetIsVirtualizing(profiles, true);
@@ -249,6 +277,53 @@ internal sealed class RoleProfilesView : Grid
                     CloseHostWindow();
                 }
             };
+        }
+    }
+
+    async Task DiscoverNamedActorAsync(string name, Button button)
+    {
+        if (actorLookupRunning || autoRunning || saving || originVideo is null || origin is null) return;
+        actorLookupRunning = true;
+        autoCancellation = new CancellationTokenSource();
+        button.IsEnabled = false;
+        autoCancel.Visibility = Visibility.Visible;
+        autoStatus.Text = $"正在按“{name}”查找人物，并核对当前作品的番号与来源链接…";
+        try
+        {
+            var token = autoCancellation.Token;
+            var matched = await RoleNamedActorDiscovery.FindAsync(originVideo, origin, name, token);
+            token.ThrowIfCancellationRequested();
+            if (matched is null)
+            {
+                autoStatus.Text = "没有找到能同时核对演员姓名、作品番号和来源链接的唯一人物；未写入档案。可使用手工档案。";
+                return;
+            }
+            var current = await Task.Run(() => MetadataStore.Load(dataDir), token);
+            if (!current.TryGetValue(originVideo.Id, out var saved) ||
+                !MovieMetadata.SameReviewContent(saved, origin))
+                throw new InvalidOperationException("作品资料在查找期间改变，未写入人物档案。请重新打开作品详情。");
+            await CreateOrOpenVerified(new VerifiedPersonOption(matched.Name, "JavDB", matched.Url,
+                matched.Url, origin.SourceUrl, ""));
+            var persisted = await Task.Run(() => RoleProfileStore.Load(dataDir), token);
+            var linked = RoleProfileStore.FindBySource(persisted, "JavDB", matched.Url)?.Works.Any(work =>
+                work.LocalVideoId.Equals(originVideo.Id, StringComparison.OrdinalIgnoreCase)) == true;
+            autoStatus.Text = linked
+                ? "已核对人物目录与当前作品，档案及作品关联已保存。该来源未提供可读取的生平与肖像时不会推断。"
+                : "人物目录已找到，但档案或作品关联尚未保存；请检查保存提示后重试。";
+        }
+        catch (OperationCanceledException) { autoStatus.Text = "已取消人物查找，档案未更改。"; }
+        catch (Exception ex)
+        {
+            autoStatus.Text = "人物自动查找未完成，档案未更改。";
+            MessageBox.Show(Window.GetWindow(this), ex.Message, "人物自动查找", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            actorLookupRunning = false;
+            button.IsEnabled = true;
+            autoCancel.Visibility = Visibility.Collapsed;
+            autoCancellation?.Dispose();
+            autoCancellation = null;
         }
     }
 
@@ -370,7 +445,7 @@ internal sealed class RoleProfilesView : Grid
 
     async Task StartAutoDiscoveryAsync()
     {
-        if (autoRunning || saving) return;
+        if (autoRunning || actorLookupRunning || saving) return;
         autoRunning = true;
         autoCancellation = new CancellationTokenSource();
         var token = autoCancellation.Token;
@@ -978,12 +1053,13 @@ internal sealed class RoleProfilesView : Grid
         finally { saving = false; visual.IsEnabled = true; }
     }
 
-    void EditProfile(RoleProfileStore.Profile? existing)
+    void EditProfile(RoleProfileStore.Profile? existing, string? suggestedName = null)
     {
-        if (autoRunning) return;
+        if (autoRunning || actorLookupRunning) return;
         var draft = existing is null ? new RoleProfileStore.Profile() :
             RoleProfileStore.Parse(System.Text.Json.JsonSerializer.Serialize(new RoleProfileStore.State
             { Profiles = [existing] })).Profiles[0];
+        if (existing is null && !string.IsNullOrWhiteSpace(suggestedName)) draft.Name = suggestedName.Trim();
         var editor = new Window { Title = existing is null ? "新建角色档案" : "编辑角色档案",
             Owner = Window.GetWindow(this), Width = 650, Height = 690, MinWidth = 500, MinHeight = 500,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,

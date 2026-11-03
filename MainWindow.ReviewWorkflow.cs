@@ -25,8 +25,14 @@ public partial class MainWindow
     Button? reviewPreviousPageButton;
     Button? reviewNextPageButton;
     TextBlock? reviewPageLabel;
+    Button? reviewTopPreviousPageButton;
+    Button? reviewTopNextPageButton;
+    TextBlock? reviewTopPageLabel;
+    TextBox? reviewPageJumpBox;
+    TextBox? reviewTopPageJumpBox;
     TextBlock? reviewHistoryWarning;
     const int ReviewPageSize = 12;
+    int reviewPageCount = 1;
     int reviewPageIndex;
     bool updatingReviewSources;
     bool applyingReviewSavedView;
@@ -37,6 +43,13 @@ public partial class MainWindow
     readonly SemaphoreSlim reviewHistoryReadGate = new(1, 1);
     readonly List<ReviewTransaction> reviewHistory = [];
     PreparedReviewApproval? reviewPreparedPreview;
+
+    void RefreshCardsAfterReview()
+    {
+        // RenderCards also switches the full-list viewport. Calling it while
+        // the review page is open hides that page when ShowAll is enabled.
+        if (view is "all" or "recent" or "favorites" or "categories") RenderCards();
+    }
 
     void InitializeReviewWorkflowUi()
     {
@@ -125,7 +138,30 @@ public partial class MainWindow
         pager.Children.Add(reviewPreviousPageButton);
         pager.Children.Add(reviewPageLabel);
         pager.Children.Add(reviewNextPageButton);
+        reviewPageJumpBox = AddReviewPageJump(pager);
         panel.Children.Add(pager);
+        if (ReviewQueuePanel.Parent is ScrollViewer queueScroll)
+        {
+            // Keep paging reachable before the list; the lower pager should
+            // remain available to people who read through the whole page.
+            var topPager = new StackPanel
+            {
+                Orientation = System.Windows.Controls.Orientation.Horizontal,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            reviewTopPreviousPageButton = new Button { Content = "上一页", Style = (Style)FindResource("Action") };
+            reviewTopPreviousPageButton.Click += (_, _) => { reviewPageIndex--; RefreshReviewQueue(); ScrollReviewQueueToTop(); };
+            reviewTopPageLabel = new TextBlock { VerticalAlignment = System.Windows.VerticalAlignment.Center, Margin = new Thickness(8, 0, 8, 0) };
+            reviewTopNextPageButton = new Button { Content = "下一页", Style = (Style)FindResource("Action") };
+            reviewTopNextPageButton.Click += (_, _) => { reviewPageIndex++; RefreshReviewQueue(); ScrollReviewQueueToTop(); };
+            topPager.Children.Add(reviewTopPreviousPageButton);
+            topPager.Children.Add(reviewTopPageLabel);
+            topPager.Children.Add(reviewTopNextPageButton);
+            reviewTopPageJumpBox = AddReviewPageJump(topPager);
+            panel.Children.Insert(panel.Children.IndexOf(queueScroll), topPager);
+            queueScroll.Height = 560;
+        }
         UpdateReviewSourceFilter();
         ReloadSavedReviewViews();
         UpdateReviewUndoButton();
@@ -133,6 +169,40 @@ public partial class MainWindow
         // thread. Undo stays unavailable until a verified snapshot is ready.
         Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle,
             new Action(() => _ = ReloadReviewHistoryAsync()));
+    }
+
+    TextBox AddReviewPageJump(StackPanel pager)
+    {
+        var box = new TextBox
+        {
+            Width = 56, Height = 31, Margin = new Thickness(10, 0, 5, 0),
+            VerticalContentAlignment = System.Windows.VerticalAlignment.Center,
+            ToolTip = "输入 1 到末页的页码，按 Enter 跳转"
+        };
+        box.KeyDown += (_, e) =>
+        {
+            if (e.Key != System.Windows.Input.Key.Enter) return;
+            JumpToReviewPage(box);
+            e.Handled = true;
+        };
+        var jump = new Button { Content = "跳转", Style = (Style)FindResource("Action") };
+        jump.Click += (_, _) => JumpToReviewPage(box);
+        pager.Children.Add(box);
+        pager.Children.Add(jump);
+        return box;
+    }
+
+    void JumpToReviewPage(TextBox box)
+    {
+        if (!int.TryParse(box.Text.Trim(), out var requested) || requested < 1 || requested > reviewPageCount)
+        {
+            box.Text = (reviewPageIndex + 1).ToString();
+            box.ToolTip = $"请输入 1 到 {reviewPageCount} 的页码";
+            return;
+        }
+        reviewPageIndex = requested - 1;
+        RefreshReviewQueue();
+        ScrollReviewQueueToTop();
     }
 
     async Task<bool> ReloadReviewHistoryAsync()
@@ -593,7 +663,7 @@ public partial class MainWindow
                 undoesTransactionId: entry.Id);
             if (!TryCommitJournaledReview(transaction, out var error))
                 throw new IOException(error);
-            RefreshReviewQueue(); RenderCards();
+            RefreshReviewQueue(); RefreshCardsAfterReview();
         }
         catch (Exception ex)
         {

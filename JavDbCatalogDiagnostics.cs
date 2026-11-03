@@ -70,6 +70,30 @@ internal static class JavDbCatalogDiagnostics
         findings["catalogRejectsUnverifiedCombinedQuery"] = !JavDbScraper.TryCatalogUrl("/tags?c3=43&c7=28", out _, out _)
             && !JavDbScraper.TryCatalogUrl("https://javdb.com.evil.test/tags?c3=43", out _, out _)
             && JavDbScraper.TryCatalogUrl("/tags?c3=43", out _, out _);
+        var namedWork = verified.Clone();
+        namedWork.DetailIdentityVerified = false;
+        namedWork.CatalogLinks.Clear();
+        var namedVideo = new VideoItem { Id = "named-actor-test", Title = "ABC-123", Path = "ABC-123.mp4",
+            Folder = "", Size = 1, Modified = DateTime.UtcNow };
+        var namedActor = new JavDbCatalogLink { Kind = "演员", Name = "三上悠亜", Url = "https://javdb.com/actors/Av2e" };
+        Task<List<JavDbCatalogLink>> Search(string _, CancellationToken __) => Task.FromResult(new List<JavDbCatalogLink> { namedActor });
+        Task<JavDbScraper.CatalogPageResult> Page(string _, int __, CancellationToken ___) =>
+            Task.FromResult(new JavDbScraper.CatalogPageResult([first[0]], false));
+        JavDbCatalogLink? Find(VideoItem video, MovieMetadata work,
+            Func<string, CancellationToken, Task<List<JavDbCatalogLink>>>? search = null,
+            Func<string, int, CancellationToken, Task<JavDbScraper.CatalogPageResult>>? page = null) =>
+            RoleNamedActorDiscovery.FindAsync(video, work, "三上悠亜", default, search ?? Search, page ?? Page)
+                .GetAwaiter().GetResult();
+        findings["namedActorFindsExactWorkAcrossDirectory"] = Find(namedVideo, namedWork)?.Url == namedActor.Url;
+        var wrongWork = namedWork.Clone(); wrongWork.SourceUrl = "https://javdb.com/v/other";
+        var wrongVideo = new VideoItem { Id = "wrong-actor-test", Title = "XYZ-999", Path = "XYZ-999.mp4",
+            Folder = "", Size = 1, Modified = DateTime.UtcNow };
+        findings["namedActorRejectsWrongWorkAndLocalCode"] = Find(namedVideo, wrongWork) is null
+            && Find(wrongVideo, namedWork) is null;
+        Task<List<JavDbCatalogLink>> AmbiguousSearch(string _, CancellationToken __) =>
+            Task.FromResult(new List<JavDbCatalogLink> { namedActor,
+                new() { Kind = "演员", Name = namedActor.Name, Url = "https://javdb.com/actors/Other" } });
+        findings["namedActorRejectsAmbiguousSameName"] = Find(namedVideo, namedWork, AmbiguousSearch) is null;
         return findings;
     }
 

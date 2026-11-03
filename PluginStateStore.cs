@@ -14,6 +14,7 @@ internal sealed class PluginState
     // invalidates the consent and the plugin stops running until re-confirmed.
     [JsonPropertyName("consents")] public Dictionary<string, string> Consents { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     [JsonPropertyName("lastErrors")] public Dictionary<string, PluginLastError> LastErrors { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    [JsonPropertyName("settings")] public Dictionary<string, Dictionary<string, string>> Settings { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     [JsonIgnore] public string? LoadError { get; set; }
 }
@@ -43,6 +44,7 @@ internal static class PluginStateStore
             state.Enabled ??= [];
             state.Consents ??= new(StringComparer.OrdinalIgnoreCase);
             state.LastErrors ??= new(StringComparer.OrdinalIgnoreCase);
+            state.Settings ??= new(StringComparer.OrdinalIgnoreCase);
             return state;
         }
         catch (Exception ex)
@@ -102,6 +104,9 @@ internal static class PluginStateStore
             pair => pair.Key,
             pair => new PluginLastError { At = pair.Value.At, Message = pair.Value.Message },
             StringComparer.OrdinalIgnoreCase),
+        Settings = state.Settings.ToDictionary(pair => pair.Key,
+            pair => new Dictionary<string, string>(pair.Value ?? new(), StringComparer.Ordinal),
+            StringComparer.OrdinalIgnoreCase),
         LoadError = state.LoadError
     };
 
@@ -112,6 +117,17 @@ internal static class PluginStateStore
         plugin.Manifest is not null &&
         state.Consents.TryGetValue(plugin.Id, out var signature) &&
         string.Equals(signature, plugin.PermissionSignature, StringComparison.Ordinal);
+
+    internal static Dictionary<string, string> EffectiveSettings(PluginState? state, PluginDescriptor plugin)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (plugin.Manifest is null) return result;
+        var saved = state is not null && state.Settings.TryGetValue(plugin.Id, out var values) ? values : null;
+        foreach (var setting in plugin.Manifest.Settings)
+            result[setting.Key] = saved is not null && saved.TryGetValue(setting.Key, out var value) &&
+                setting.Choices.Contains(value, StringComparer.Ordinal) ? value : setting.Default;
+        return result;
+    }
 }
 
 // Plugin output is untrusted. Logs keep enough to debug a failure but never a

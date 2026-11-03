@@ -60,6 +60,12 @@ internal static class Program
     static void Search(string id, JsonNode? parameters)
     {
         var query = parameters?["query"]?.GetValue<string>() ?? "";
+        if (parameters?["settings"]?["result_mode"]?.GetValue<string>() == "empty")
+        {
+            Respond(new JsonObject { ["v"] = ApiVersion, ["id"] = id, ["ok"] = true,
+                ["result"] = new JsonObject { ["candidates"] = new JsonArray() } });
+            return;
+        }
         // A deployment can force one failure mode without touching the query, so
         // two copies of this sample can behave differently in one test library.
         var forced = ForcedMode();

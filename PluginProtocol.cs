@@ -22,6 +22,7 @@ internal sealed class PluginSearchParameters
     [JsonPropertyName("kind")] public string Kind { get; set; } = "title";
     [JsonPropertyName("limit")] public int Limit { get; set; } = 8;
     [JsonPropertyName("year")] public int? Year { get; set; }
+    [JsonPropertyName("settings")] public Dictionary<string, string>? Settings { get; set; }
 }
 
 internal sealed class PluginResponse

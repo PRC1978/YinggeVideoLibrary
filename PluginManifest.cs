@@ -53,6 +53,17 @@ internal sealed class PluginManifest
     [JsonPropertyName("permissions")] public PluginPermissions Permissions { get; set; } = new();
     [JsonPropertyName("entry")] public PluginEntry Entry { get; set; } = new();
     [JsonPropertyName("timeoutSeconds")] public int TimeoutSeconds { get; set; } = 20;
+    [JsonPropertyName("settings")] public List<PluginSettingDefinition> Settings { get; set; } = [];
+}
+
+// Choice-only settings. Secrets and arbitrary text are deliberately outside
+// this channel; the host may send these values to the child process.
+internal sealed class PluginSettingDefinition
+{
+    [JsonPropertyName("key")] public string Key { get; set; } = "";
+    [JsonPropertyName("label")] public string Label { get; set; } = "";
+    [JsonPropertyName("choices")] public List<string> Choices { get; set; } = [];
+    [JsonPropertyName("default")] public string Default { get; set; } = "";
 }
 
 // One discovered folder, whether or not it is usable. The management page
@@ -99,6 +110,7 @@ internal static class PluginManifestReader
     static readonly Regex VersionPattern = new(@"^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     static readonly Regex HostPattern = new(@"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+    static readonly Regex SettingKeyPattern = new("^[a-z][a-z0-9_-]{0,31}$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     internal static List<PluginDescriptor> Scan(string pluginRoot)
     {
@@ -188,6 +200,11 @@ internal static class PluginManifestReader
             message = "插件 ID 只能使用小写字母、数字、点、下划线和连字符，长度 3–64。";
             return PluginStatus.DamagedManifest;
         }
+        if (manifest.SchemaVersion != 1)
+        {
+            message = $"清单格式版本 {manifest.SchemaVersion} 不兼容；当前只支持 1。";
+            return PluginStatus.IncompatibleApi;
+        }
         if (!VersionPattern.IsMatch(manifest.Version ?? ""))
         {
             message = "版本号必须是 1.0.0 形式。";
@@ -196,6 +213,18 @@ internal static class PluginManifestReader
         if (string.IsNullOrWhiteSpace(manifest.Name))
         {
             message = "缺少插件名称。";
+            return PluginStatus.DamagedManifest;
+        }
+        if (manifest.Settings is null || manifest.Settings.Count > 8 ||
+            manifest.Settings.Any(setting => setting is null || !SettingKeyPattern.IsMatch(setting.Key ?? "") ||
+                string.IsNullOrWhiteSpace(setting.Label) || setting.Label.Length > 60 ||
+                setting.Choices is null || setting.Choices.Count is < 2 or > 12 ||
+                setting.Choices.Any(choice => string.IsNullOrWhiteSpace(choice) || choice.Length > 64) ||
+                setting.Choices.Distinct(StringComparer.Ordinal).Count() != setting.Choices.Count ||
+                !setting.Choices.Contains(setting.Default, StringComparer.Ordinal)) ||
+            manifest.Settings.Select(setting => setting.Key).Distinct(StringComparer.Ordinal).Count() != manifest.Settings.Count)
+        {
+            message = "插件设置格式无效：最多 8 项，每项需有唯一键、标签及 2–12 个选项。";
             return PluginStatus.DamagedManifest;
         }
         if (manifest.ApiVersion != SupportedApiVersion)

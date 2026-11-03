@@ -36,7 +36,10 @@
     "data": ["query.text", "query.code"]
   },
   "entry": { "file": "ExampleScrapePlugin.exe", "arguments": [] },
-  "timeoutSeconds": 15
+  "timeoutSeconds": 15,
+  "settings": [
+    { "key": "result_mode", "label": "结果模式", "choices": ["normal", "empty"], "default": "normal" }
+  ]
 }
 ```
 
@@ -51,6 +54,8 @@
 | `permissions.network` | 只写域名，不含 `http://`、端口或路径，最多 16 个。**这是声明 + 链接校验，不是网络隔离**（见下） |
 | `permissions.data` | 只支持 `query.text`、`query.code`、`query.year`；出现其它值即拒绝，避免多传字段 |
 | `entry.file` | 必须是插件目录内的相对路径，禁止 `..`、绝对路径、驱动器前缀 |
+| `schemaVersion` | 目前只支持 `1`；未来格式不会当作旧清单加载 |
+| `settings` | 可选，最多 8 项。每项有唯一小写键、显示名、2–12 个固定选项和默认值；不支持自由文本或密钥 |
 
 `timeoutSeconds` 会被夹到 1–120 秒，默认 20 秒。
 
@@ -63,6 +68,7 @@
 ```json
 {"v":1,"id":"a1b2","method":"describe"}
 {"v":1,"id":"c3d4","method":"search","params":{"token":"9f…","query":"作品名","kind":"title","limit":8,"year":null}}
+{"v":1,"id":"e5f6","method":"search","params":{"token":"8e…","query":"作品名","kind":"title","limit":8,"settings":{"result_mode":"normal"}}}
 ```
 
 成功响应：
@@ -85,6 +91,7 @@
 宿主侧约束：
 
 - `params.token` 是每次调用随机生成的不透明串，**插件拿不到视频 ID 和文件路径**，无法自行建立库映射。
+- 管理页可修改清单声明的选项；宿主只发送声明过、且属于 `choices` 的值。旧 `plugins.json` 无设置时使用默认值，插件更新后已失效的值也回退默认值。设置存于 `plugins.json`，**不是密钥存储**；密钥不得声明为插件设置。
 - 候选最多 20 条；`title` 必需；`sourceUrl` 必需且必须是 http(s)、域名在清单声明内；含本地路径特征（`C:\`、`C:/`、`\\`、`/`、`file:`）的候选直接丢弃并计数。
 - 单行响应超过 256 KB（262 144 字符）判为 `response_too_large` 并终止该次调用。上限是**边读边判**的：读取器逐字符消费，达到上限立即停止，不会先把整行读进内存再检查。自检 `boundedReaderStopsAtCap` 用 8 M 字符的输入证明它只读取了 262 145 个字符。
 - 超时、取消或异常都会 `Kill(entireProcessTree)`；自检断言超时后没有残留进程。

@@ -53,6 +53,15 @@ internal static class PluginDiagnostics
         WriteManifest(root, "dup", ManifestJson("com.example.dup", version: "1.0.0"));
         WriteManifest(root, "dup-two", ManifestJson("com.example.dup", version: "1.0.1"));
         WriteManifest(root, "future-api", ManifestJson("com.example.future", apiVersion: 2));
+        var futureSchema = JsonNode.Parse(ManifestJson("com.example.schema"))!;
+        futureSchema["schemaVersion"] = 2;
+        WriteManifest(root, "future-schema", futureSchema.ToJsonString());
+        var unsafeSetting = JsonNode.Parse(ManifestJson("com.example.badsetting"))!;
+        unsafeSetting["settings"] = new JsonArray(new JsonObject
+        {
+            ["key"] = "api_key", ["label"] = "密钥", ["choices"] = new JsonArray("a"), ["default"] = "a"
+        });
+        WriteManifest(root, "bad-setting", unsafeSetting.ToJsonString());
         WriteManifest(root, "theme", ManifestJson("com.example.theme", capability: "ui.theme"));
         WriteManifest(root, "escape", ManifestJson("com.example.escape", entry: "../escape.exe"));
         WriteManifest(root, "no-entry", ManifestJson("com.example.noentry", entry: "missing.exe"));
@@ -69,10 +78,25 @@ internal static class PluginDiagnostics
         Check("missingIdReported", Find("no-id").Status == PluginStatus.DamagedManifest);
         Check("duplicateIdReported", Find("dup").Status == PluginStatus.DuplicateId && Find("dup-two").Status == PluginStatus.DuplicateId);
         Check("incompatibleApiReported", Find("future-api").Status == PluginStatus.IncompatibleApi);
+        Check("incompatibleManifestSchemaReported", Find("future-schema").Status == PluginStatus.IncompatibleApi);
+        Check("invalidSettingRejected", Find("bad-setting").Status == PluginStatus.DamagedManifest);
         Check("unsupportedCapabilityReported", Find("theme").Status == PluginStatus.UnsupportedCapability);
         Check("unsafeEntryReported", Find("escape").Status == PluginStatus.UnsafeEntry);
         Check("missingEntryReported", Find("no-entry").Status == PluginStatus.MissingEntry);
         Check("readyPluginAccepted", Find("ready").Status == PluginStatus.Ready);
+        var settingsManifest = PluginManifestReader.Read(Path.Combine(root, "ready"));
+        settingsManifest.Manifest!.Settings = [new PluginSettingDefinition
+        {
+            Key = "result_mode", Label = "结果模式", Choices = ["normal", "empty"], Default = "normal"
+        }];
+        var settingsState = new PluginState();
+        settingsState.Settings[settingsManifest.Id] = new Dictionary<string, string> { ["result_mode"] = "empty", ["unknown"] = "secret" };
+        var effectiveSettings = PluginStateStore.EffectiveSettings(settingsState, settingsManifest);
+        Check("settingsOnlyDeclaredChoices", effectiveSettings.Count == 1 && effectiveSettings["result_mode"] == "empty");
+        settingsState.Settings[settingsManifest.Id]["result_mode"] = "invalid";
+        Check("settingsRejectStaleValues", PluginStateStore.EffectiveSettings(settingsState, settingsManifest)["result_mode"] == "normal");
+        Check("settingsCloneAndReload", PluginStateStore.Save(dataDir, settingsState, out _) &&
+            PluginStateStore.Clone(PluginStateStore.Load(dataDir)).Settings[settingsManifest.Id]["result_mode"] == "invalid");
 
         // --- enablement and consent ---------------------------------------------
         var state = new PluginState();
@@ -119,6 +143,26 @@ internal static class PluginDiagnostics
             observed["searchCandidates"] = search.Candidates.Count;
             observed["searchElapsedMs"] = search.ElapsedMs;
             Check("searchReturnsCandidates", search.Ok && search.Candidates.Count > 0);
+            var settingsSearch = PluginProcessHost.SearchAsync(samplePlugin,
+                new PluginSearchParameters { Token = "settings-test", Query = "示例作品", Kind = "title", Limit = 5,
+                    Settings = new Dictionary<string, string> { ["result_mode"] = "empty" } },
+                CancellationToken.None).GetAwaiter().GetResult();
+            Check("samplePluginReceivesSettings", settingsSearch.Ok && settingsSearch.Candidates.Count == 0);
+            // Treat a separately packaged copy as an external v1 plugin: the
+            // binary has no reference to the host assembly, and only JSON
+            // lines plus the documented manifest connect the two programs.
+            var externalFolder = CopySample(sampleDirectory!, Path.Combine(root, "external-v1"));
+            var externalManifestPath = Path.Combine(externalFolder, "plugin.json");
+            var externalManifest = JsonNode.Parse(File.ReadAllText(externalManifestPath))!;
+            externalManifest["id"] = "org.example.external";
+            externalManifest["version"] = "1.1.0";
+            File.WriteAllText(externalManifestPath, externalManifest.ToJsonString());
+            var external = PluginManifestReader.Read(externalFolder);
+            var externalSearch = PluginProcessHost.SearchAsync(external,
+                new PluginSearchParameters { Token = "external-test", Query = "外部示例", Kind = "title", Limit = 3 },
+                CancellationToken.None).GetAwaiter().GetResult();
+            Check("externalV1PackageCompatibility", external.Status == PluginStatus.Ready &&
+                externalSearch.Ok && externalSearch.Candidates.Count > 0);
             Check("candidateSourceUrlValidated", search.Candidates.All(item => item.SourceUrl.StartsWith("https://example.com/", StringComparison.Ordinal)));
 
             var leak = PluginProcessHost.SearchAsync(samplePlugin,

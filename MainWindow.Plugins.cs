@@ -136,6 +136,13 @@ public partial class MainWindow
         // would fail later; the reason is already on the card.
         toggle.IsEnabled = plugin.Manifest is not null && plugin.Status is PluginStatus.Ready or PluginStatus.Disabled;
         actions.Children.Add(toggle);
+        if (plugin.Manifest?.Settings.Count > 0 && plugin.Status is PluginStatus.Ready or PluginStatus.Disabled)
+        {
+            var configure = new Button { Content = "设置", Height = 32, Padding = new Thickness(10, 0, 10, 0),
+                Style = (Style)FindResource("Action"), Tag = plugin, Margin = new Thickness(0, 0, 6, 0) };
+            configure.Click += PluginSettingsClick;
+            actions.Children.Add(configure);
+        }
         if (!string.IsNullOrWhiteSpace(plugin.LastError))
         {
             var clear = new Button
@@ -271,6 +278,45 @@ public partial class MainWindow
         RenderPlugins();
     }
 
+    void PluginSettingsClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not PluginDescriptor { Manifest: { } manifest } plugin || pluginState is null) return;
+        var dialog = new Window { Title = "插件设置 · " + plugin.DisplayName, Owner = this,
+            Width = 460, Height = Math.Min(560, 145 + manifest.Settings.Count * 75), MinWidth = 340,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        var panel = new StackPanel { Margin = new Thickness(18) };
+        panel.Children.Add(new TextBlock { Text = "仅可选择插件声明的非敏感选项。设置值会发送给该插件；请勿在这里填写密钥。",
+            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12) });
+        var current = PluginStateStore.EffectiveSettings(pluginState, plugin);
+        var controls = new Dictionary<string, ComboBox>(StringComparer.Ordinal);
+        foreach (var setting in manifest.Settings)
+        {
+            panel.Children.Add(new TextBlock { Text = setting.Label, FontWeight = FontWeights.SemiBold });
+            var box = new ComboBox { Height = 30, Margin = new Thickness(0, 4, 0, 12),
+                ItemsSource = setting.Choices, SelectedItem = current[setting.Key] };
+            controls[setting.Key] = box;
+            panel.Children.Add(box);
+        }
+        var save = new Button { Content = "保存设置", Height = 34, Style = (Style)FindResource("Primary"),
+            HorizontalAlignment = HorizontalAlignment.Right };
+        save.Click += (_, _) =>
+        {
+            var next = PluginStateStore.Clone(pluginState);
+            next.Settings[plugin.Id] = controls.ToDictionary(pair => pair.Key,
+                pair => (string)pair.Value.SelectedItem, StringComparer.Ordinal);
+            if (!PluginStateStore.Save(DataDir, next, out var error))
+            {
+                MessageBox.Show(dialog, "插件设置无法保存：" + error, "插件", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            pluginState = next;
+            dialog.DialogResult = true;
+        };
+        panel.Children.Add(save);
+        dialog.Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        dialog.ShowDialog();
+    }
+
     void PluginRescanClick(object sender, RoutedEventArgs e)
     {
         EnsurePluginCatalog(reload: true);
@@ -308,7 +354,8 @@ public partial class MainWindow
             Token = Guid.NewGuid().ToString("N"),
             Query = query,
             Kind = (guessed?.Length ?? 0) >= 4 ? "code" : "title",
-            Limit = 8
+            Limit = 8,
+            Settings = PluginStateStore.EffectiveSettings(pluginState ?? PluginStateStore.Load(DataDir), plugin)
         };
         var outcome = await PluginProcessHost.SearchAsync(plugin, parameters, cancellationToken);
         PluginLog.Append(DataDir, plugin.Id, $"查询「{query}」→ {PluginScrapeBridge.DescribeOutcome(outcome)}" +

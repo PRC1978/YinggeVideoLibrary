@@ -288,6 +288,22 @@ public partial class MainWindow
                 FontWeight = FontWeights.SemiBold, FontSize = 16, TextWrapping = TextWrapping.Wrap });
             detail.Children.Add(new TextBlock { Text = $"本地视频：{video.DisplayTitle}\n查询线索：{snapshot.Query}\n匹配依据：{row.Evidence}",
                 TextWrapping = TextWrapping.Wrap, Foreground = Brushes.SlateGray, Margin = new Thickness(0, 7, 0, 10) });
+            var posterRecord = full ?? source;
+            detail.Children.Add(CreateScrapeCover(posterRecord, 120, 170));
+            if (string.IsNullOrWhiteSpace(posterRecord.Poster) && !string.IsNullOrWhiteSpace(posterRecord.PosterUrl))
+            {
+                var loadCover = new Button { Content = "加载此候选封面", Style = (Style)FindResource("Action"),
+                    HorizontalAlignment = System.Windows.HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 8) };
+                loadCover.Click += async (_, _) =>
+                {
+                    loadCover.IsEnabled = false;
+                    await AdditionalScrapers.DownloadPosterAsync(posterRecord, video.Id, DataDir);
+                    if (!string.IsNullOrWhiteSpace(posterRecord.Poster))
+                        ScrapeCandidateCache.SaveTitleCandidates(DataDir, snapshot);
+                    RenderComparison();
+                };
+                detail.Children.Add(loadCover);
+            }
             AppendVerifiedWorkComparison(detail, snapshot.Candidates, list.SelectedIndex);
             if (source.Source.Equals("Trakt", StringComparison.OrdinalIgnoreCase))
             {

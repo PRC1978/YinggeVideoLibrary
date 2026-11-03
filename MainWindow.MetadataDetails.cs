@@ -72,6 +72,7 @@ public partial class MainWindow
         var statusText = status switch { "approved" => "已通过", "pending" => "待人工审核", "rejected" => "已否决", "unmatched" => "未找到", "local-only" => "未搜刮", _ => "已保存" };
         panel.Children.Add(new TextBlock { Text = $"{record.Source}  ·  {statusText}" + (confidence is null ? "" : $"  ·  可信度 {confidence}%"),
             Margin = new Thickness(0, 7, 0, 10), Foreground = new SolidColorBrush(Color.FromRgb(78, 107, 187)) });
+        panel.Children.Add(CreateScrapeCover(record, 150, 210));
         var note = string.IsNullOrWhiteSpace(record.DetailNote)
             ? record.DetailFetched ? "已读取来源详情；来源未提供的字段会明确显示。" : "仅有旧版搜刮摘要，尚未读取完整详情；可重新搜刮。"
             : record.DetailNote;

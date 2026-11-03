@@ -4006,6 +4006,7 @@ public partial class MainWindow : Window
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(70) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(62) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var check = new System.Windows.Controls.CheckBox { IsChecked = reviewSelection.Contains(review.VideoId), IsEnabled = review.Status is "pending" or "rejected", VerticalAlignment = VerticalAlignment.Center, Tag = review.VideoId, ToolTip = "加入批量审核" };
@@ -4018,6 +4019,8 @@ public partial class MainWindow : Window
             var scoreLabel = review.Status switch { "rejected" => ReviewRejectLabel(review), "unmatched" => "未找到", "approved" => "已通过", _ => "待人工" };
             var score = new TextBlock { Text = $"{review.Confidence}%\n{scoreLabel}", Foreground = new SolidColorBrush(review.Confidence < ReviewRejectThreshold ? Color.FromRgb(190, 70, 70) : Color.FromRgb(194, 122, 46)), FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextAlignment = TextAlignment.Center };
             Grid.SetColumn(score, 1); grid.Children.Add(score);
+            var cover = CreateScrapeCover(review.ToMetadata(), 48, 68);
+            Grid.SetColumn(cover, 2); grid.Children.Add(cover);
             var detail = new StackPanel();
             detail.Children.Add(new TextBlock { Text = review.CandidateTitle, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(55, 70, 95)), TextTrimming = TextTrimming.CharacterEllipsis });
             detail.Children.Add(new TextBlock { Text = $"{available[review.VideoId].DisplayTitle} · {review.CandidateSource} · {review.CandidateCode}", Foreground = new SolidColorBrush(Color.FromRgb(131, 144, 163)), FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis });
@@ -4048,7 +4051,7 @@ public partial class MainWindow : Window
                 };
                 detail.Children.Add(selector);
             }
-            Grid.SetColumn(detail, 2); grid.Children.Add(detail);
+            Grid.SetColumn(detail, 3); grid.Children.Add(detail);
             var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             var information = new Button { Content = "资料", Style = (Style)FindResource("Action"), Padding = new Thickness(10, 0, 10, 0) };
             information.Click += (_, _) => ShowMetadataDetails(review.ToMetadata(), review.Confidence, review.Status);
@@ -4067,7 +4070,7 @@ public partial class MainWindow : Window
             System.Windows.Automation.AutomationProperties.SetAutomationId(information, "ReviewRowInfo");
             approve.IsEnabled = review.Status is "pending" or "rejected";
             reject.IsEnabled = review.Status is "pending" or "rejected";
-            actions.Children.Add(information); actions.Children.Add(approve); actions.Children.Add(reject); Grid.SetColumn(actions, 3); grid.Children.Add(actions);
+            actions.Children.Add(information); actions.Children.Add(approve); actions.Children.Add(reject); Grid.SetColumn(actions, 4); grid.Children.Add(actions);
             row.Child = grid; ReviewQueuePanel.Children.Add(row);
         }
     }

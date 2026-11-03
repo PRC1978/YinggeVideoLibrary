@@ -34,6 +34,8 @@ public partial class MainWindow
         PluginsNav.Visibility = classic ? Visibility.Collapsed : Visibility.Visible;
         ArrangeScrapeGroups();
         RelocateStatusCards();
+        if (ReviewQueuePanel.Parent is ScrollViewer reviewScroll)
+            ConfigureReviewQueueScrolling(reviewScroll);
         // The sphere graph caches a rendered bitmap in the palette active at
         // construction time. Rebuild it after a theme switch so links and
         // labels never retain the previous mode's colors.

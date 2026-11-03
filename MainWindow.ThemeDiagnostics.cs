@@ -46,10 +46,15 @@ public partial class MainWindow
                     // status page only exists in classic mode.
                     var pages = UiTheme.IsClassicMode
                         ? new[] { "all", "categories", "recommendations", "scrape", "status", "settings" }
-                        : new[] { "all", "categories", "recommendations", "scrape", "review", "roles", "settings" };
+                        : new[] { "all", "categories", "recommendations", "scrape", "review", "roles", "plugins", "settings" };
                     foreach (var page in pages)
                     {
                         ShowView(page);
+                        if (page == "review" && config.AiReviews.Values.Any(review =>
+                            videos.Any(video => video.Id == review.VideoId) && ReviewMatchesFilter(review)) &&
+                            ReviewQueuePanel.Children.Count == 1 &&
+                            ReviewQueuePanel.Children[0] is System.Windows.Controls.TextBlock)
+                            throw new InvalidOperationException("有可见审核记录，但审核列表显示空状态");
                         if (page == "recommendations")
                         {
                             for (var attempt = 0; attempt < 30 &&
@@ -79,7 +84,17 @@ public partial class MainWindow
                             pageBackground = UiTheme.Brush(UiTheme.PageBackground).Color.ToString(),
                             textPrimary = UiTheme.Brush(UiTheme.TextPrimary).Color.ToString(),
                             reviewVisible = ReviewPanel.Visibility == Visibility.Visible,
+                            reviewStoredCount = page == "review" ? config.AiReviews.Count : (int?)null,
+                            reviewMatchingVideoCount = page == "review" ? config.AiReviews.Keys.Count(id => videos.Any(video => video.Id == id)) : (int?)null,
+                            reviewValueMatchingVideoCount = page == "review" ? config.AiReviews.Values.Count(review => videos.Any(video => video.Id == review.VideoId)) : (int?)null,
+                            reviewRecognizedStatusCount = page == "review" ? config.AiReviews.Values.Count(review => review.Status is "pending" or "rejected" or "approved" or "unmatched") : (int?)null,
+                            reviewFilteredCount = page == "review" ? config.AiReviews.Values.Count(ReviewMatchesFilter) : (int?)null,
+                            reviewRenderedRows = page == "review" ? ReviewQueuePanel.Children.Count : (int?)null,
+                            reviewUsesPageScroll = page == "review" && ReviewQueuePanel.Parent is System.Windows.Controls.ScrollViewer reviewScroll
+                                ? double.IsNaN(reviewScroll.Height) && reviewScroll.VerticalScrollBarVisibility == System.Windows.Controls.ScrollBarVisibility.Disabled
+                                : (bool?)null,
                             rolesVisible = RolesPanel.Visibility == Visibility.Visible,
+                            pluginsVisible = PluginsPanel.Visibility == Visibility.Visible,
                             statusVisible = StatusPanel.Visibility == Visibility.Visible,
                             libraryNavVisible = LibraryNav.Visibility == Visibility.Visible,
                             statusNavVisible = StatusNav.Visibility == Visibility.Visible,
@@ -129,8 +144,9 @@ public partial class MainWindow
                 AllListPanel.Visibility == Visibility.Visible)
                 throw new InvalidOperationException("审核刷新错误地切回视频完整列表");
             if (reviewTopNextPageButton is null || reviewTopPageJumpBox is null ||
-                ReviewQueuePanel.Parent is not System.Windows.Controls.ScrollViewer queue || queue.Height < 500)
-                throw new InvalidOperationException("审核队列缺少上方翻页、跳转或足够的可视高度");
+                ReviewQueuePanel.Parent is not System.Windows.Controls.ScrollViewer queue ||
+                (UiTheme.IsClassicMode ? queue.Height < 500 : !double.IsNaN(queue.Height)))
+                throw new InvalidOperationException("审核队列缺少上方翻页、跳转或连续页面滚动");
             var navPanel = BuildSphereNavigator([]) as System.Windows.Controls.StackPanel
                 ?? throw new InvalidOperationException("节点导航未创建");
             var navBar = (System.Windows.Controls.DockPanel)navPanel.Children[0];

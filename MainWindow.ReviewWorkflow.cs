@@ -183,7 +183,7 @@ public partial class MainWindow
             topPager.Children.Add(reviewTopNextPageButton);
             reviewTopPageJumpBox = AddReviewPageJump(topPager);
             panel.Children.Insert(panel.Children.IndexOf(queueScroll), topPager);
-            queueScroll.Height = 560;
+            ConfigureReviewQueueScrolling(queueScroll);
         }
         UpdateReviewSourceFilter();
         ReloadSavedReviewViews();
@@ -400,7 +400,21 @@ public partial class MainWindow
 
     void ScrollReviewQueueToTop()
     {
-        if (ReviewQueuePanel.Parent is ScrollViewer queueScroll) queueScroll.ScrollToTop();
+        if (ReviewQueuePanel.Parent is not ScrollViewer queueScroll) return;
+        if (UiTheme.IsClassicMode) { queueScroll.ScrollToTop(); return; }
+        // The redesigned page has one scroll surface. Keep the next page's
+        // first review near the top instead of resetting to the page header.
+        var offset = ReviewQueuePanel.TranslatePoint(new System.Windows.Point(), LibraryScroll).Y + LibraryScroll.VerticalOffset;
+        LibraryScroll.ScrollToVerticalOffset(Math.Max(0, offset - 120));
+    }
+
+    void ConfigureReviewQueueScrolling(ScrollViewer queueScroll)
+    {
+        // A fixed-height inner scroller showed only two records and trapped
+        // the wheel inside the queue. Let the page own scrolling in new modes.
+        queueScroll.Height = UiTheme.IsClassicMode ? 560 : double.NaN;
+        queueScroll.VerticalScrollBarVisibility = UiTheme.IsClassicMode
+            ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled;
     }
 
     void UpdateReviewSourceFilter()

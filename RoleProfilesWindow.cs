@@ -144,6 +144,14 @@ internal sealed partial class RoleProfilesView : Grid
         columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(285) });
         columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
         columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        // The embedded view has less room than the standalone window. Give
+        // the profile details priority when the main window is narrow.
+        SizeChanged += (_, _) =>
+        {
+            var listWidth = ActualWidth < 760 ? 220 : 285;
+            if (Math.Abs(columns.ColumnDefinitions[0].Width.Value - listWidth) > 1)
+                columns.ColumnDefinitions[0].Width = new GridLength(listWidth);
+        };
         Grid.SetRow(columns, 1); root.Children.Add(columns);
 
         var left = new Border { Background = UiTheme.SurfaceBrush, CornerRadius = new CornerRadius(14),

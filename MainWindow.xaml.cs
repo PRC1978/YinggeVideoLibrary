@@ -1692,6 +1692,7 @@ public partial class MainWindow : Window
             if (target == "status") UpdateAvailabilityChips();
         }
         else RenderCards();
+        UpdateAvailabilityChips();
         // Switching pages used to inherit the previous page's offset, so the
         // new page opened mid-scroll. Only reset when the page really changed.
         if (changedView) LibraryScroll.ScrollToTop();

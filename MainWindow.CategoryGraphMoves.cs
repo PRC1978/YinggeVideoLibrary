@@ -261,7 +261,7 @@ public partial class MainWindow
             MinWidth = 540, MinHeight = 340, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var layout = new DockPanel { Margin = new Thickness(20) };
         layout.Children.Add(new TextBlock { Text = "确认前查看会改动的分类和视频", FontSize = 18,
-            FontWeight = FontWeights.SemiBold, Foreground = Brushes.MidnightBlue,
+            FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextPrimaryBrush,
             Margin = new Thickness(0, 0, 0, 9) });
         DockPanel.SetDock(layout.Children[^1], Dock.Top);
         ComboBox? modePicker = null;
@@ -276,7 +276,7 @@ public partial class MainWindow
             layout.Children.Add(modePicker);
         }
         var preview = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = 13,
-            Foreground = Brushes.DarkSlateGray, Margin = new Thickness(1, 1, 10, 5) };
+            Foreground = UiTheme.TextSecondaryBrush, Margin = new Thickness(1, 1, 10, 5) };
         var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             Content = preview };
         void UpdatePreview() => preview.Text = ((modePicker?.SelectedItem as ComboBoxItem)?.Tag as CategoryGraphMovePlan

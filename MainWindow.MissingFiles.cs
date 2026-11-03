@@ -24,6 +24,7 @@ public partial class MainWindow
     int lastMissingChip = -1;
     int lastUnavailableChip = -1;
     int lastAvailabilityFilter = -1;
+    bool? lastChipPageVisible;
 
     // Called from every RenderCards pass, so it must be free when nothing
     // changed: building brushes and re-laying out the header cost ~16 ms even
@@ -33,15 +34,18 @@ public partial class MainWindow
         if (MissingFilterButton is null) return;
         var missing = MissingFileCount;
         var unavailable = UnavailableRootCount;
-        if (missing == lastMissingChip && unavailable == lastUnavailableChip && availabilityFilter == lastAvailabilityFilter)
+        var onVideoPage = view is "all" or "recent" or "favorites" or "categories";
+        if (missing == lastMissingChip && unavailable == lastUnavailableChip &&
+            availabilityFilter == lastAvailabilityFilter && onVideoPage == lastChipPageVisible)
             return;
         lastMissingChip = missing;
         lastUnavailableChip = unavailable;
         lastAvailabilityFilter = availabilityFilter;
+        lastChipPageVisible = onVideoPage;
         MissingFilterButton.Content = $"不在本地 {missing}";
-        MissingFilterButton.Visibility = missing > 0 || availabilityFilter == 1 ? Visibility.Visible : Visibility.Collapsed;
+        MissingFilterButton.Visibility = onVideoPage && (missing > 0 || availabilityFilter == 1) ? Visibility.Visible : Visibility.Collapsed;
         UnavailableFilterButton.Content = $"位置暂不可用 {unavailable}";
-        UnavailableFilterButton.Visibility = unavailable > 0 || availabilityFilter == 2 ? Visibility.Visible : Visibility.Collapsed;
+        UnavailableFilterButton.Visibility = onVideoPage && (unavailable > 0 || availabilityFilter == 2) ? Visibility.Visible : Visibility.Collapsed;
         HighlightChip(MissingFilterButton, availabilityFilter == 1, Color.FromRgb(180, 35, 24));
         HighlightChip(UnavailableFilterButton, availabilityFilter == 2, Color.FromRgb(180, 83, 9));
         if (MissingFilesSummary is not null)

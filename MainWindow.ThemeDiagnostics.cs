@@ -50,6 +50,10 @@ public partial class MainWindow
                     foreach (var page in pages)
                     {
                         ShowView(page);
+                        if (page is not ("all" or "categories") &&
+                            (MissingFilterButton.Visibility == Visibility.Visible ||
+                             UnavailableFilterButton.Visibility == Visibility.Visible))
+                            throw new InvalidOperationException($"{page} 页仍显示视频缺失筛选按钮");
                         if (page == "review" && config.AiReviews.Values.Any(review =>
                             videos.Any(video => video.Id == review.VideoId) && ReviewMatchesFilter(review)) &&
                             ReviewQueuePanel.Children.Count == 1 &&

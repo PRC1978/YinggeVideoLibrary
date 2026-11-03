@@ -40,17 +40,19 @@ public partial class MainWindow
         catch { return null; }
     }
 
-    void ShowScrapeCoverZoom(MovieMetadata record)
+    Window? BuildScrapeCoverZoom(MovieMetadata record)
     {
-        if (ManagedScrapeCoverPath(record) is null) return;
+        if (ManagedScrapeCoverPath(record) is null) return null;
         var dialog = new Window { Title = "封面预览 · " + record.Source, Owner = this,
             Width = 530, Height = 700, MinWidth = 300, MinHeight = 350,
             WindowStartupLocation = WindowStartupLocation.CenterOwner };
         dialog.Content = new ScrollViewer { Content = CreateScrapeCover(record, 440, 600),
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-        dialog.ShowDialog();
+        return dialog;
     }
+
+    void ShowScrapeCoverZoom(MovieMetadata record) => BuildScrapeCoverZoom(record)?.ShowDialog();
 
     bool UseScrapeCover(VideoItem video, MovieMetadata record, out string error)
     {
@@ -79,6 +81,9 @@ public partial class MainWindow
     }
 
     void ShowScrapeCoverComparison(VideoItem video, AiReviewRecord review)
+        => BuildScrapeCoverComparison(video, review).ShowDialog();
+
+    Window BuildScrapeCoverComparison(VideoItem video, AiReviewRecord review)
     {
         var current = review.ToMetadata();
         var choices = new List<MovieMetadata> { current };
@@ -120,16 +125,20 @@ public partial class MainWindow
             var choice = candidate;
             var card = new StackPanel { Width = 155, Margin = new Thickness(5, 2, 5, 12) };
             var preview = new ContentControl { Content = CreateScrapeCover(choice, 140, 185) };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(preview, "ScrapeCoverPreview");
             card.Children.Add(preview);
             card.Children.Add(new TextBlock { Text = choice.Source + " · " + choice.Code,
                 TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = choice.SourceUrl });
             var zoom = new Button { Content = "放大", Style = (Style)FindResource("Action") };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(zoom, "ScrapeCoverZoom");
             zoom.Click += (_, _) => ShowScrapeCoverZoom(choice);
             card.Children.Add(zoom);
             var use = new Button { Content = "用作视频封面", Style = (Style)FindResource("Primary"),
                 IsEnabled = ManagedScrapeCoverPath(choice) is not null };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(use, "ScrapeCoverUse");
             var load = new Button { Content = "加载封面", Style = (Style)FindResource("Action"),
                 IsEnabled = ManagedScrapeCoverPath(choice) is null && !string.IsNullOrWhiteSpace(choice.PosterUrl) };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(load, "ScrapeCoverLoad");
             load.Click += async (_, _) =>
             {
                 load.IsEnabled = false;
@@ -151,7 +160,7 @@ public partial class MainWindow
         root.Children.Add(new ScrollViewer { Content = wrap,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
         dialog.Content = root;
-        dialog.ShowDialog();
+        return dialog;
     }
 
     FrameworkElement CreateScrapeCover(MovieMetadata record, double width = 120, double height = 170)

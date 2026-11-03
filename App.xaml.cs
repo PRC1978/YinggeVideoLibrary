@@ -141,6 +141,31 @@ public partial class App : System.Windows.Application
             Shutdown(scrapeResult);
             return;
         }
+        if (e.Args.Length > 1 && e.Args[0] == "--diagnose-ui-cover")
+        {
+            var coverProbe = new MainWindow
+            {
+                Left = -30000, Top = -30000, Width = 1224, Height = 780,
+                ShowActivated = false, ShowInTaskbar = false
+            };
+            MainWindow = coverProbe;
+            coverProbe.Show();
+            var result = await coverProbe.WriteHiddenCoverDiagnosticAsync(e.Args[1]);
+            coverProbe.Close();
+            Shutdown(result);
+            return;
+        }
+        if (e.Args.Length > 1 && e.Args[0] == "--diagnose-ui-cover-reload")
+        {
+            var coverProbe = new MainWindow { Left = -30000, Top = -30000,
+                ShowActivated = false, ShowInTaskbar = false };
+            MainWindow = coverProbe;
+            coverProbe.Show();
+            var result = coverProbe.WriteCoverReloadDiagnostic(e.Args[1]);
+            coverProbe.Close();
+            Shutdown(result);
+            return;
+        }
         if (e.Args.Length > 2 && e.Args[0] == "--self-test-cross-device")
         {
             Shutdown(await Task.Run(() => BackupCrossDeviceDiagnostics.RunToFile(e.Args[1], e.Args[2])));

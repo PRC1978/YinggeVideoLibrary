@@ -406,6 +406,7 @@ public partial class MainWindow
         footer.Children.Add(cancel); footer.Children.Add(accept);
         DockPanel.SetDock(footer, Dock.Bottom); layout.Children.Add(footer);
         var list = new ListBox { SelectedIndex = 0 };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(list, "ScrapeCandidateList");
         foreach (var (candidate, score) in candidates)
         {
             var row = new StackPanel { Margin = new Thickness(8, 5, 8, 6) };
@@ -426,6 +427,7 @@ public partial class MainWindow
         body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(165) });
         body.Children.Add(list);
         var coverPanel = new StackPanel { Margin = new Thickness(12, 0, 0, 0) };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(coverPanel, "ScrapeCandidateCoverPanel");
         Grid.SetColumn(coverPanel, 1); body.Children.Add(coverPanel);
         void RenderSelectedCover()
         {
@@ -435,11 +437,13 @@ public partial class MainWindow
             coverPanel.Children.Add(CreateScrapeCover(candidate, 140, 185));
             var zoom = new Button { Content = "放大封面", Style = (Style)FindResource("Action"),
                 IsEnabled = ManagedScrapeCoverPath(candidate) is not null };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(zoom, "ScrapeCandidateCoverZoom");
             zoom.Click += (_, _) => ShowScrapeCoverZoom(candidate);
             coverPanel.Children.Add(zoom);
             if (ManagedScrapeCoverPath(candidate) is null && !string.IsNullOrWhiteSpace(candidate.PosterUrl))
             {
                 var load = new Button { Content = "加载封面", Style = (Style)FindResource("Action") };
+                System.Windows.Automation.AutomationProperties.SetAutomationId(load, "ScrapeCandidateCoverLoad");
                 load.Click += async (_, _) =>
                 {
                     load.IsEnabled = false;
@@ -450,6 +454,7 @@ public partial class MainWindow
             }
         }
         list.SelectionChanged += (_, _) => RenderSelectedCover();
+        list.SelectedIndex = candidates.Count > 0 ? 0 : -1;
         RenderSelectedCover();
         layout.Children.Add(body); dialog.Content = layout;
         return dialog.ShowDialog() == true && list.SelectedIndex >= 0 ? candidates[list.SelectedIndex].candidate : null;

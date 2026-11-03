@@ -1084,7 +1084,7 @@ public partial class MainWindow : Window
             "pending" => $"待审核 · {review.CandidateSource} · 可信度 {review.Confidence}%",
             "rejected" => $"{rejectionLabel} · {review.CandidateSource} · 可信度 {review.Confidence}%",
             "approved" => $"已搜刮 · {review.CandidateSource} · 可信度 {review.Confidence}%",
-            "unmatched" => $"未找到匹配 · {review.CandidateSource} · 素人",
+            "unmatched" => $"未找到匹配 · {review.CandidateSource}",
             _ => ""
         };
     }
@@ -1643,6 +1643,7 @@ public partial class MainWindow : Window
         searchRenderVersion++;
         categoryCardPopulationCompletion?.TrySetResult(false);
         categoryCardRenderRequest++;
+        var reusableCards = ReferenceEquals(Cards.ItemsSource, categoryCardItems) ? categoryCardItems : null;
         categoryCardItems = null;
         categoryCardTargets = null;
         categoryCardPopulationScheduled = false;
@@ -1712,7 +1713,7 @@ public partial class MainWindow : Window
         // Realize the whole page over successive dispatcher turns. A single
         // 60-card binding/layout pass can block input for hundreds of ms.
         categoryCardTargets = visible;
-        categoryCardItems = new System.Collections.ObjectModel.ObservableCollection<VideoItem>();
+        categoryCardItems = reusableCards ?? new System.Collections.ObjectModel.ObservableCollection<VideoItem>();
         categoryCardPopulationCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Cards.ItemsSource = categoryCardItems;
         lastSearchRenderBindingMs = renderClock.Elapsed.TotalMilliseconds - lastSearchRenderFilterMs;
@@ -1762,9 +1763,22 @@ public partial class MainWindow : Window
             }
             var populateClock = System.Diagnostics.Stopwatch.StartNew();
             var end = Math.Min(targets.Count, next + CardPopulationBatchSize);
-            while (next < end) items.Add(targets[next++]);
+            while (next < end)
+            {
+                if (next < items.Count)
+                {
+                    if (!ReferenceEquals(items[next], targets[next])) items[next] = targets[next];
+                }
+                else items.Add(targets[next]);
+                next++;
+            }
+            if (next == targets.Count)
+            {
+                for (var removed = 0; removed < CardPopulationBatchSize && items.Count > targets.Count; removed++)
+                    items.RemoveAt(items.Count - 1);
+            }
             lastSearchPopulateMaxChunkMs = Math.Max(lastSearchPopulateMaxChunkMs, populateClock.Elapsed.TotalMilliseconds);
-            if (next == targets.Count) completion?.TrySetResult(true);
+            if (next == targets.Count && items.Count == targets.Count) completion?.TrySetResult(true);
             else Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(AddChunk));
         }
         Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(AddChunk));
@@ -2999,6 +3013,9 @@ public partial class MainWindow : Window
         var information = new MenuItem { Header = "查看完整搜刮资料…", IsEnabled = metadata.ContainsKey(video.Id) || config.AiReviews.ContainsKey(video.Id) };
         information.Click += (_, _) => ShowMetadataDetailsForVideo(video);
         menu.Items.Add(information);
+        var pluginTool = new MenuItem { Header = "插件只读工具…" };
+        pluginTool.Click += (_, _) => Dispatcher.BeginInvoke(() => ShowPluginToolPicker(video));
+        menu.Items.Add(pluginTool);
         var personProfile = new MenuItem { Header = "人物 / 角色档案…" };
         personProfile.Click += (_, _) => Dispatcher.BeginInvoke(() =>
             OpenRoleProfiles(video, metadata.GetValueOrDefault(video.Id)));
@@ -3090,6 +3107,7 @@ public partial class MainWindow : Window
     string GetAiChatEndpoint()
     {
         var endpoint = config.AiEndpoint.Trim().TrimEnd('/');
+        if (endpoint.StartsWith("plugin-ai://", StringComparison.OrdinalIgnoreCase)) return endpoint;
         return endpoint.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase) ? endpoint : endpoint + "/chat/completions";
     }
 
@@ -3381,7 +3399,14 @@ public partial class MainWindow : Window
     void ClearPoster(VideoItem video)
     {
         if (config.CustomPosters.TryGetValue(video.Id, out var oldPoster)) VideoItem.InvalidatePoster(oldPoster);
-        if (config.CustomPosters.Remove(video.Id, out var path)) try { if (File.Exists(path)) File.Delete(path); } catch { }
+        if (config.CustomPosters.Remove(video.Id, out var path))
+            try
+            {
+                // A selected scrape cover is shared with review evidence.
+                // Clearing the visual override must not delete that cache.
+                if (IsOwnedCustomPosterPath(ThumbDir, video.Id, path)) File.Delete(path);
+            }
+            catch { }
         video.Poster = null; SaveConfig(); RenderCards();
     }
 
@@ -3681,7 +3706,8 @@ public partial class MainWindow : Window
         if (value is null) return;
         video.Tags.Clear(); video.Tags.AddRange(ParseTags(value));
         video.RefreshTags();
-        if (!video.Tags.Contains("素人", StringComparer.CurrentCultureIgnoreCase)) config.AutoAmateurTags.RemoveAll(id => id.Equals(video.Id, StringComparison.OrdinalIgnoreCase));
+        // Explicit editing makes every retained tag manual, including "素人".
+        config.AutoAmateurTags.RemoveAll(id => id.Equals(video.Id, StringComparison.OrdinalIgnoreCase));
         if (video.Tags.Count == 0) config.Tags.Remove(video.Id); else config.Tags[video.Id] = video.Tags.ToList();
         SaveConfig(); RenderCards(); Log($"已更新标签：{video.DisplayTitle}");
     }
@@ -3927,9 +3953,9 @@ public partial class MainWindow : Window
             after.Review = review;
             if (review.Status == "approved")
                 after.Metadata = MetadataRefreshPolicy.AcceptedValue(before.Metadata, review.ToMetadata());
-            after = WithAutomaticAmateurTag(video, after,
-                candidate.DetailFetched && after.Metadata is null &&
-                (review.Status is "pending" or "rejected") && review.Confidence < ReviewManualThreshold);
+            // A weak match or AI rejection does not establish that the people
+            // in this video are amateurs. Only a person may assign that tag.
+            after = ClearAutomaticallyInferredAmateurTag(video, after);
             var transaction = ReviewTransactionStore.Create(review.Status == "approved" ? "auto-approved" : "candidate",
                 new Dictionary<string, ReviewItemSnapshot> { [video.Id] = before },
                 new Dictionary<string, ReviewItemSnapshot> { [video.Id] = after });
@@ -3991,6 +4017,7 @@ public partial class MainWindow : Window
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(70) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(62) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var check = new System.Windows.Controls.CheckBox { IsChecked = reviewSelection.Contains(review.VideoId), IsEnabled = review.Status is "pending" or "rejected", VerticalAlignment = VerticalAlignment.Center, Tag = review.VideoId, ToolTip = "加入批量审核" };
@@ -4003,10 +4030,17 @@ public partial class MainWindow : Window
             var scoreLabel = review.Status switch { "rejected" => ReviewRejectLabel(review), "unmatched" => "未找到", "approved" => "已通过", _ => "待人工" };
             var score = new TextBlock { Text = $"{review.Confidence}%\n{scoreLabel}", Foreground = new SolidColorBrush(review.Confidence < ReviewRejectThreshold ? Color.FromRgb(190, 70, 70) : Color.FromRgb(194, 122, 46)), FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextAlignment = TextAlignment.Center };
             Grid.SetColumn(score, 1); grid.Children.Add(score);
+            var cover = CreateScrapeCover(review.ToMetadata(), 48, 68);
+            Grid.SetColumn(cover, 2); grid.Children.Add(cover);
             var detail = new StackPanel();
             detail.Children.Add(new TextBlock { Text = review.CandidateTitle, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(55, 70, 95)), TextTrimming = TextTrimming.CharacterEllipsis });
             detail.Children.Add(new TextBlock { Text = $"{available[review.VideoId].DisplayTitle} · {review.CandidateSource} · {review.CandidateCode}", Foreground = new SolidColorBrush(Color.FromRgb(131, 144, 163)), FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis });
             detail.Children.Add(new TextBlock { Text = $"评估：{review.Model} · 依据：{review.Reason}", Foreground = new SolidColorBrush(Color.FromRgb(111, 122, 143)), FontSize = 11, TextWrapping = TextWrapping.Wrap });
+            var compareCovers = new Button { Content = "比较封面", Style = (Style)FindResource("Action"),
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Left, Margin = new Thickness(0, 4, 0, 0),
+                Padding = new Thickness(8, 0, 8, 0) };
+            compareCovers.Click += (_, _) => ShowScrapeCoverComparison(available[review.VideoId], review);
+            detail.Children.Add(compareCovers);
             // A plugin may return several candidates for one video. They are all
             // kept on disk; this selector decides which one the record points at.
             if (review.DecisionSource == "plugin" && pluginCandidates.TryGetValue(review.VideoId, out var storedCandidates) && storedCandidates.Count > 1)
@@ -4033,10 +4067,10 @@ public partial class MainWindow : Window
                 };
                 detail.Children.Add(selector);
             }
-            Grid.SetColumn(detail, 2); grid.Children.Add(detail);
+            Grid.SetColumn(detail, 3); grid.Children.Add(detail);
             var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             var information = new Button { Content = "资料", Style = (Style)FindResource("Action"), Padding = new Thickness(10, 0, 10, 0) };
-            information.Click += (_, _) => ShowMetadataDetails(review.ToMetadata(), review.Confidence, review.Status);
+            information.Click += (_, _) => ShowMetadataDetails(review.ToMetadata(), review.Confidence, review.Status, available[review.VideoId]);
             var approve = new Button { Content = "通过", Style = (Style)FindResource("Action"), Padding = new Thickness(10, 0, 10, 0) }; approve.Click += (_, _) =>
             {
                 if (!TryCommitReviewDecisionsWithPreview([review.VideoId], true, out var error)) { if (error.Length > 0) MessageBox.Show(this, "通过操作未完成：" + error + (ReviewTransactionStore.HasPending(DataDir) ? "；待恢复记录会在下次启动检查。" : ""), "审核保存失败", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
@@ -4052,7 +4086,7 @@ public partial class MainWindow : Window
             System.Windows.Automation.AutomationProperties.SetAutomationId(information, "ReviewRowInfo");
             approve.IsEnabled = review.Status is "pending" or "rejected";
             reject.IsEnabled = review.Status is "pending" or "rejected";
-            actions.Children.Add(information); actions.Children.Add(approve); actions.Children.Add(reject); Grid.SetColumn(actions, 3); grid.Children.Add(actions);
+            actions.Children.Add(information); actions.Children.Add(approve); actions.Children.Add(reject); Grid.SetColumn(actions, 4); grid.Children.Add(actions);
             row.Child = grid; ReviewQueuePanel.Children.Add(row);
         }
     }
@@ -4124,14 +4158,11 @@ public partial class MainWindow : Window
         if (records.Count == 0) { MessageBox.Show(this, "没有可供 AI 重新评估的待审核匹配。", "AI 可信度审核", MessageBoxButton.OK, MessageBoxImage.Information); return; }
         try
         {
-            var localEndpoint = new Uri(GetAiChatEndpoint()).IsLoopback;
-            var retries = Math.Clamp(localEndpoint ? config.AiLocalRetryCount : config.AiCloudRetryCount, 0, 5);
-            var reserved = records.Sum(review => AiRequestQueue.EstimateReservedUsd(config,
-                JsonSerializer.Serialize(BuildScrapeAiPayload(available[review.VideoId], review.ToMetadata()))));
-            var preview = $"本轮 {records.Count} 条，最多 {records.Count * (retries + 1)} 次请求（含重试）。\n" +
-                (localEndpoint ? "当前使用本机模型；不会发送到云端。" :
-                    $"按设置费率估算的预留费用上限约 ${reserved * (retries + 1):F4}；每日预算 ${config.AiDailyBudgetUsd:F2}。实际账单以服务商为准。") +
-                "\n开始评估？";
+            var aiUri = new Uri(GetAiChatEndpoint());
+            var localEndpoint = aiUri.IsLoopback || PluginAiTransport.IsEndpoint(aiUri);
+            var requestBodies = records.Select(review => JsonSerializer.Serialize(
+                BuildScrapeAiPayload(available[review.VideoId], review.ToMetadata()))).ToArray();
+            var preview = AiCostPreview.Build(config, localEndpoint, requestBodies);
             if (MessageBox.Show(this, preview, "AI 评估预览", MessageBoxButton.YesNo, MessageBoxImage.Information) != MessageBoxResult.Yes)
                 return;
         }
@@ -4182,7 +4213,7 @@ public partial class MainWindow : Window
                         {
                             review.ReviewedAt = DateTime.Now;
                             proposal.Metadata = MetadataRefreshPolicy.AcceptedValue(original.Metadata, review.ToMetadata());
-                            proposal = WithAutomaticAmateurTag(video, proposal, false);
+                            proposal = ClearAutomaticallyInferredAmateurTag(video, proposal);
                         }
                     }
                     proposals[id] = proposal;
@@ -4341,7 +4372,7 @@ public partial class MainWindow : Window
                     return;
                 }
                 StoreUnmatchedScrape(video, source switch { 1 => "Pornhub", 2 => "TVmaze", 3 => "全部来源", 4 => "Bangumi", 5 => "JavDB 标题", 6 => "AniList", 7 => "JAVDatabase 标题", 8 => "Javinfo", 9 => "Wikidata", 11 => "Kitsu", 12 => "Tenrai", 13 => "Trakt", 14 => "Mikan", 15 => "FankuHub", _ => "TMDB" }, "已查询来源，没有找到候选结果。");
-                TaskStatusText.Text = "完整资料搜刮完成 · 未找到匹配，已标记素人";
+                TaskStatusText.Text = "完整资料搜刮完成 · 未找到匹配，未据此标记素人";
                 RenderCards();
                 return;
             }

@@ -42,6 +42,12 @@ public partial class MainWindow
         var roles = new Button { Content = "人物 / 角色档案…", Style = (Style)FindResource("Action") };
         roles.Click += (_, _) => { dialog.Close(); OpenRoleProfiles(video, record); };
         buttons.Children.Add(roles);
+        if (video is not null && config.AiReviews.TryGetValue(video.Id, out var coverReview))
+        {
+            var compare = new Button { Content = "比较封面…", Style = (Style)FindResource("Action") };
+            compare.Click += (_, _) => ShowScrapeCoverComparison(video, coverReview);
+            buttons.Children.Add(compare);
+        }
         if (Uri.TryCreate(record.SourceUrl, UriKind.Absolute, out var sourceUri) &&
             sourceUri.Scheme == Uri.UriSchemeHttps &&
             (sourceUri.Host == "javdb.com" || sourceUri.Host == "www.javdb.com" ||
@@ -72,6 +78,7 @@ public partial class MainWindow
         var statusText = status switch { "approved" => "已通过", "pending" => "待人工审核", "rejected" => "已否决", "unmatched" => "未找到", "local-only" => "未搜刮", _ => "已保存" };
         panel.Children.Add(new TextBlock { Text = $"{record.Source}  ·  {statusText}" + (confidence is null ? "" : $"  ·  可信度 {confidence}%"),
             Margin = new Thickness(0, 7, 0, 10), Foreground = new SolidColorBrush(Color.FromRgb(78, 107, 187)) });
+        panel.Children.Add(CreateScrapeCover(record, 150, 210));
         var note = string.IsNullOrWhiteSpace(record.DetailNote)
             ? record.DetailFetched ? "已读取来源详情；来源未提供的字段会明确显示。" : "仅有旧版搜刮摘要，尚未读取完整详情；可重新搜刮。"
             : record.DetailNote;

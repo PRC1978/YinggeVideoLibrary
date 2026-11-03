@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -10,7 +11,8 @@ namespace YinggeVideoLibrary;
 // network request is made. The sample plugin drives the process scenarios.
 internal static class PluginDiagnostics
 {
-    internal static int RunToFile(string workDirectory, string outPath, string? sampleDirectory)
+    internal static int RunToFile(string workDirectory, string outPath, string? sampleDirectory,
+        string? localAiSampleDirectory = null)
     {
         var checks = new SortedDictionary<string, bool>(StringComparer.Ordinal);
         var details = new List<string>();
@@ -53,6 +55,15 @@ internal static class PluginDiagnostics
         WriteManifest(root, "dup", ManifestJson("com.example.dup", version: "1.0.0"));
         WriteManifest(root, "dup-two", ManifestJson("com.example.dup", version: "1.0.1"));
         WriteManifest(root, "future-api", ManifestJson("com.example.future", apiVersion: 2));
+        var futureSchema = JsonNode.Parse(ManifestJson("com.example.schema"))!;
+        futureSchema["schemaVersion"] = 2;
+        WriteManifest(root, "future-schema", futureSchema.ToJsonString());
+        var unsafeSetting = JsonNode.Parse(ManifestJson("com.example.badsetting"))!;
+        unsafeSetting["settings"] = new JsonArray(new JsonObject
+        {
+            ["key"] = "api_key", ["label"] = "密钥", ["choices"] = new JsonArray("a"), ["default"] = "a"
+        });
+        WriteManifest(root, "bad-setting", unsafeSetting.ToJsonString());
         WriteManifest(root, "theme", ManifestJson("com.example.theme", capability: "ui.theme"));
         WriteManifest(root, "escape", ManifestJson("com.example.escape", entry: "../escape.exe"));
         WriteManifest(root, "no-entry", ManifestJson("com.example.noentry", entry: "missing.exe"));
@@ -69,10 +80,25 @@ internal static class PluginDiagnostics
         Check("missingIdReported", Find("no-id").Status == PluginStatus.DamagedManifest);
         Check("duplicateIdReported", Find("dup").Status == PluginStatus.DuplicateId && Find("dup-two").Status == PluginStatus.DuplicateId);
         Check("incompatibleApiReported", Find("future-api").Status == PluginStatus.IncompatibleApi);
+        Check("incompatibleManifestSchemaReported", Find("future-schema").Status == PluginStatus.IncompatibleApi);
+        Check("invalidSettingRejected", Find("bad-setting").Status == PluginStatus.DamagedManifest);
         Check("unsupportedCapabilityReported", Find("theme").Status == PluginStatus.UnsupportedCapability);
         Check("unsafeEntryReported", Find("escape").Status == PluginStatus.UnsafeEntry);
         Check("missingEntryReported", Find("no-entry").Status == PluginStatus.MissingEntry);
         Check("readyPluginAccepted", Find("ready").Status == PluginStatus.Ready);
+        var settingsManifest = PluginManifestReader.Read(Path.Combine(root, "ready"));
+        settingsManifest.Manifest!.Settings = [new PluginSettingDefinition
+        {
+            Key = "result_mode", Label = "结果模式", Choices = ["normal", "empty"], Default = "normal"
+        }];
+        var settingsState = new PluginState();
+        settingsState.Settings[settingsManifest.Id] = new Dictionary<string, string> { ["result_mode"] = "empty", ["unknown"] = "secret" };
+        var effectiveSettings = PluginStateStore.EffectiveSettings(settingsState, settingsManifest);
+        Check("settingsOnlyDeclaredChoices", effectiveSettings.Count == 1 && effectiveSettings["result_mode"] == "empty");
+        settingsState.Settings[settingsManifest.Id]["result_mode"] = "invalid";
+        Check("settingsRejectStaleValues", PluginStateStore.EffectiveSettings(settingsState, settingsManifest)["result_mode"] == "normal");
+        Check("settingsCloneAndReload", PluginStateStore.Save(dataDir, settingsState, out _) &&
+            PluginStateStore.Clone(PluginStateStore.Load(dataDir)).Settings[settingsManifest.Id]["result_mode"] == "invalid");
 
         // --- enablement and consent ---------------------------------------------
         var state = new PluginState();
@@ -119,6 +145,26 @@ internal static class PluginDiagnostics
             observed["searchCandidates"] = search.Candidates.Count;
             observed["searchElapsedMs"] = search.ElapsedMs;
             Check("searchReturnsCandidates", search.Ok && search.Candidates.Count > 0);
+            var settingsSearch = PluginProcessHost.SearchAsync(samplePlugin,
+                new PluginSearchParameters { Token = "settings-test", Query = "示例作品", Kind = "title", Limit = 5,
+                    Settings = new Dictionary<string, string> { ["result_mode"] = "empty" } },
+                CancellationToken.None).GetAwaiter().GetResult();
+            Check("samplePluginReceivesSettings", settingsSearch.Ok && settingsSearch.Candidates.Count == 0);
+            // Treat a separately packaged copy as an external v1 plugin: the
+            // binary has no reference to the host assembly, and only JSON
+            // lines plus the documented manifest connect the two programs.
+            var externalFolder = CopySample(sampleDirectory!, Path.Combine(root, "external-v1"));
+            var externalManifestPath = Path.Combine(externalFolder, "plugin.json");
+            var externalManifest = JsonNode.Parse(File.ReadAllText(externalManifestPath))!;
+            externalManifest["id"] = "org.example.external";
+            externalManifest["version"] = "1.1.0";
+            File.WriteAllText(externalManifestPath, externalManifest.ToJsonString());
+            var external = PluginManifestReader.Read(externalFolder);
+            var externalSearch = PluginProcessHost.SearchAsync(external,
+                new PluginSearchParameters { Token = "external-test", Query = "外部示例", Kind = "title", Limit = 3 },
+                CancellationToken.None).GetAwaiter().GetResult();
+            Check("externalV1PackageCompatibility", external.Status == PluginStatus.Ready &&
+                externalSearch.Ok && externalSearch.Candidates.Count > 0);
             Check("candidateSourceUrlValidated", search.Candidates.All(item => item.SourceUrl.StartsWith("https://example.com/", StringComparison.Ordinal)));
 
             var leak = PluginProcessHost.SearchAsync(samplePlugin,
@@ -132,6 +178,10 @@ internal static class PluginDiagnostics
                 CancellationToken.None).GetAwaiter().GetResult();
             Check("rateLimitSurfacesRetryAfter", !rate.Ok && rate.ErrorCode == "rate_limited" &&
                 rate.RetryAfter is { TotalMinutes: >= 14 and <= 16 });
+            var wrongVersion = PluginProcessHost.SearchAsync(samplePlugin,
+                new PluginSearchParameters { Token = "wrong-version", Query = "wrongversion", Kind = "title", Limit = 1 },
+                CancellationToken.None).GetAwaiter().GetResult();
+            Check("responseProtocolVersionRejected", !wrongVersion.Ok && wrongVersion.ErrorCode == "invalid_response");
 
             var huge = PluginProcessHost.SearchAsync(samplePlugin,
                 new PluginSearchParameters { Token = "t-4", Query = "huge", Kind = "title", Limit = 3 },
@@ -188,6 +238,84 @@ internal static class PluginDiagnostics
             Check("callDoesNotBlockCaller", ticks > 10, $"ticks={ticks}");
         }
 
+        // --- local AI plugin through the production job/budget pipeline -------
+        if (string.IsNullOrWhiteSpace(localAiSampleDirectory) || !Directory.Exists(localAiSampleDirectory))
+            notExercised.Add("localAiAndToolScenarios(localAiSampleDirectoryMissing)");
+        else
+        {
+            var aiData = Path.Combine(work, "ai-plugin-data");
+            var aiFolder = CopySample(localAiSampleDirectory, Path.Combine(aiData, "plugins", "local-ai"));
+            var aiDescriptor = PluginManifestReader.Read(aiFolder);
+            Check("localAiManifestReady", aiDescriptor.Status == PluginStatus.Ready, aiDescriptor.Message);
+            var aiState = new PluginState();
+            aiState.Enabled.Add(aiDescriptor.Id);
+            aiState.Consents[aiDescriptor.Id] = aiDescriptor.PermissionSignature;
+            Check("localAiConsentSaved", PluginStateStore.Save(aiData, aiState, out _));
+            var uri = new Uri("plugin-ai://" + aiDescriptor.Id);
+            Check("localAiResolvesOnlyAfterConsent", PluginAiTransport.Resolve(uri, aiData).Id == aiDescriptor.Id);
+            var aiConfig = new LibraryConfig { AiEndpoint = uri.ToString(), AiModel = aiDescriptor.Id,
+                AiDailyBudgetUsd = 1, AiInputUsdPerMillion = 1, AiOutputUsdPerMillion = 1,
+                AiLocalRetryCount = 0, AiLocalRequestIntervalMs = 500 };
+            var payload = new { model = aiDescriptor.Id, messages = new[] { new { role = "user", content = "合成测试标题" } }, max_tokens = 40 };
+            using (var result = AiRequestQueue.SendAsync(aiConfig, aiConfig.AiEndpoint, payload, aiData)
+                .GetAwaiter().GetResult())
+                Check("localAiUsesDurableQueue", result.RootElement.GetProperty("choices")[0]
+                    .GetProperty("message").GetProperty("content").GetString() is { Length: > 0 } &&
+                    AiRequestQueue.LoadBudgetLedger(aiData).AttemptCount == 1 &&
+                    AiJobStore.List(aiData).Any(job => job.Status == AiJobStore.Completed));
+            var toolText = PluginProcessHost.RunReadOnlyToolAsync(aiDescriptor, "合成测试标题", CancellationToken.None)
+                .GetAwaiter().GetResult();
+            Check("readOnlyToolReturnsBoundedText", toolText.Length is > 0 and <= 2000 &&
+                toolText.Contains("未修改", StringComparison.Ordinal));
+            var toolOversizeRejected = false;
+            try { PluginProcessHost.RunReadOnlyToolAsync(aiDescriptor, "invalidtool", CancellationToken.None)
+                    .GetAwaiter().GetResult(); }
+            catch (InvalidDataException) { toolOversizeRejected = true; }
+            Check("readOnlyToolRejectsOversize", toolOversizeRejected);
+            var invalidAiRejected = false;
+            try { using var bad = PluginProcessHost.AiCompleteAsync(aiDescriptor,
+                    "{\"messages\":[{\"role\":\"user\",\"content\":\"invalid\"}]}", CancellationToken.None)
+                    .GetAwaiter().GetResult(); }
+            catch (InvalidDataException) { invalidAiRejected = true; }
+            Check("invalidAiResponseRejected", invalidAiRejected);
+            aiDescriptor.Manifest!.TimeoutSeconds = 1;
+            var timedOut = false;
+            try { using var slow = PluginProcessHost.AiCompleteAsync(aiDescriptor,
+                    "{\"messages\":[{\"role\":\"user\",\"content\":\"slow\"}]}", CancellationToken.None)
+                    .GetAwaiter().GetResult(); }
+            catch (InvalidDataException) { timedOut = true; }
+            Check("aiPluginTimeoutBounded", timedOut);
+            using var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+            var canceled = false;
+            try { using var slow = PluginProcessHost.AiCompleteAsync(aiDescriptor,
+                    "{\"messages\":[{\"role\":\"user\",\"content\":\"slow\"}]}", cancel.Token)
+                    .GetAwaiter().GetResult(); }
+            catch (OperationCanceledException) { canceled = true; }
+            Check("aiPluginCancellationPropagates", canceled);
+            aiConfig.AiLocalRetryCount = 1;
+            var aiManifestPath = Path.Combine(aiFolder, "plugin.json");
+            var aiManifestJson = JsonNode.Parse(File.ReadAllText(aiManifestPath))!;
+            aiManifestJson["timeoutSeconds"] = 1;
+            File.WriteAllText(aiManifestPath, aiManifestJson.ToJsonString());
+            var retriesBefore = AiRequestQueue.LoadBudgetLedger(aiData).AttemptCount;
+            var retryFailed = false;
+            try { using var retry = AiRequestQueue.SendAsync(aiConfig, aiConfig.AiEndpoint,
+                    new { model = aiDescriptor.Id, messages = new[] { new { role = "user", content = "slow" } }, max_tokens = 40 },
+                    aiData).GetAwaiter().GetResult(); }
+            catch (InvalidDataException) { retryFailed = true; }
+            Check("aiPluginRetriesReserveEachAttempt", retryFailed &&
+                AiRequestQueue.LoadBudgetLedger(aiData).AttemptCount == retriesBefore + 2);
+            aiState.Enabled.Clear();
+            PluginStateStore.Save(aiData, aiState, out _);
+            var attemptsBefore = AiRequestQueue.LoadBudgetLedger(aiData).AttemptCount;
+            var blocked = false;
+            try { using var disabled = AiRequestQueue.SendAsync(aiConfig, aiConfig.AiEndpoint,
+                    payload, aiData).GetAwaiter().GetResult(); }
+            catch (InvalidOperationException) { blocked = true; }
+            Check("disabledAiPluginBlockedBeforeBudget", blocked &&
+                AiRequestQueue.LoadBudgetLedger(aiData).AttemptCount == attemptsBefore);
+        }
+
         // --- candidate store: keep every candidate across restarts ----------------
         var candidateDir = Path.Combine(work, "candidates");
         PluginCandidateRecord Candidate(string url, string code) => new()
@@ -242,9 +370,10 @@ internal static class PluginDiagnostics
         // --- only enabled, healthy plugins become a normal scrape source -------
         var sourceCatalog = new List<PluginDescriptor>
         {
-            new() { FolderName = "a", Manifest = new PluginManifest { Id = "a", Name = "启用", Version = "1.0.0" }, Status = PluginStatus.Ready, Enabled = true },
+            new() { FolderName = "a", Manifest = new PluginManifest { Id = "a", Name = "启用", Version = "1.0.0", Capabilities = ["scrape.source"] }, Status = PluginStatus.Ready, Enabled = true },
             new() { FolderName = "b", Manifest = new PluginManifest { Id = "b", Name = "停用", Version = "1.0.0" }, Status = PluginStatus.Ready, Enabled = false },
-            new() { FolderName = "c", Manifest = new PluginManifest { Id = "c", Name = "异常", Version = "1.0.0" }, Status = PluginStatus.MissingEntry, Enabled = true }
+            new() { FolderName = "c", Manifest = new PluginManifest { Id = "c", Name = "异常", Version = "1.0.0" }, Status = PluginStatus.MissingEntry, Enabled = true },
+            new() { FolderName = "d", Manifest = new PluginManifest { Id = "d", Name = "仅 AI", Version = "1.0.0", Capabilities = ["ai.service"] }, Status = PluginStatus.Ready, Enabled = true }
         };
         var sourcePlugins = MainWindow.ScrapeSourcePlugins(sourceCatalog).Select(item => item.Id).ToList();
         Check("scrapeSourceListsOnlyHealthyEnabledPlugins",

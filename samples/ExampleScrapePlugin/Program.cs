@@ -60,6 +60,12 @@ internal static class Program
     static void Search(string id, JsonNode? parameters)
     {
         var query = parameters?["query"]?.GetValue<string>() ?? "";
+        if (parameters?["settings"]?["result_mode"]?.GetValue<string>() == "empty")
+        {
+            Respond(new JsonObject { ["v"] = ApiVersion, ["id"] = id, ["ok"] = true,
+                ["result"] = new JsonObject { ["candidates"] = new JsonArray() } });
+            return;
+        }
         // A deployment can force one failure mode without touching the query, so
         // two copies of this sample can behave differently in one test library.
         var forced = ForcedMode();
@@ -88,6 +94,12 @@ internal static class Program
         if (query.Contains("ratelimit", StringComparison.OrdinalIgnoreCase))
         {
             Error(id, "rate_limited", "示例插件模拟限流", retryAfterSeconds: 900);
+            return;
+        }
+        if (query.Contains("wrongversion", StringComparison.OrdinalIgnoreCase))
+        {
+            Respond(new JsonObject { ["v"] = 2, ["id"] = id, ["ok"] = true,
+                ["result"] = new JsonObject { ["candidates"] = new JsonArray() } });
             return;
         }
         if (query.Contains("stream", StringComparison.OrdinalIgnoreCase))

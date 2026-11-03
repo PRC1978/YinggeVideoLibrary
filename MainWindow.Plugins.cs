@@ -11,6 +11,8 @@ using HorizontalAlignment = System.Windows.HorizontalAlignment;
 using MessageBox = System.Windows.MessageBox;
 using Orientation = System.Windows.Controls.Orientation;
 using TextBlock = System.Windows.Controls.TextBlock;
+using ContextMenu = System.Windows.Controls.ContextMenu;
+using MenuItem = System.Windows.Controls.MenuItem;
 
 namespace YinggeVideoLibrary;
 
@@ -136,6 +138,28 @@ public partial class MainWindow
         // would fail later; the reason is already on the card.
         toggle.IsEnabled = plugin.Manifest is not null && plugin.Status is PluginStatus.Ready or PluginStatus.Disabled;
         actions.Children.Add(toggle);
+        if (plugin.Enabled && plugin.Status == PluginStatus.Ready &&
+            plugin.Manifest?.Capabilities.Contains("ai.service", StringComparer.OrdinalIgnoreCase) == true)
+        {
+            var useAi = new Button { Content = "用作 AI 服务", Height = 32, Padding = new Thickness(10, 0, 10, 0),
+                Style = (Style)FindResource("Action"), Margin = new Thickness(0, 0, 6, 0) };
+            useAi.Click += (_, _) =>
+            {
+                config.AiEndpoint = $"plugin-ai://{plugin.Id}";
+                config.AiModel = plugin.Id;
+                SaveConfig();
+                MessageBox.Show(this, "已设为本机 AI 服务。请求仍经过现有队列、费用上限与审核；插件会收到本轮 AI 提示文本，不会收到 API Key。",
+                    "插件 AI 服务", MessageBoxButton.OK, MessageBoxImage.Information);
+            };
+            actions.Children.Add(useAi);
+        }
+        if (plugin.Manifest?.Settings.Count > 0 && plugin.Status is PluginStatus.Ready or PluginStatus.Disabled)
+        {
+            var configure = new Button { Content = "设置", Height = 32, Padding = new Thickness(10, 0, 10, 0),
+                Style = (Style)FindResource("Action"), Tag = plugin, Margin = new Thickness(0, 0, 6, 0) };
+            configure.Click += PluginSettingsClick;
+            actions.Children.Add(configure);
+        }
         if (!string.IsNullOrWhiteSpace(plugin.LastError))
         {
             var clear = new Button
@@ -198,7 +222,7 @@ public partial class MainWindow
         var selected = (PluginScrapeSourceBox.SelectedItem as PluginDescriptor)?.Id;
         PluginScrapeSourceBox.Items.Clear();
         PluginScrapeSourceBox.DisplayMemberPath = nameof(PluginDescriptor.DisplayName);
-        foreach (var plugin in pluginCatalog.Where(item => item.Enabled && item.Status is PluginStatus.Ready or PluginStatus.Disabled))
+        foreach (var plugin in ScrapeSourcePlugins(pluginCatalog))
             PluginScrapeSourceBox.Items.Add(plugin);
         if (PluginScrapeSourceBox.Items.Count == 0)
         {
@@ -232,7 +256,7 @@ public partial class MainWindow
                 var data = plugin.Manifest.Permissions.Data.Count == 0 ? "（不接收任何数据）" : string.Join("、", plugin.Manifest.Permissions.Data);
                 var answer = MessageBox.Show(this,
                     $"启用“{plugin.DisplayName}”后，程序会：\n\n" +
-                    $"· 只把标题或番号发送给它（数据范围：{data}）\n" +
+                    $"· 向插件发送已声明的数据（范围：{data}；AI 服务可收到完整提示文本）\n" +
                     $"· 接受它返回的、位于这些域名下的链接：{network}\n\n" +
                     "清单里的域名只用于声明和校验插件返回的链接，**不是**网络隔离：插件是独立进程，但它仍可以自行连接任何地址。程序只保证不把完整路径、私有标签和密钥交给它。\n\n" +
                     "确认启用？",
@@ -269,6 +293,45 @@ public partial class MainWindow
         plugin.LastError = null;
         plugin.LastErrorAt = null;
         RenderPlugins();
+    }
+
+    void PluginSettingsClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not PluginDescriptor { Manifest: { } manifest } plugin || pluginState is null) return;
+        var dialog = new Window { Title = "插件设置 · " + plugin.DisplayName, Owner = this,
+            Width = 460, Height = Math.Min(560, 145 + manifest.Settings.Count * 75), MinWidth = 340,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        var panel = new StackPanel { Margin = new Thickness(18) };
+        panel.Children.Add(new TextBlock { Text = "仅可选择插件声明的非敏感选项。设置值会发送给该插件；请勿在这里填写密钥。",
+            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12) });
+        var current = PluginStateStore.EffectiveSettings(pluginState, plugin);
+        var controls = new Dictionary<string, ComboBox>(StringComparer.Ordinal);
+        foreach (var setting in manifest.Settings)
+        {
+            panel.Children.Add(new TextBlock { Text = setting.Label, FontWeight = FontWeights.SemiBold });
+            var box = new ComboBox { Height = 30, Margin = new Thickness(0, 4, 0, 12),
+                ItemsSource = setting.Choices, SelectedItem = current[setting.Key] };
+            controls[setting.Key] = box;
+            panel.Children.Add(box);
+        }
+        var save = new Button { Content = "保存设置", Height = 34, Style = (Style)FindResource("Primary"),
+            HorizontalAlignment = HorizontalAlignment.Right };
+        save.Click += (_, _) =>
+        {
+            var next = PluginStateStore.Clone(pluginState);
+            next.Settings[plugin.Id] = controls.ToDictionary(pair => pair.Key,
+                pair => (string)pair.Value.SelectedItem, StringComparer.Ordinal);
+            if (!PluginStateStore.Save(DataDir, next, out var error))
+            {
+                MessageBox.Show(dialog, "插件设置无法保存：" + error, "插件", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            pluginState = next;
+            dialog.DialogResult = true;
+        };
+        panel.Children.Add(save);
+        dialog.Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        dialog.ShowDialog();
     }
 
     void PluginRescanClick(object sender, RoutedEventArgs e)
@@ -308,7 +371,8 @@ public partial class MainWindow
             Token = Guid.NewGuid().ToString("N"),
             Query = query,
             Kind = (guessed?.Length ?? 0) >= 4 ? "code" : "title",
-            Limit = 8
+            Limit = 8,
+            Settings = PluginStateStore.EffectiveSettings(pluginState ?? PluginStateStore.Load(DataDir), plugin)
         };
         var outcome = await PluginProcessHost.SearchAsync(plugin, parameters, cancellationToken);
         PluginLog.Append(DataDir, plugin.Id, $"查询「{query}」→ {PluginScrapeBridge.DescribeOutcome(outcome)}" +
@@ -357,7 +421,44 @@ public partial class MainWindow
     // rebuilt whenever the catalog is (re)loaded so enable/disable is reflected.
     // Only enabled, healthy plugins may appear as a scrape source.
     internal static IEnumerable<PluginDescriptor> ScrapeSourcePlugins(IEnumerable<PluginDescriptor> catalog) =>
-        catalog.Where(item => item.Enabled && item.Status == PluginStatus.Ready);
+        catalog.Where(item => item.Enabled && item.Status == PluginStatus.Ready &&
+            item.Manifest?.Capabilities.Contains("scrape.source", StringComparer.OrdinalIgnoreCase) == true);
+
+    void ShowPluginToolPicker(VideoItem video)
+    {
+        EnsurePluginCatalog();
+        var tools = pluginCatalog.Where(item => item.Enabled && item.Status == PluginStatus.Ready &&
+            item.Manifest?.Capabilities.Contains("tool.command", StringComparer.OrdinalIgnoreCase) == true).ToList();
+        if (tools.Count == 0)
+        {
+            MessageBox.Show(this, "没有已启用的只读工具插件。可在设置 → 插件中启用。", "插件工具");
+            return;
+        }
+        var menu = new ContextMenu();
+        foreach (var plugin in tools)
+        {
+            var item = new MenuItem { Header = plugin.DisplayName };
+            item.Click += async (_, _) =>
+            {
+                try
+                {
+                    // Only a display title is sent. The tool response is text
+                    // shown to the user; it has no write capability in the host.
+                    var result = await PluginProcessHost.RunReadOnlyToolAsync(plugin, video.DisplayTitle,
+                        CancellationToken.None);
+                    MessageBox.Show(this, result, "插件工具 · " + plugin.DisplayName);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, PluginLog.Redact(ex.Message), "插件工具", MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                }
+            };
+            menu.Items.Add(item);
+        }
+        menu.PlacementTarget = this;
+        menu.IsOpen = true;
+    }
 
     void RefreshScrapeSourcePlugins()
     {
@@ -457,7 +558,7 @@ public partial class MainWindow
             if (before.Review is { Status: "approved" }) return false;
             var after = before.Clone();
             after.Review = review;
-            after = WithAutomaticAmateurTag(video, after, false);
+            after = ClearAutomaticallyInferredAmateurTag(video, after);
             var transaction = ReviewTransactionStore.Create("candidate",
                 new Dictionary<string, ReviewItemSnapshot> { [video.Id] = before },
                 new Dictionary<string, ReviewItemSnapshot> { [video.Id] = after });

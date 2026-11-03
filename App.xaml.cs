@@ -36,6 +36,16 @@ public partial class App : System.Windows.Application
             Shutdown(PortableUpdateWorker.SelfTest(e.Args[1]));
             return;
         }
+        if (e.Args.Length > 1 && e.Args[0] == "--self-test-ai-cost-preview")
+        {
+            Shutdown(AiCostPreviewDiagnostics.RunToFile(e.Args[1]));
+            return;
+        }
+        if (e.Args.Length > 1 && e.Args[0] == "--diagnose-live-sources")
+        {
+            Shutdown(await LiveSourceSmokeDiagnostics.RunToFileAsync(e.Args[1]));
+            return;
+        }
         if (e.Args.Length > 2 && e.Args[0] == "--self-test-update-transition")
         {
             Shutdown(PortableUpdateWorker.TransitionSelfTest(e.Args[1], e.Args[2]));
@@ -54,6 +64,11 @@ public partial class App : System.Windows.Application
         if (e.Args.Length > 1 && e.Args[0] == "--self-test-features")
         {
             Shutdown(await FeatureDiagnostics.RunAsync(e.Args[1]));
+            return;
+        }
+        if (e.Args.Length > 2 && e.Args[0] == "--self-test-ai-scrape-eval")
+        {
+            Shutdown(await Task.Run(() => AiScrapeEvaluation.RunToFile(e.Args[1], e.Args[2])));
             return;
         }
         if (e.Args.Length > 2 && e.Args[0] == "--diagnose-large-backup")
@@ -86,11 +101,12 @@ public partial class App : System.Windows.Application
             Shutdown(await Task.Run(() => MissingFileDiagnostics.RunToFile(e.Args[1], e.Args[2])));
             return;
         }
-        // --self-test-plugins <隔离工作目录> <结果 JSON> [示例插件构建输出目录]
+        // --self-test-plugins <隔离工作目录> <结果 JSON> [搜刮示例目录] [本机 AI 示例目录]
         if (e.Args.Length > 2 && e.Args[0] == "--self-test-plugins")
         {
             var sample = e.Args.Length > 3 ? e.Args[3] : null;
-            Shutdown(await Task.Run(() => PluginDiagnostics.RunToFile(e.Args[1], e.Args[2], sample)));
+            var localAiSample = e.Args.Length > 4 ? e.Args[4] : null;
+            Shutdown(await Task.Run(() => PluginDiagnostics.RunToFile(e.Args[1], e.Args[2], sample, localAiSample)));
             return;
         }
         if (e.Args.Length > 1 && e.Args[0] == "--ui-fixture")
@@ -124,6 +140,31 @@ public partial class App : System.Windows.Application
             var scrapeResult = await scrapeProbe.WriteHiddenScrapeDiagnosticAsync(e.Args[1]);
             scrapeProbe.Close();
             Shutdown(scrapeResult);
+            return;
+        }
+        if (e.Args.Length > 1 && e.Args[0] == "--diagnose-ui-cover")
+        {
+            var coverProbe = new MainWindow
+            {
+                Left = -30000, Top = -30000, Width = 1224, Height = 780,
+                ShowActivated = false, ShowInTaskbar = false
+            };
+            MainWindow = coverProbe;
+            coverProbe.Show();
+            var result = await coverProbe.WriteHiddenCoverDiagnosticAsync(e.Args[1]);
+            coverProbe.Close();
+            Shutdown(result);
+            return;
+        }
+        if (e.Args.Length > 1 && e.Args[0] == "--diagnose-ui-cover-reload")
+        {
+            var coverProbe = new MainWindow { Left = -30000, Top = -30000,
+                ShowActivated = false, ShowInTaskbar = false };
+            MainWindow = coverProbe;
+            coverProbe.Show();
+            var result = coverProbe.WriteCoverReloadDiagnostic(e.Args[1]);
+            coverProbe.Close();
+            Shutdown(result);
             return;
         }
         if (e.Args.Length > 2 && e.Args[0] == "--self-test-cross-device")

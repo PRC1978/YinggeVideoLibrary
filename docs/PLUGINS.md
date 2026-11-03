@@ -1,6 +1,6 @@
-# 插件接口（第一批：搜刮来源）
+# 插件接口（搜刮来源、本机 AI 与只读工具）
 
-状态：**已实现第一批**，仅开放「搜刮来源」能力。AI 服务、工具命令、界面主题仍未实现，不要当作现有功能。
+状态：搜刮来源、本机 AI 服务和只读工具命令已实现。界面主题、云端 AI 插件及可写工具命令尚未开放。
 
 ## 目录与状态
 
@@ -36,7 +36,10 @@
     "data": ["query.text", "query.code"]
   },
   "entry": { "file": "ExampleScrapePlugin.exe", "arguments": [] },
-  "timeoutSeconds": 15
+  "timeoutSeconds": 15,
+  "settings": [
+    { "key": "result_mode", "label": "结果模式", "choices": ["normal", "empty"], "default": "normal" }
+  ]
 }
 ```
 
@@ -47,10 +50,12 @@
 | `id` | 小写字母、数字、`.` `_` `-`，长度 3–64；**重复 ID 会让两个目录都不可用** |
 | `version` | `1.2.3` 形式 |
 | `apiVersion` | 必须等于宿主支持的 `1`，否则提示"版本不兼容" |
-| `capabilities` | 目前只支持 `scrape.source`；`ai.service` / `tool.command` / `ui.theme` 会显示"本版本尚未开放" |
+| `capabilities` | 支持 `scrape.source`、`ai.service`（仅本机）、`tool.command`（仅只读文本）；`ui.theme` 未开放 |
 | `permissions.network` | 只写域名，不含 `http://`、端口或路径，最多 16 个。**这是声明 + 链接校验，不是网络隔离**（见下） |
-| `permissions.data` | 只支持 `query.text`、`query.code`、`query.year`；出现其它值即拒绝，避免多传字段 |
+| `permissions.data` | 支持 `query.text`、`query.code`、`query.year`、`ai.prompt`；AI 插件必须声明 `ai.prompt`，工具必须声明 `query.text` |
 | `entry.file` | 必须是插件目录内的相对路径，禁止 `..`、绝对路径、驱动器前缀 |
+| `schemaVersion` | 目前只支持 `1`；未来格式不会当作旧清单加载 |
+| `settings` | 可选，最多 8 项。每项有唯一小写键、显示名、2–12 个固定选项和默认值；不支持自由文本或密钥 |
 
 `timeoutSeconds` 会被夹到 1–120 秒，默认 20 秒。
 
@@ -58,11 +63,22 @@
 
 宿主为**每次调用**启动一个新进程，标准输入输出各一行 JSON，按 `id` 配对。诊断信息写 stderr（最多读取 4 KB，写入日志前脱敏）。
 
+### 本机 AI 插件与只读工具
+
+示例源码在 `samples/ExampleLocalAiPlugin`，与主程序没有代码依赖。构建后把输出文件夹复制到数据目录的 `plugins` 下，管理页启用并确认 `ai.prompt` 权限，再点「用作 AI 服务」。这会把端点设为 `plugin-ai://<插件ID>`；不用填写 API Key。AI 插件不能声明远程域名，且宿主不会向子进程传现有 API Key。**子进程不是网络沙箱**，仍需信任安装的插件。
+
+AI 请求先进入原有的持久作业队列，沿用并发槽、请求间隔、重试上限、费用预留与每日预算；停用或权限签名变化时会在预留费用前被拒绝。插件收到 `ai.complete` 请求里的 `aiPayload`（当前模型请求正文），必须以 OpenAI 风格 `choices[0].message.content` 返回；可附 `usage.prompt_tokens` 与 `usage.completion_tokens` 供预算核算。插件返回的判断仍走现有审核逻辑，不能直接写分类或视频资料。示例只返回固定的 `reject`，用于协议测试，**不是可用的识别模型**。
+
+工具插件声明 `tool.command` 和 `query.text` 后，视频右键菜单出现「插件只读工具…」。宿主只把视频显示标题发送给插件的 `tool.run`，不发送路径、标签或视频 ID；插件只能返回 `{"text":"..."}`（1–2000 字）供弹窗显示。该接口没有写入或执行文件操作的宿主能力。示例工具不修改资料。
+
+测试：`--self-test-plugins <隔离目录> <结果.json> <ExampleScrapePlugin 构建输出目录> <ExampleLocalAiPlugin 构建输出目录>`。覆盖本机 AI 真正通过作业/预算管道、权限停用、响应无效、超时、取消、只读工具输出上限与 v1 示例包兼容性。
+
 请求：
 
 ```json
 {"v":1,"id":"a1b2","method":"describe"}
 {"v":1,"id":"c3d4","method":"search","params":{"token":"9f…","query":"作品名","kind":"title","limit":8,"year":null}}
+{"v":1,"id":"e5f6","method":"search","params":{"token":"8e…","query":"作品名","kind":"title","limit":8,"settings":{"result_mode":"normal"}}}
 ```
 
 成功响应：
@@ -85,6 +101,7 @@
 宿主侧约束：
 
 - `params.token` 是每次调用随机生成的不透明串，**插件拿不到视频 ID 和文件路径**，无法自行建立库映射。
+- 管理页可修改清单声明的选项；宿主只发送声明过、且属于 `choices` 的值。旧 `plugins.json` 无设置时使用默认值，插件更新后已失效的值也回退默认值。设置存于 `plugins.json`，**不是密钥存储**；密钥不得声明为插件设置。
 - 候选最多 20 条；`title` 必需；`sourceUrl` 必需且必须是 http(s)、域名在清单声明内；含本地路径特征（`C:\`、`C:/`、`\\`、`/`、`file:`）的候选直接丢弃并计数。
 - 单行响应超过 256 KB（262 144 字符）判为 `response_too_large` 并终止该次调用。上限是**边读边判**的：读取器逐字符消费，达到上限立即停止，不会先把整行读进内存再检查。自检 `boundedReaderStopsAtCap` 用 8 M 字符的输入证明它只读取了 262 145 个字符。
 - 超时、取消或异常都会 `Kill(entireProcessTree)`；自检断言超时后没有残留进程。

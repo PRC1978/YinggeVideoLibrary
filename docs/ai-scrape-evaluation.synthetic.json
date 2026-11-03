@@ -1,0 +1,50 @@
+{
+  "schema": "yingge.ai-scrape-evaluation.v1",
+  "provenance": "synthetic",
+  "inputUsdPerMillion": 0.50,
+  "outputUsdPerMillion": 2.00,
+  "cases": [
+    {
+      "id": "exact-code-positive",
+      "localTitle": "ABC-123",
+      "candidate": { "code": "ABC-123", "title": "Synthetic Work A", "source": "JavDB", "detailFetched": true, "detailIdentityVerified": true },
+      "goldSameWork": true, "proposedConfidence": 95, "proposedVerdict": "approve",
+      "modelCalled": true, "inputTokens": 300, "outputTokens": 60
+    },
+    {
+      "id": "code-conflict-negative",
+      "localTitle": "ABC-123",
+      "candidate": { "code": "ABC-999", "title": "Synthetic Work B", "source": "JavDB", "detailFetched": true, "detailIdentityVerified": true },
+      "goldSameWork": false, "proposedConfidence": 100, "proposedVerdict": "approve",
+      "modelCalled": false, "inputTokens": 0, "outputTokens": 0
+    },
+    {
+      "id": "two-codes-negative",
+      "localTitle": "ABC-123 DEF-456",
+      "candidate": { "code": "ABC-123", "title": "Synthetic Work C", "source": "JavDB", "detailFetched": true, "detailIdentityVerified": true },
+      "goldSameWork": false, "proposedConfidence": 100, "proposedVerdict": "approve",
+      "modelCalled": false, "inputTokens": 0, "outputTokens": 0
+    },
+    {
+      "id": "year-conflict-negative",
+      "localTitle": "Synthetic Film 2024",
+      "candidate": { "title": "Synthetic Film", "source": "TMDB 电影", "releaseDate": "2020-01-01", "detailFetched": true, "detailIdentityVerified": true },
+      "goldSameWork": false, "proposedConfidence": 100, "proposedVerdict": "approve",
+      "modelCalled": false, "inputTokens": 0, "outputTokens": 0
+    },
+    {
+      "id": "unverified-negative",
+      "localTitle": "Synthetic Film",
+      "candidate": { "title": "Synthetic Film", "source": "TMDB 电影", "detailFetched": true, "detailIdentityVerified": false },
+      "goldSameWork": false, "proposedConfidence": 100, "proposedVerdict": "approve",
+      "modelCalled": false, "inputTokens": 0, "outputTokens": 0
+    },
+    {
+      "id": "official-exact-positive",
+      "localTitle": "Synthetic Film",
+      "candidate": { "title": "Synthetic Film", "source": "TMDB 电影", "detailFetched": true, "detailIdentityVerified": true },
+      "goldSameWork": true, "proposedConfidence": 90, "proposedVerdict": "approve",
+      "modelCalled": true, "inputTokens": 300, "outputTokens": 50
+    }
+  ]
+}

@@ -48,6 +48,13 @@ public sealed class RecycledCardWrap : WrapPanel
             for (var i = args.NewStartingIndex; i < count; i++) BindCard(i);
             return;
         }
+        if (args.Action == NotifyCollectionChangedAction.Replace &&
+            args.NewStartingIndex >= 0 && args.NewItems is not null)
+        {
+            for (var i = args.NewStartingIndex; i < args.NewStartingIndex + args.NewItems.Count; i++)
+                BindCard(i);
+            return;
+        }
         if (args.Action == NotifyCollectionChangedAction.Remove && args.OldStartingIndex == count)
         {
             for (var i = count; i < count + args.OldItems!.Count && i < Children.Count; i++) HideCard(i);

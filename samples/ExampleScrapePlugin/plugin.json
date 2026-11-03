@@ -13,5 +13,8 @@
     "data": ["query.text", "query.code"]
   },
   "entry": { "file": "ExampleScrapePlugin.exe", "arguments": [] },
-  "timeoutSeconds": 15
+  "timeoutSeconds": 15,
+  "settings": [
+    { "key": "result_mode", "label": "结果模式", "choices": ["normal", "empty"], "default": "normal" }
+  ]
 }

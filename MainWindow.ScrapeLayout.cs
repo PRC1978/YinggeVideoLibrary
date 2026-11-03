@@ -109,10 +109,12 @@ public partial class MainWindow
                     await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
                     UpdateLayout();
                     var content = (tab.Items[page] as TabItem)?.Content as FrameworkElement;
+                    var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
                     measurements.Add(new
                     {
                         width, height, page, panelWidth = ScrapePanel.ActualWidth,
                         tabWidth = tab.ActualWidth, contentWidth = content?.ActualWidth ?? 0,
+                        dpiScaleX = dpi.DpiScaleX, dpiScaleY = dpi.DpiScaleY,
                         viewportWidth = LibraryScroll.ViewportWidth,
                         clippedHorizontally = content is not null && content.ActualWidth > LibraryScroll.ViewportWidth + 1
                     });

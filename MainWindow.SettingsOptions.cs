@@ -68,6 +68,7 @@ public partial class MainWindow
                 Content = label + " · " + hint,
                 GroupName = "UiThemeMode",
                 IsChecked = UiTheme.Normalize(config.UiTheme) == id,
+                Style = (Style)FindResource("ThemeChoiceRadio"),
                 Margin = new Thickness(0, 3, 18, 3),
                 Tag = id
             };

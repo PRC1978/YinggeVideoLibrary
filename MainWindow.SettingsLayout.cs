@@ -147,8 +147,9 @@ public partial class MainWindow
                 if (query.Length > 0 && section.Visibility == Visibility.Visible) section.IsExpanded = true;
             }
         };
-        Grid.SetColumn(search, 1);
-        grid.Children.Add(UiTextInput.WithPlaceholder(search, "搜索设置主题"));
+        var searchWithPlaceholder = UiTextInput.WithPlaceholder(search, "搜索设置主题");
+        Grid.SetColumn(searchWithPlaceholder, 1);
+        grid.Children.Add(searchWithPlaceholder);
         return grid;
     }
 

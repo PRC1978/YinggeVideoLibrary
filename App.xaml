@@ -151,6 +151,33 @@
         <Style TargetType="RadioButton">
             <Setter Property="Foreground" Value="{Binding TextPrimaryBrush, Source={x:Static local:UiThemeState.Instance}}"/>
         </Style>
+        <Style x:Key="ThemeChoiceRadio" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{Binding TextPrimaryBrush, Source={x:Static local:UiThemeState.Instance}}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Grid Margin="0,2">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="18"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <Border Width="14" Height="14" CornerRadius="7"
+                                    Background="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"
+                                    BorderBrush="{Binding BorderStrongBrush, Source={x:Static local:UiThemeState.Instance}}"
+                                    BorderThickness="1.5" VerticalAlignment="Center"/>
+                            <Ellipse x:Name="SelectedDot" Width="8" Height="8" Margin="3,0,0,0"
+                                     Fill="{Binding AccentBrush, Source={x:Static local:UiThemeState.Instance}}"
+                                     HorizontalAlignment="Left" VerticalAlignment="Center" Visibility="Collapsed"/>
+                            <ContentPresenter Grid.Column="1" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="SelectedDot" Property="Visibility" Value="Visible"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <Style TargetType="Separator">
             <Setter Property="Background" Value="{Binding BorderBrushToken, Source={x:Static local:UiThemeState.Instance}}"/>
             <Setter Property="Height" Value="1"/>

@@ -117,11 +117,19 @@ public partial class MainWindow
             if (ReviewNav.Visibility != Visibility.Collapsed || PluginsNav.Visibility != Visibility.Collapsed
                 || StatusNav.Visibility != Visibility.Visible || AllNav.Visibility != Visibility.Visible)
                 throw new InvalidOperationException("原版界面的导航集合被改变");
+            if (ReviewQueuePanel.Parent is not System.Windows.Controls.ScrollViewer classicQueue ||
+                classicQueue.Parent is not System.Windows.Controls.StackPanel classicReview ||
+                reviewSavedSection is null || classicReview.Children.IndexOf(reviewSavedSection) > classicReview.Children.IndexOf(classicQueue))
+                throw new InvalidOperationException("原版审核操作顺序未恢复");
             UiTheme.Apply(UiTheme.Tech);
             ApplyInterfaceMode();
             if (ReviewNav.Visibility != Visibility.Visible || PluginsNav.Visibility != Visibility.Visible
                 || LibraryNav.Visibility != Visibility.Visible || StatusNav.Visibility != Visibility.Collapsed)
                 throw new InvalidOperationException("新版界面的导航集合不正确");
+            if (ReviewQueuePanel.Parent is not System.Windows.Controls.ScrollViewer newQueue ||
+                newQueue.Parent is not System.Windows.Controls.StackPanel newReview ||
+                reviewSavedSection is null || newReview.Children.IndexOf(reviewSavedSection) < newReview.Children.IndexOf(newQueue))
+                throw new InvalidOperationException("新版审核记录未提前显示");
             ShowView("review");
             ShowView("roles");
             if (!ReferenceEquals(RolesNav.Background, UiTheme.SelectionBackgroundBrush)
@@ -147,6 +155,15 @@ public partial class MainWindow
                 ReviewQueuePanel.Parent is not System.Windows.Controls.ScrollViewer queue ||
                 (UiTheme.IsClassicMode ? queue.Height < 500 : !double.IsNaN(queue.Height)))
                 throw new InvalidOperationException("审核队列缺少上方翻页、跳转或连续页面滚动");
+            if (reviewPageCount > 1)
+            {
+                reviewTopPageJumpBox.Text = reviewPageCount.ToString();
+                JumpToReviewPage(reviewTopPageJumpBox);
+                if (reviewPageIndex != reviewPageCount - 1 || ReviewQueuePanel.Children.Count == 0)
+                    throw new InvalidOperationException("审核页跳转没有到达末页");
+                reviewTopPageJumpBox.Text = "1";
+                JumpToReviewPage(reviewTopPageJumpBox);
+            }
             var navPanel = BuildSphereNavigator([]) as System.Windows.Controls.StackPanel
                 ?? throw new InvalidOperationException("节点导航未创建");
             var navBar = (System.Windows.Controls.DockPanel)navPanel.Children[0];

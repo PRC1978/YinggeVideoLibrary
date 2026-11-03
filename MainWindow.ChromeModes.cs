@@ -36,6 +36,7 @@ public partial class MainWindow
         RelocateStatusCards();
         if (ReviewQueuePanel.Parent is ScrollViewer reviewScroll)
             ConfigureReviewQueueScrolling(reviewScroll);
+        ArrangeReviewSections();
         // The sphere graph caches a rendered bitmap in the palette active at
         // construction time. Rebuild it after a theme switch so links and
         // labels never retain the previous mode's colors.

@@ -31,6 +31,9 @@ public partial class MainWindow
     TextBox? reviewPageJumpBox;
     TextBox? reviewTopPageJumpBox;
     TextBlock? reviewHistoryWarning;
+    FrameworkElement? reviewSavedSection;
+    FrameworkElement? reviewHistorySection;
+    FrameworkElement? reviewSecondaryActions;
     const int ReviewPageSize = 12;
     int reviewPageCount = 1;
     int reviewPageIndex;
@@ -115,12 +118,13 @@ public partial class MainWindow
         var savedViewContent = new StackPanel();
         savedViewContent.Children.Add(savedViewBar);
         savedViewContent.Children.Add(reviewSavedViewNotice);
-        panel.Children.Insert(savedViewIndex, new Expander
+        reviewSavedSection = new Expander
         {
             Header = "已保存的筛选组合", Content = savedViewContent,
             IsExpanded = false, Margin = new Thickness(0, 0, 0, 8),
             Padding = new Thickness(0, 6, 0, 0)
-        });
+        };
+        panel.Children.Insert(savedViewIndex, reviewSavedSection);
         var actions = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
         var preview = new Button { Content = "预览批量审批", Style = (Style)FindResource("Action") };
         preview.Click += (_, _) => PreviewReviewBatch();
@@ -135,14 +139,16 @@ public partial class MainWindow
         actions.Children.Add(preview);
         actions.Children.Add(reviewUndoButton);
         panel.Children.Insert(Math.Max(0, panel.Children.Count - 2), actions);
+        reviewSecondaryActions = actions;
         var historyActions = new WrapPanel();
         foreach (var button in new[] { history, export, exportHistory }) historyActions.Children.Add(button);
-        panel.Children.Insert(Math.Max(0, panel.Children.Count - 2), new Expander
+        reviewHistorySection = new Expander
         {
             Header = "审核历史与导出", Content = historyActions,
             IsExpanded = false, Margin = new Thickness(0, 0, 0, 8),
             Padding = new Thickness(0, 6, 0, 0)
-        });
+        };
+        panel.Children.Insert(Math.Max(0, panel.Children.Count - 2), reviewHistorySection);
         reviewHistoryWarning = new TextBlock
         {
             Foreground = global::YinggeVideoLibrary.UiTheme.DangerBrush,
@@ -415,6 +421,28 @@ public partial class MainWindow
         queueScroll.Height = UiTheme.IsClassicMode ? 560 : double.NaN;
         queueScroll.VerticalScrollBarVisibility = UiTheme.IsClassicMode
             ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled;
+    }
+
+    void ArrangeReviewSections()
+    {
+        if (ReviewQueuePanel.Parent is not ScrollViewer queueScroll ||
+            queueScroll.Parent is not StackPanel panel) return;
+        var sections = new[] { reviewSavedSection, reviewSecondaryActions, reviewHistorySection }
+            .OfType<FrameworkElement>().ToArray();
+        foreach (var section in sections) panel.Children.Remove(section);
+        if (UiTheme.IsClassicMode)
+        {
+            var index = panel.Children.IndexOf(reviewHistoryWarning);
+            foreach (var section in sections) panel.Children.Insert(index++, section);
+        }
+        else
+        {
+            // Selection and filters remain above the queue. Less frequent
+            // actions follow the records so the first result is visible sooner.
+            var index = panel.Children.IndexOf(queueScroll) + 1;
+            foreach (var section in new[] { reviewSecondaryActions, reviewSavedSection, reviewHistorySection })
+                if (section is not null) panel.Children.Insert(index++, section);
+        }
     }
 
     void UpdateReviewSourceFilter()

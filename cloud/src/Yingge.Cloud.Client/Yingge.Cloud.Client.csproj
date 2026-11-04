@@ -1,0 +1,13 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <RootNamespace>Yingge.Cloud.Client</RootNamespace>
+    <AssemblyName>Yingge.Cloud.Client</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Yingge.Cloud.Protocol\Yingge.Cloud.Protocol.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <RootNamespace>Yingge.Cloud.Accounts</RootNamespace>
+    <AssemblyName>Yingge.Cloud.Accounts</AssemblyName>
+    <UserSecretsId>yingge-cloud-accounts</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="10.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Yingge.Cloud.Protocol\Yingge.Cloud.Protocol.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\*.sql"
+                      LogicalName="Yingge.Cloud.Accounts.Migrations.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Yingge.Cloud.Tests" />
+  </ItemGroup>
+
+</Project>

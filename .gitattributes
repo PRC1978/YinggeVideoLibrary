@@ -1,2 +1,10 @@
 # Keep upstream third-party notice text byte-for-byte, including its spacing.
 third-party/Microsoft.Web.WebView2/1.0.3595.46/LICENSE.txt whitespace=-blank-at-eol
+
+# Shell scripts, systemd units and env templates are deployed to Ubuntu as-is:
+# they must keep LF endings even when the tree is checked out on Windows.
+cloud/deploy/*.sh text eol=lf
+cloud/deploy/*.service text eol=lf
+cloud/deploy/*.example text eol=lf
+cloud/deploy/*.conf text eol=lf
+*.sh text eol=lf

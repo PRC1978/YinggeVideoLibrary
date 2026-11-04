@@ -23,6 +23,14 @@
     <Compile Remove="samples\**\*.cs" />
     <Page Remove="samples\**\*.xaml" />
     <ApplicationDefinition Remove="samples\**\*.xaml" />
+    <!-- The cloud account service is a separate deployable solution under
+         cloud/. It must never be compiled into or shipped with the desktop app. -->
+    <Compile Remove="cloud\**\*.cs" />
+    <Page Remove="cloud\**\*.xaml" />
+    <ApplicationDefinition Remove="cloud\**\*.xaml" />
+    <EmbeddedResource Remove="cloud\**\*" />
+    <None Remove="cloud\**\*" />
+    <Content Remove="cloud\**\*" />
   </ItemGroup>
   <ItemGroup>
     <Resource Include="app.ico" />
@@ -38,7 +46,14 @@
     <EmbeddedResource Include="third-party\Microsoft.NETCore.App.Runtime.win-x64\9.0.17\THIRD-PARTY-NOTICES.TXT" LogicalName="YinggeVideoLibrary.ThirdParty.NETCoreRuntime.NOTICES" />
     <EmbeddedResource Include="third-party\Microsoft.WindowsDesktop.App.Runtime.win-x64\9.0.17\LICENSE" LogicalName="YinggeVideoLibrary.ThirdParty.WindowsDesktopRuntime.LICENSE" />
   </ItemGroup>
-  <ItemGroup><PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3595.46" /></ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3595.46" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Client library for the invitation-only cloud account service. It is a
+         plain net9.0 library: no cloud code lives in the video library index. -->
+    <ProjectReference Include="cloud\src\Yingge.Cloud.Client\Yingge.Cloud.Client.csproj" />
+  </ItemGroup>
   <ItemGroup><None Update="LICENSE" Pack="true" PackagePath="" /></ItemGroup>
 
 </Project>

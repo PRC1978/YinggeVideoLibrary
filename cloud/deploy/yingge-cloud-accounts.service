@@ -1,0 +1,38 @@
+[Unit]
+Description=Yingge cloud accounts and error-report service
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=yinggecloud
+Group=yinggecloud
+WorkingDirectory=/opt/yingge-cloud/app
+EnvironmentFile=/etc/yingge-cloud/accounts.env
+Environment=ASPNETCORE_ENVIRONMENT=Production
+# Kestrel only listens on loopback. TLS is terminated by nginx (certbot) in
+# front of this socket, so 5080 and 5432 are never reachable from the internet.
+Environment=ASPNETCORE_URLS=http://127.0.0.1:5080
+ExecStart=/usr/bin/dotnet /opt/yingge-cloud/app/Yingge.Cloud.Accounts.dll
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+
+# Hardening: the service only writes its report directory and nothing else.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/yingge-cloud
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

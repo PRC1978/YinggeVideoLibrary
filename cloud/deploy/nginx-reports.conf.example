@@ -1,0 +1,46 @@
+# /etc/nginx/sites-available/yingge-cloud-accounts
+#
+# TLS terminates here with a Let's Encrypt certificate managed by certbot.
+# Kestrel stays on 127.0.0.1:5080 and trusts forwarded headers only from
+# 127.0.0.1, so X-Forwarded-Proto is what makes the app treat the request as
+# HTTPS. Never disable certificate verification in the client.
+#
+#   sudo certbot --nginx -d reports.example.com
+#
+# The body limit matches the application's 128 KB report cap.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name reports.example.com;
+
+    location /.well-known/acme-challenge/ { root /var/www/html; }
+    location / { return 301 https://$host$request_uri; }
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name reports.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/reports.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/reports.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy no-referrer always;
+
+    client_max_body_size 256k;
+
+    location / {
+        proxy_pass http://127.0.0.1:5080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 30s;
+    }
+}

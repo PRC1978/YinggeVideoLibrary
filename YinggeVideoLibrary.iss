@@ -35,6 +35,12 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 
 [Files]
 Source: "..\发布\映格视频库.exe"; DestDir: "{app}"; Flags: ignoreversion
+#ifdef BundlePostgres
+; Opt-in until runtime startup, migration and restore are fully validated.
+; Prepare the pinned EDB archive with scripts/prepare-postgres-runtime.ps1 first.
+; Database files must remain in the user's data directory, never under {app}.
+Source: "artifacts\postgres-runtime\*"; DestDir: "{app}\postgres"; Flags: recursesubdirs createallsubdirs ignoreversion
+#endif
 Source: "assets\branding\yingge-icon-v3.ico"; DestDir: "{app}"; DestName: "yingge-icon-v3.ico"; Flags: ignoreversion
 Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "third-party\Microsoft.Web.WebView2\1.0.3595.46\LICENSE.txt"; DestDir: "{app}\third-party\Microsoft.Web.WebView2\1.0.3595.46"; Flags: ignoreversion

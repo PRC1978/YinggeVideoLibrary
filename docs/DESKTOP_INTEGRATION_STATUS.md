@@ -14,12 +14,14 @@
 - Windows 会话凭据与离线待上传队列按 HTTPS 服务器来源分开；更换服务器地址不会带上旧服务器令牌或待上传日志。
 - 云端离线自检只检查序列化结果，不读取真实数据目录中的 `cloud-account.json`。
 - 设置页移除无需账号的旧 SSH 上传入口，保留本机加密导出与解密查看。联网上传只能走云端账号入口。
+- 修复退出登录的顺序：构造带旧令牌的退出请求后再清本地凭据，确保服务器端会话被撤销。
 
 ## 验证
 
 - Release 构建：0 警告、0 错误。
 - 完整功能自检：`passed=true`、`realLibraryRead=false`、`localTagReuseRequiresExactEvidence=true`。
 - 云端客户端离线自检：7/7，`realLibraryRead=false`。
+- 云端服务及客户端全套测试：64/64，通过临时 PostgreSQL 18.6 集群；新增的退出测试验证服务器返回撤销后的 401。
 - 隔离库的设置页离屏诊断：退出码 0，阶段为 `settings ui verified`。
 
 ## 尚未完成

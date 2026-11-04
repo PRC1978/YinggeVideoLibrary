@@ -57,14 +57,16 @@ public sealed class CloudAccountClient : IDisposable
     public async Task<LogoutResult> LogoutAsync(CancellationToken ct = default)
     {
         var active = await EnsureTokenAsync(ct);
+        // Capture the authenticated request before clearing local state. The
+        // server must receive the old token so it can revoke that session.
+        using var request = active is null ? null : Authorized(HttpMethod.Post, "/api/v1/auth/logout");
         await store.ClearAsync(ct);
         token = null;
         if (active is null) return new LogoutResult(true, null);
 
         try
         {
-            using var request = Authorized(HttpMethod.Post, "/api/v1/auth/logout");
-            await SendAsync(request, ct);
+            await SendAsync(request!, ct);
             return new LogoutResult(true, null);
         }
         catch (CloudAccountException exception) when (exception.IsNetworkProblem)

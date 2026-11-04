@@ -92,6 +92,24 @@ public sealed class ClientTests(PostgresFixture fixture) : CloudTestBase(fixture
     }
 
     [Fact]
+    public async Task Logout_revokes_server_session_and_clears_local_token()
+    {
+        var account = await CreateAccountAsync();
+        var store = new InMemorySessionStore(account.Token);
+        using var client = CreateClient(store);
+
+        var result = await client.LogoutAsync();
+
+        Assert.True(result.RevokedOnServer);
+        Assert.Null(await store.ReadAsync());
+        Assert.False(client.HasSession);
+        Assert.Null(await client.GetSessionAsync());
+        var serverStatus = await TestSupport.SendAsync(Client, HttpMethod.Get,
+            "/api/v1/auth/session", token: account.Token);
+        Assert.Equal(HttpStatusCode.Unauthorized, serverStatus.StatusCode);
+    }
+
+    [Fact]
     public async Task Outbox_refuses_to_grow_without_limit()
     {
         var outbox = new LocalUploadOutbox(Path.Combine(Path.GetTempPath(),

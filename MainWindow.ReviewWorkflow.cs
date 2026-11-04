@@ -159,10 +159,11 @@ public partial class MainWindow
         panel.Children.Insert(Math.Max(0, panel.Children.Count - 2), reviewHistoryWarning);
         var pager = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
             Margin = new Thickness(0, 7, 0, 0) };
-        reviewPreviousPageButton = new Button { Content = "上一页", Style = (Style)FindResource("Action") };
+        var pagerStyle = (Style)FindResource(UiTheme.IsClassicMode ? "Action" : "PagerModern");
+        reviewPreviousPageButton = new Button { Content = "上一页", Style = pagerStyle };
         reviewPreviousPageButton.Click += (_, _) => { reviewPageIndex--; RefreshReviewQueue(); ScrollReviewQueueToTop(); };
         reviewPageLabel = new TextBlock { VerticalAlignment = System.Windows.VerticalAlignment.Center, Margin = new Thickness(7, 0, 14, 0) };
-        reviewNextPageButton = new Button { Content = "下一页", Style = (Style)FindResource("Action") };
+        reviewNextPageButton = new Button { Content = "下一页", Style = pagerStyle };
         reviewNextPageButton.Click += (_, _) => { reviewPageIndex++; RefreshReviewQueue(); ScrollReviewQueueToTop(); };
         pager.Children.Add(reviewPreviousPageButton);
         pager.Children.Add(reviewPageLabel);
@@ -179,10 +180,10 @@ public partial class MainWindow
                 HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
                 Margin = new Thickness(0, 0, 0, 8)
             };
-            reviewTopPreviousPageButton = new Button { Content = "上一页", Style = (Style)FindResource("Action") };
+            reviewTopPreviousPageButton = new Button { Content = "上一页", Style = pagerStyle };
             reviewTopPreviousPageButton.Click += (_, _) => { reviewPageIndex--; RefreshReviewQueue(); ScrollReviewQueueToTop(); };
             reviewTopPageLabel = new TextBlock { VerticalAlignment = System.Windows.VerticalAlignment.Center, Margin = new Thickness(8, 0, 8, 0) };
-            reviewTopNextPageButton = new Button { Content = "下一页", Style = (Style)FindResource("Action") };
+            reviewTopNextPageButton = new Button { Content = "下一页", Style = pagerStyle };
             reviewTopNextPageButton.Click += (_, _) => { reviewPageIndex++; RefreshReviewQueue(); ScrollReviewQueueToTop(); };
             topPager.Children.Add(reviewTopPreviousPageButton);
             topPager.Children.Add(reviewTopPageLabel);
@@ -214,7 +215,7 @@ public partial class MainWindow
             JumpToReviewPage(box);
             e.Handled = true;
         };
-        var jump = new Button { Content = "跳转", Style = (Style)FindResource("Action") };
+        var jump = new Button { Content = "跳转", Style = (Style)FindResource(UiTheme.IsClassicMode ? "Action" : "PagerModern") };
         jump.Click += (_, _) => JumpToReviewPage(box);
         pager.Children.Add(box);
         pager.Children.Add(jump);

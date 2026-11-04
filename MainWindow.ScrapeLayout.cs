@@ -102,6 +102,27 @@ public partial class MainWindow
         }
         else ReviewPanelBody.Children.Add(scrapeReviewGroup);
         pages.Items.Add(new TabItem { Header = "来源与凭据", Content = scrapeAdvancedGroup, Padding = new Thickness(14, 8, 14, 8) });
+        pages.SelectionChanged += (_, e) =>
+        {
+            if (!ReferenceEquals(e.Source, pages) || pages.SelectedItem is not TabItem selected ||
+                selected.Content is not FrameworkElement content) return;
+            var duration = UiMotion.PageFadeMilliseconds(config.UiMotion);
+            if (duration == 0) return;
+            if (UiTheme.Current is UiTheme.Cinema or UiTheme.Glass) duration = Math.Max(duration, 320);
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!ReferenceEquals(pages.SelectedItem, selected)) return;
+                var easing = new System.Windows.Media.Animation.QuadraticEase
+                    { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut };
+                content.BeginAnimation(OpacityProperty, new System.Windows.Media.Animation.DoubleAnimation(0.65, 1,
+                    TimeSpan.FromMilliseconds(duration)) { EasingFunction = easing });
+                var movement = new System.Windows.Media.TranslateTransform();
+                content.RenderTransform = movement;
+                movement.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty,
+                    new System.Windows.Media.Animation.DoubleAnimation(6, 0, TimeSpan.FromMilliseconds(duration))
+                    { EasingFunction = easing });
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
+        };
         panel.Children.Add(pages);
         scrapePages = pages;
         UpdateScrapePagesWidth();

@@ -18,16 +18,29 @@ public partial class MainWindow
     WrapPanel? librarySegments;
     RoleProfilesView? embeddedRoles;
 
+    void UpdateHeaderResponsive()
+    {
+        var compact = ActualWidth < 1040;
+        Grid.SetRow(Toolbar, compact ? 1 : 0);
+        Grid.SetColumn(Toolbar, compact ? 0 : 1);
+        Grid.SetColumnSpan(Toolbar, compact ? 2 : 1);
+        Toolbar.HorizontalAlignment = compact ? System.Windows.HorizontalAlignment.Left : System.Windows.HorizontalAlignment.Right;
+        Toolbar.Margin = compact ? new Thickness(0, 12, 0, 0) : new Thickness(15, 0, 0, 0);
+    }
+
     /// <summary>Apply the current interface mode's chrome. Called once during
     /// startup (after the scrape groups exist) and on every mode switch.</summary>
     void ApplyInterfaceMode()
     {
+        UpdateHeaderResponsive();
         var classic = UiTheme.IsClassicMode;
         var navigationStyle = (Style)FindResource(classic ? "Nav" : "NavModern");
         foreach (var item in new[] { LibraryNav, AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, RolesNav, ScrapeNav, ReviewNav, OnlineNav, PluginsNav, SettingsNav })
             item.Style = navigationStyle;
         var pagerStyle = (Style)FindResource(classic ? "Action" : "PagerModern");
         foreach (var item in new[] { PreviousPage, NextPage, PageJumpButton }) item.Style = pagerStyle;
+        foreach (var item in new[] { reviewPreviousPageButton, reviewNextPageButton, reviewTopPreviousPageButton, reviewTopNextPageButton })
+            if (item is not null) item.Style = pagerStyle;
         if (SidebarColumn.Width.Value > 28)
             SidebarColumn.Width = new GridLength(UiTheme.Num(UiTheme.SidebarWidth));
         LibraryNav.Visibility = classic ? Visibility.Collapsed : Visibility.Visible;

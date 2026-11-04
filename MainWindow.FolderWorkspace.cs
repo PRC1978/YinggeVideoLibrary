@@ -542,10 +542,12 @@ public partial class MainWindow
         _ = RefreshAsync();
     }
 
-    static StackPanel BuildFolderPager(int page, int count, Action<int> navigate)
+    StackPanel BuildFolderPager(int page, int count, Action<int> navigate)
     {
-        var bar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 9, 0, 12) };
+        var bar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 9, 0, 12), HorizontalAlignment = WpfHorizontalAlignment.Center };
+        var style = (Style)FindResource(UiTheme.IsClassicMode ? "Action" : "PagerModern");
         var previous = FolderAction("上一页");
+        previous.Style = style;
         previous.IsEnabled = page > 0;
         previous.Click += (_, _) => navigate(page - 1);
         bar.Children.Add(previous);
@@ -555,9 +557,28 @@ public partial class MainWindow
             Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(2, 0, 11, 8)
         });
         var next = FolderAction("下一页");
+        next.Style = style;
         next.IsEnabled = page < count - 1;
         next.Click += (_, _) => navigate(page + 1);
         bar.Children.Add(next);
+        var jumpBox = new TextBox
+        {
+            Width = 58, Height = 34, MaxLength = 7, TextAlignment = TextAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center, Margin = new Thickness(9, 0, 5, 8),
+            ToolTip = $"输入 1 到 {count} 的页码"
+        };
+        void Jump()
+        {
+            if (int.TryParse(jumpBox.Text.Trim(), out var requested) && requested >= 1 && requested <= count)
+                navigate(requested - 1);
+            else { jumpBox.ToolTip = $"请输入 1 到 {count} 的页码"; jumpBox.Focus(); jumpBox.SelectAll(); }
+        }
+        jumpBox.KeyDown += (_, e) => { if (e.Key == Key.Enter) { Jump(); e.Handled = true; } };
+        bar.Children.Add(jumpBox);
+        var jump = FolderAction("跳转");
+        jump.Style = style;
+        jump.Click += (_, _) => Jump();
+        bar.Children.Add(jump);
         return bar;
     }
 

@@ -481,6 +481,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        SizeChanged += (_, _) => UpdateHeaderResponsive();
         InitializeFolderExternalDrop();
         Directory.CreateDirectory(DataDir);
         var cacheMigration = TryMigrateLegacyCaches(DataDir);

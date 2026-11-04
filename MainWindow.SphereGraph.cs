@@ -1665,20 +1665,26 @@ public partial class MainWindow
         var panel = new StackPanel { Margin = new Thickness(10, 1, 10, 8) };
         var bar = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
         var pagination = new StackPanel { Orientation = Orientation.Horizontal };
-        var previous = new Button { Content = "‹ 上一页", Style = (Style)FindResource("Action"), Padding = new Thickness(8, 0, 8, 0) };
-        var next = new Button { Content = "下一页 ›", Style = (Style)FindResource("Action"), Padding = new Thickness(8, 0, 8, 0), Margin = new Thickness(5, 0, 0, 0) };
+        var pagerStyle = (Style)FindResource(UiTheme.IsClassicMode ? "Action" : "PagerModern");
+        var previous = new Button { Content = "‹ 上一页", Style = pagerStyle, Padding = new Thickness(8, 0, 8, 0) };
+        var next = new Button { Content = "下一页 ›", Style = pagerStyle, Padding = new Thickness(8, 0, 8, 0), Margin = new Thickness(5, 0, 0, 0) };
         var pageLabel = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 7, 0), Foreground = UiTheme.TextTertiaryBrush };
         pagination.Children.Add(previous); pagination.Children.Add(pageLabel); pagination.Children.Add(next);
+        var jumpBox = new TextBox { Width = 52, Height = 34, MaxLength = 6, TextAlignment = System.Windows.TextAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center, Margin = new Thickness(7, 0, 4, 0), ToolTip = "输入页码并按 Enter" };
+        pagination.Children.Add(jumpBox);
+        var jump = new Button { Content = "跳转", Style = pagerStyle, Padding = new Thickness(8, 0, 8, 0) };
+        pagination.Children.Add(jump);
         DockPanel.SetDock(pagination, Dock.Right); bar.Children.Add(pagination);
         var expand = new Button { Content = sphereNavExpanded ? "收起导航" : "放大导航", Style = (Style)FindResource("Action"),
             Padding = new Thickness(8, 0, 8, 0), Margin = new Thickness(0, 0, 8, 0), ToolTip = "展开后可拖动列表下方边缘调整高度" };
         DockPanel.SetDock(expand, Dock.Right); bar.Children.Add(expand);
         bar.Children.Add(new TextBlock { Text = "节点导航", Foreground = UiTheme.TextTertiaryBrush, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
-        var search = new TextBox { Text = sphereNavSearch, Width = 240, Height = 29, Margin = new Thickness(12, 0, 0, 0), ToolTip = "输入分类名，定位球面上拥挤的节点" };
+        var search = new TextBox { Text = sphereNavSearch, Width = 240, Height = 29, Margin = new Thickness(12, 0, 0, 0), ToolTip = "输入分类或标签名，定位关系图节点" };
         bar.Children.Add(search);
         panel.Children.Add(bar);
-        var list = new ListBox { Height = sphereNavHeight ?? (sphereNavExpanded ? 420 : 110),
-            MinHeight = 110, BorderThickness = new Thickness(0), Background = Brushes.Transparent };
+        var list = new ListBox { Height = sphereNavHeight ?? (sphereNavExpanded ? 420 : 290),
+            MinHeight = 180, BorderThickness = new Thickness(0), Background = Brushes.Transparent };
         ScrollViewer.SetVerticalScrollBarVisibility(list, ScrollBarVisibility.Auto);
         VirtualizingStackPanel.SetIsVirtualizing(list, true);
         VirtualizingStackPanel.SetVirtualizationMode(list, VirtualizationMode.Recycling);
@@ -1686,7 +1692,7 @@ public partial class MainWindow
         expand.Click += (_, _) =>
         {
             sphereNavExpanded = !sphereNavExpanded;
-            sphereNavHeight = sphereNavExpanded ? 420 : 110;
+            sphereNavHeight = sphereNavExpanded ? 420 : 290;
             list.Height = sphereNavHeight.Value;
             expand.Content = sphereNavExpanded ? "收起导航" : "放大导航";
         };
@@ -1706,8 +1712,8 @@ public partial class MainWindow
         };
         resizeHandle.DragDelta += (_, e) =>
         {
-            sphereNavHeight = Math.Clamp(list.Height + e.VerticalChange, 110, 800);
-            sphereNavExpanded = sphereNavHeight > 110;
+            sphereNavHeight = Math.Clamp(list.Height + e.VerticalChange, 180, 800);
+            sphereNavExpanded = sphereNavHeight > 290;
             list.Height = sphereNavHeight.Value;
             expand.Content = sphereNavExpanded ? "收起导航" : "放大导航";
         };
@@ -1725,6 +1731,18 @@ public partial class MainWindow
         }
         previous.Click += (_, _) => { sphereNavPage--; Update(); };
         next.Click += (_, _) => { sphereNavPage++; Update(); };
+        void Jump()
+        {
+            var filteredCount = sphereNavSearch.Length == 0 ? all.Count : all.Count(node =>
+                node.Label.Contains(sphereNavSearch, StringComparison.CurrentCultureIgnoreCase) ||
+                node.Path.Contains(sphereNavSearch, StringComparison.CurrentCultureIgnoreCase));
+            var pages = Math.Max(1, (filteredCount + 23) / 24);
+            if (int.TryParse(jumpBox.Text.Trim(), out var requested) && requested >= 1 && requested <= pages)
+            { sphereNavPage = requested - 1; Update(); }
+            else { jumpBox.ToolTip = $"请输入 1 到 {pages} 的页码"; jumpBox.Focus(); jumpBox.SelectAll(); }
+        }
+        jumpBox.KeyDown += (_, e) => { if (e.Key == Key.Enter) { Jump(); e.Handled = true; } };
+        jump.Click += (_, _) => Jump();
         search.TextChanged += (_, _) => { sphereNavSearch = search.Text.Trim(); sphereNavPage = 0; Update(); };
         list.SelectionChanged += (_, _) =>
         {

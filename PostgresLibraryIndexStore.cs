@@ -98,12 +98,12 @@ internal static class PostgresLibraryIndexStore
             await writer.CompleteAsync(cancellationToken);
         }
         await using (var merge = new NpgsqlCommand("""
+            DELETE FROM library_video WHERE NOT EXISTS
+              (SELECT 1 FROM incoming_library_video incoming WHERE incoming.video_id=library_video.video_id);
             INSERT INTO library_video(video_id,path,size_bytes,modified_ticks,missing)
               SELECT video_id,path,size_bytes,modified_ticks,missing FROM incoming_library_video
             ON CONFLICT(video_id) DO UPDATE SET path=excluded.path,size_bytes=excluded.size_bytes,
               modified_ticks=excluded.modified_ticks,missing=excluded.missing;
-            DELETE FROM library_video WHERE NOT EXISTS
-              (SELECT 1 FROM incoming_library_video incoming WHERE incoming.video_id=library_video.video_id);
             """, connection, transaction))
             await merge.ExecuteNonQueryAsync(cancellationToken);
         await using (var folders = new NpgsqlCommand("DELETE FROM library_folder", connection, transaction))

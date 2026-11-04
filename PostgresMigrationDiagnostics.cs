@@ -72,9 +72,23 @@ internal static class PostgresMigrationDiagnostics
                 connection, changedMetadata, metadataRead.Revision); }
             catch (InvalidOperationException) { staleMetadataRejected = true; }
             var indexStillPresent = (await PostgresLibraryIndexStore.ReadAsync(connection)).Revision == nextRevision;
+            var renameSaved = true;
+            if (changedIndex.Entries.Count > 0)
+            {
+                var beforePath = changedIndex.Entries[0].Path;
+                var afterPath = Path.Combine(Path.GetDirectoryName(beforePath)!,
+                    Path.GetFileNameWithoutExtension(beforePath) + "-renamed" + Path.GetExtension(beforePath));
+                changedIndex.Entries[0].Path = afterPath;
+                var renamedRevision = await PostgresLibraryIndexStore.SaveAsync(
+                    connection, changedIndex, nextRevision);
+                var renamed = await PostgresLibraryIndexStore.ReadAsync(connection);
+                renameSaved = renamed.Revision == renamedRevision &&
+                    renamed.Index.Entries.Any(entry => entry.Path == afterPath) &&
+                    renamed.Index.Entries.All(entry => entry.Path != beforePath);
+            }
             result["passed"] = sourceUnchanged && countsEqual && contentEqual && duplicateRefused &&
                 indexReadEqual && indexSaved && staleRejected && metadataStillPresent &&
-                metadataReadEqual && metadataSaved && staleMetadataRejected && indexStillPresent;
+                metadataReadEqual && metadataSaved && staleMetadataRejected && indexStillPresent && renameSaved;
             result["sourceUnchanged"] = sourceUnchanged;
             result["countsEqual"] = countsEqual;
             result["contentEqual"] = contentEqual;
@@ -87,6 +101,7 @@ internal static class PostgresMigrationDiagnostics
             result["metadataSaved"] = metadataSaved;
             result["staleMetadataWriteRejected"] = staleMetadataRejected;
             result["indexStillPresent"] = indexStillPresent;
+            result["renameSaved"] = renameSaved;
             result["videoCount"] = loaded.VideoCount;
             result["metadataCount"] = loaded.MetadataCount;
             result["folderCount"] = loaded.FolderCount;

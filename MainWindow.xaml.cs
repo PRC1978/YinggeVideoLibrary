@@ -1149,6 +1149,7 @@ public partial class MainWindow : Window
         messages.Insert(0, $"{DateTime.Now:HH:mm:ss}  {message}");
         if (messages.Count > 50) messages.RemoveAt(messages.Count - 1);
         LogText.Text = string.Join("\n", messages);
+        LocalErrorEventStore.Record(DataDir, message);
     }
 
     void ConfigureFolderWatchers()

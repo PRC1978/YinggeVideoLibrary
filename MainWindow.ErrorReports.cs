@@ -17,7 +17,7 @@ public partial class MainWindow
             Foreground = UiTheme.TextPrimaryBrush });
         body.Children.Add(new TextBlock
         {
-            Text = "导出最近运行消息和最多 12 份本地诊断。内容可能含文件路径或标题；先在本机加密，再决定是否上传。口令不保存，也不通过 SSH 发送。",
+            Text = "只导出最近 100 条错误记录，不包含视频、封面、资料库索引或其他诊断文件。错误文字仍可能含路径或标题；先在本机加密，再决定是否上传。",
             TextWrapping = TextWrapping.Wrap, Foreground = UiTheme.TextSecondaryBrush,
             Margin = new Thickness(0, 4, 0, 8)
         });
@@ -89,9 +89,9 @@ public partial class MainWindow
         try
         {
             var snapshot = await Task.Run(() => EncryptedErrorReport.Capture(DataDir, messages.ToArray()));
-            var summary = $"最近运行消息 {snapshot.RecentMessages.Length} 条；诊断文件 {snapshot.DiagnosticFiles.Count} 份。\n"
-                + string.Join("、", snapshot.DiagnosticFiles.Keys.Take(5))
-                + "\n\n内容可能包含本地路径、视频标题和错误详情。仅创建本地加密文件，是否继续？";
+            if (!EncryptedErrorReport.IsErrorOnly(snapshot))
+            { MessageBox.Show(this, "当前没有可导出的错误记录。", "报错日志"); return; }
+            var summary = $"错误记录 {snapshot.RecentMessages.Length} 条。\n\n错误文字可能包含本地路径或标题。仅创建本地加密文件，是否继续？";
             if (MessageBox.Show(this, summary, "预览日志范围", MessageBoxButton.YesNo,
                     MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             var passphrase = PromptErrorReportPassphrase("设置日志加密口令");
@@ -132,7 +132,9 @@ public partial class MainWindow
         try
         {
             var content = await File.ReadAllBytesAsync(picker.FileName);
-            await Task.Run(() => EncryptedErrorReport.Decrypt(content, passphrase));
+            var snapshot = await Task.Run(() => EncryptedErrorReport.Decrypt(content, passphrase));
+            if (!EncryptedErrorReport.IsErrorOnly(snapshot))
+                throw new InvalidDataException("此包包含非错误日志内容，不能上传。请重新导出。 ");
             if (MessageBox.Show(this, $"将加密包上传到 {connection.Target}:{connection.Port} 的 ~/yingge-logs/。\n不会上传明文或口令。继续？",
                     "确认上传", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             connection.Save();

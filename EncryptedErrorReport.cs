@@ -17,25 +17,18 @@ internal static class EncryptedErrorReport
 
     internal static Snapshot Capture(string dataDir, IEnumerable<string> recentMessages)
     {
-        var files = new Dictionary<string, string>(StringComparer.Ordinal);
-        var directory = Path.Combine(dataDir, "diagnostics");
-        if (Directory.Exists(directory))
-        {
-            foreach (var path in Directory.EnumerateFiles(directory, "*.json", SearchOption.TopDirectoryOnly)
-                         .OrderByDescending(File.GetLastWriteTimeUtc).Take(12))
-            {
-                var info = new FileInfo(path);
-                if ((info.Attributes & FileAttributes.ReparsePoint) != 0 || info.Length > 512 * 1024) continue;
-                try { files.Add(info.Name, File.ReadAllText(path)); }
-                catch (IOException) { /* A diagnostic may be rewritten during capture. */ }
-                catch (UnauthorizedAccessException) { }
-            }
-        }
+        var errors = LocalErrorEventStore.Read(dataDir)
+            .Concat(recentMessages.Where(LocalErrorEventStore.IsError))
+            .Distinct(StringComparer.Ordinal).Take(100)
+            .Select(message => message.Length > 4000 ? message[..4000] : message).ToArray();
         return new Snapshot(DateTimeOffset.UtcNow,
             typeof(EncryptedErrorReport).Assembly.GetName().Version?.ToString() ?? "unknown",
-            recentMessages.Take(50).Select(message => message.Length > 4000 ? message[..4000] : message).ToArray(),
-            files);
+            errors, new Dictionary<string, string>());
     }
+
+    internal static bool IsErrorOnly(Snapshot snapshot) => snapshot.DiagnosticFiles is { Count: 0 } &&
+        snapshot.RecentMessages is { Length: > 0 and <= 100 } &&
+        snapshot.RecentMessages.All(message => message is not null && LocalErrorEventStore.IsError(message));
 
     internal static byte[] Encrypt(Snapshot snapshot, string passphrase)
     {

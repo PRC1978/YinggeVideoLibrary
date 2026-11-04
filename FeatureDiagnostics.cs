@@ -46,6 +46,8 @@ internal static class FeatureDiagnostics
         findings["tempDirectory"] = directory;
         try
         {
+            foreach (var (name, passed) in PostgresMigrationPreflightDiagnostics.Verify())
+                findings[name] = passed;
             findings["sphereExactTagCategoryLinks"] = MainWindow.VerifySphereRelationsForDiagnostics();
             findings["forceGraphLayoutDeterministic"] = MainWindow.VerifyForceLayoutForDiagnostics();
             findings["localTagReuseRequiresExactEvidence"] = LocalTagDiscovery.VerifyForDiagnostics();

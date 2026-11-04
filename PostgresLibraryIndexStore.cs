@@ -55,6 +55,7 @@ internal static class PostgresLibraryIndexStore
                 !Path.IsPathFullyQualified(entry.Path) || entry.Size < 0 ||
                 entry.ModifiedTicks < DateTime.MinValue.Ticks || entry.ModifiedTicks > DateTime.MaxValue.Ticks) ||
             incoming.Entries.Select(entry => entry.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count() != incoming.Entries.Count ||
+            incoming.Entries.Select(entry => VideoId(entry.Path)).Distinct(StringComparer.Ordinal).Count() != incoming.Entries.Count ||
             incoming.Folders.Any(string.IsNullOrWhiteSpace) ||
             incoming.Folders.Distinct(StringComparer.OrdinalIgnoreCase).Count() != incoming.Folders.Length)
             throw new InvalidDataException("视频索引含无效或重复记录，数据库未修改。 ");

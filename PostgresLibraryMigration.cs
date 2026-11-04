@@ -50,14 +50,7 @@ internal static class PostgresLibraryMigration
             ?? throw new InvalidDataException("资料文件为空，未导入。 ");
         var checkedMetadata = JsonSerializer.Deserialize<Dictionary<string, MovieMetadata>>(metadataBytes)
             ?? throw new InvalidDataException("资料文件格式无效，未导入。 ");
-        if (checkedMetadata.Values.Any(value => value is null || value.SchemaVersion is < 1 or > 2))
-            throw new InvalidDataException("资料文件含无效版本，未导入。 ");
-        if (index.Folders is null || index.Entries is null || index.Entries.Any(e =>
-                string.IsNullOrWhiteSpace(e.Path) || e.Size < 0))
-            throw new InvalidDataException("视频索引含无效记录，未导入。 ");
-        if (index.Entries.Select(e => e.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count()
-            != index.Entries.Count)
-            throw new InvalidDataException("视频索引含重复路径，未导入。 ");
+        ValidateSource(index, checkedMetadata);
 
         var indexHash = Convert.ToHexString(SHA256.HashData(indexBytes));
         var metadataHash = Convert.ToHexString(SHA256.HashData(metadataBytes));
@@ -121,6 +114,27 @@ internal static class PostgresLibraryMigration
         await transaction.CommitAsync(cancellationToken);
         return new(index.Entries.Count, metadata.Count, index.Folders.Distinct(StringComparer.OrdinalIgnoreCase).Count(),
             indexHash, metadataHash);
+    }
+
+    internal static void ValidateSource(LibraryIndex index, IReadOnlyDictionary<string, MovieMetadata> checkedMetadata)
+    {
+        if (checkedMetadata.Any(pair => string.IsNullOrWhiteSpace(pair.Key) ||
+                pair.Value is null || pair.Value.SchemaVersion is < 1 or > 2))
+            throw new InvalidDataException("资料文件含无效版本，未导入。 ");
+        if (index.Folders is null || index.Entries is null ||
+            index.Folders.Any(string.IsNullOrWhiteSpace) ||
+            index.Folders.Distinct(StringComparer.OrdinalIgnoreCase).Count() != index.Folders.Length ||
+            index.Entries.Any(e => e is null || string.IsNullOrWhiteSpace(e.Path) ||
+                !Path.IsPathFullyQualified(e.Path) || e.Size < 0 ||
+                e.ModifiedTicks < DateTime.MinValue.Ticks || e.ModifiedTicks > DateTime.MaxValue.Ticks))
+            throw new InvalidDataException("视频索引含无效记录，未导入。 ");
+        if (index.Entries.Select(e => e.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count()
+            != index.Entries.Count)
+            throw new InvalidDataException("视频索引含重复路径，未导入。 ");
+        if (index.Entries.Select(e => VideoId(e.Path)).Distinct(StringComparer.Ordinal).Count()
+            != index.Entries.Count)
+            throw new InvalidDataException("视频索引含重复身份 ID，未导入。 ");
+
     }
 
     internal static async Task<Result> VerifyAsync(string connectionString, CancellationToken cancellationToken = default)

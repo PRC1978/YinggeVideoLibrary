@@ -71,6 +71,12 @@ public partial class App : System.Windows.Application
             Shutdown(await FeatureDiagnostics.RunAsync(e.Args[1]));
             return;
         }
+        // Explicit, isolated PostgreSQL import probe. This never reads AppPaths.DataDirectory.
+        if (e.Args.Length > 2 && e.Args[0] == "--self-test-postgres")
+        {
+            Shutdown(await PostgresMigrationDiagnostics.RunToFileAsync(e.Args[1], e.Args[2]));
+            return;
+        }
         if (e.Args.Length > 1 && e.Args[0] == "--self-test-error-upload")
         {
             Shutdown(await EncryptedErrorReportDiagnostics.VerifyUploadAsync(e.Args[1]));

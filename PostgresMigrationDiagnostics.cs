@@ -54,8 +54,27 @@ internal static class PostgresMigrationDiagnostics
             catch (InvalidOperationException) { staleRejected = true; }
             var metadataStillPresent = (await PostgresLibraryMigration.VerifyAsync(connection)).MetadataCount ==
                 imported.MetadataCount;
+            var metadataRead = await PostgresLibraryMetadataStore.ReadAsync(connection);
+            var metadataReadEqual = metadataRead.Records.Count == imported.MetadataCount;
+            var changedMetadata = metadataRead.Records.ToDictionary(
+                pair => pair.Key, pair => pair.Value.Clone(), StringComparer.Ordinal);
+            if (changedMetadata.Count > 0)
+                changedMetadata.First().Value.Title = "隔离测试已更新";
+            var nextMetadataRevision = await PostgresLibraryMetadataStore.SaveAsync(
+                connection, changedMetadata, metadataRead.Revision);
+            var metadataAfter = await PostgresLibraryMetadataStore.ReadAsync(connection);
+            var metadataSaved = metadataAfter.Revision == nextMetadataRevision &&
+                metadataAfter.Records.Count == changedMetadata.Count &&
+                (changedMetadata.Count == 0 ||
+                 metadataAfter.Records[changedMetadata.First().Key].Title == "隔离测试已更新");
+            var staleMetadataRejected = false;
+            try { await PostgresLibraryMetadataStore.SaveAsync(
+                connection, changedMetadata, metadataRead.Revision); }
+            catch (InvalidOperationException) { staleMetadataRejected = true; }
+            var indexStillPresent = (await PostgresLibraryIndexStore.ReadAsync(connection)).Revision == nextRevision;
             result["passed"] = sourceUnchanged && countsEqual && contentEqual && duplicateRefused &&
-                indexReadEqual && indexSaved && staleRejected && metadataStillPresent;
+                indexReadEqual && indexSaved && staleRejected && metadataStillPresent &&
+                metadataReadEqual && metadataSaved && staleMetadataRejected && indexStillPresent;
             result["sourceUnchanged"] = sourceUnchanged;
             result["countsEqual"] = countsEqual;
             result["contentEqual"] = contentEqual;
@@ -64,6 +83,10 @@ internal static class PostgresMigrationDiagnostics
             result["indexSaved"] = indexSaved;
             result["staleWriteRejected"] = staleRejected;
             result["metadataStillPresent"] = metadataStillPresent;
+            result["metadataReadEqual"] = metadataReadEqual;
+            result["metadataSaved"] = metadataSaved;
+            result["staleMetadataWriteRejected"] = staleMetadataRejected;
+            result["indexStillPresent"] = indexStillPresent;
             result["videoCount"] = loaded.VideoCount;
             result["metadataCount"] = loaded.MetadataCount;
             result["folderCount"] = loaded.FolderCount;

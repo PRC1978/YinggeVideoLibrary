@@ -58,3 +58,14 @@ It lives only under ignored `artifacts/pg-setup-probe`. It was **not installed**
 the probe uses the existing product AppId, so executing it could interact with
 an already installed version even with a different target directory. An
 installer-level isolated upgrade test needs a distinct test AppId first.
+
+That separate installer identity was subsequently used for an isolated
+installation test. Inno Setup 7.1.0 compiled a test package with
+`AppId=PRC1978.YinggeVideoLibrary.PGIsolatedProbe`; the package was installed
+to a fresh `%TEMP%` directory using silent mode and no shortcuts. Exit code 0;
+the desktop EXE, PostgreSQL `postgres.exe`, server license and uninstaller were
+all present. The installed binary reported PostgreSQL 18.6. Its own uninstaller
+then exited 0, and both the desktop EXE and PostgreSQL binary were absent.
+The normal installed app and real video library were not launched or altered.
+This proves package layout and isolated install/uninstall, **not** a production
+database cutover or an upgrade from an existing installed version.

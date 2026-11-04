@@ -168,6 +168,9 @@ internal sealed partial class RoleProfilesView : Grid
             listRevision++;
             profileSearchTimer.Stop(); profileSearchTimer.Start();
         };
+        actions.Children.Add(new TextBlock { Text = "输入姓名查本地档案，也可搜索公开人物资料",
+            TextWrapping = TextWrapping.Wrap, Foreground = Muted(), FontSize = 11,
+            Margin = new Thickness(0, 0, 0, 5) });
         actions.Children.Add(search);
         kindFilter.Height = 34;
         kindFilter.Margin = new Thickness(0, 6, 0, 0);
@@ -181,6 +184,20 @@ internal sealed partial class RoleProfilesView : Grid
         autoStart.Margin = new Thickness(0, 0, 0, 4);
         autoStart.Click += async (_, _) => await StartAutoDiscoveryAsync();
         actions.Children.Add(autoStart);
+        var nameSearch = UiButton("按姓名查找公开人物资料");
+        nameSearch.ToolTip = "输入姓名后搜索公开人物条目；核对结果后可直接保存简介到本地档案";
+        nameSearch.Click += async (_, _) =>
+        {
+            var name = search.Text.Trim();
+            if (name.Length == 0)
+            {
+                autoStatus.Text = "请先在上方搜索框输入人物姓名。";
+                search.Focus();
+                return;
+            }
+            await SearchByNameWithLocalCheckAsync(name);
+        };
+        actions.Children.Add(nameSearch);
         autoStatus.Foreground = Muted();
         autoStatus.Text = "从已核实的作品来源识别人物，不会按同名自动合并。";
         actions.Children.Add(autoStatus);
@@ -225,6 +242,30 @@ internal sealed partial class RoleProfilesView : Grid
             {
                 var actorPicker = new ComboBox { Height = 35, ItemsSource = actorNames, SelectedIndex = 0 };
                 actions.Children.Add(actorPicker);
+                var localMatch = UiButton("查找本地已有档案");
+                void UpdateLocalMatch()
+                {
+                    var count = actorPicker.SelectedItem is string chosen
+                        ? ExactNameMatches(state, chosen).Count : 0;
+                    localMatch.Content = count == 0 ? "本地暂无同名档案" : $"查看本地同名档案 · {count} 位";
+                    localMatch.IsEnabled = count > 0;
+                }
+                localMatch.Click += (_, _) =>
+                {
+                    if (actorPicker.SelectedItem is not string chosen) return;
+                    var matches = ExactNameMatches(state, chosen);
+                    if (matches.Count == 0) return;
+                    kindFilter.SelectedIndex = 0;
+                    search.Text = chosen;
+                    selectedProfileId = matches.Count == 1 ? matches[0].Id : null;
+                    RefreshList();
+                    autoStatus.Text = matches.Count == 1
+                        ? "已打开本地同名档案；仅凭姓名不会自动关联当前作品。"
+                        : $"本地有 {matches.Count} 位同名候选，请核对来源和作品后选择。";
+                };
+                actorPicker.SelectionChanged += (_, _) => UpdateLocalMatch();
+                UpdateLocalMatch();
+                actions.Children.Add(localMatch);
                 var createFromName = UiButton("用所选姓名新建手工档案");
                 createFromName.Margin = new Thickness(0, 6, 0, 11);
                 createFromName.Click += (_, _) =>
@@ -238,7 +279,7 @@ internal sealed partial class RoleProfilesView : Grid
                 wikipedia.Click += async (_, _) =>
                 {
                     if (actorPicker.SelectedItem is string name)
-                        await SearchWikipediaForNameAsync(name, null);
+                        await SearchByNameWithLocalCheckAsync(name);
                 };
                 actions.Children.Add(wikipedia);
                 if (originVideo is not null && origin.Source == "JavDB")
@@ -463,6 +504,36 @@ internal sealed partial class RoleProfilesView : Grid
             p.Aliases.Any(alias => alias.Contains(query, StringComparison.CurrentCultureIgnoreCase)) ||
             p.Sources.Any(source => source.PersonId.Contains(query, StringComparison.OrdinalIgnoreCase))))
             .OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+
+    static List<RoleProfileStore.Profile> ExactNameMatches(RoleProfileStore.State current, string name) =>
+        current.Profiles.Where(profile => string.Equals(profile.Name.Trim(), name.Trim(),
+                StringComparison.CurrentCultureIgnoreCase) ||
+            profile.Aliases.Any(alias => string.Equals(alias.Trim(), name.Trim(),
+                StringComparison.CurrentCultureIgnoreCase)))
+            .OrderBy(profile => profile.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+
+    async Task SearchByNameWithLocalCheckAsync(string name)
+    {
+        var matches = ExactNameMatches(state, name);
+        RoleProfileStore.Profile? target = null;
+        if (matches.Count > 1)
+        {
+            kindFilter.SelectedIndex = 0;
+            search.Text = name;
+            RefreshList();
+            autoStatus.Text = $"本地有 {matches.Count} 位同名档案。请先选中正确的人物，再用档案中的维基搜刮入口。";
+            return;
+        }
+        if (matches.Count == 1)
+        {
+            var choice = MessageBox.Show(Window.GetWindow(this),
+                $"本地已有“{matches[0].Name}”档案。\n是：核对维基结果后保存到该档案\n否：作为另一位同名人物新建档案",
+                "选择本地人物", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+            if (choice == MessageBoxResult.Cancel) return;
+            if (choice == MessageBoxResult.Yes) target = matches[0];
+        }
+        await SearchWikipediaForNameAsync(name, target);
+    }
 
     void ApplyProfileList(List<RoleProfileStore.Profile> shown, int revision)
     {

@@ -386,6 +386,11 @@ public sealed class UiThemeState : INotifyPropertyChanged
     public bool IsNeumorphism => UiTheme.Current == UiTheme.Neumorphism;
     public bool IsGlass => UiTheme.Current == UiTheme.Glass;
     public bool IsCinema => UiTheme.Current == UiTheme.Cinema;
+    public Brush PanelEdgeBrush => IsNeumorphism
+        ? new LinearGradientBrush(Color.FromRgb(255, 255, 255), Color.FromRgb(174, 187, 203), 135)
+        : IsGlass
+            ? new LinearGradientBrush(Color.FromArgb(82, 255, 255, 255), Color.FromArgb(32, 2, 6, 16), 90)
+            : BorderBrushToken;
     public Brush PageBackdropBrush => IsGlass ? new LinearGradientBrush(
         Color.FromRgb(6, 10, 19), Color.FromRgb(11, 19, 34), 26) : PageBackgroundBrush;
     public Brush MainContentBackdropBrush => IsGlass

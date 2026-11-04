@@ -1619,7 +1619,8 @@ public partial class MainWindow : Window
             : current.Item2;
         // Settings and scrape already carry their own card heading; a second
         // identical title only pushed the real content further down.
-        SectionTitle.Text = target is "settings" or "scrape" or "review" or "roles" or "plugins" ? "" : current.Item3;
+        SectionTitle.Text = target is "settings" or "scrape" or "review" or "roles" or "plugins" or "folders" or "recommendations"
+            ? "" : current.Item3;
         BrandEyebrow.Visibility = UiTheme.IsClassicMode ? Visibility.Visible : Visibility.Collapsed;
         HeaderArea.Margin = target == "online" ? new Thickness(28, 18, 28, 12)
             : UiTheme.IsClassicMode ? new Thickness(48, 42, 48, 25)
@@ -2876,8 +2877,8 @@ public partial class MainWindow : Window
             var card = new Border { Width = nodeWidth, Height = nodeHeight, CornerRadius = new CornerRadius(nodeWidth / 2), Padding = new Thickness(9), Background = fill, BorderBrush = new SolidColorBrush(isRoot ? Color.FromRgb(61, 58, 151) : depth == 0 ? Color.FromRgb(99, 136, 225) : Color.FromRgb(171, 199, 240)), BorderThickness = new Thickness(isRoot || depth == 0 ? 2 : 1), AllowDrop = !isRoot, Tag = path, Cursor = System.Windows.Input.Cursors.Hand, RenderTransform = new ScaleTransform(1, 1), RenderTransformOrigin = new System.Windows.Point(.5, .5), Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 14, ShadowDepth = 3, Opacity = .2 } };
             var body = new StackPanel();
             body.VerticalAlignment = VerticalAlignment.Center;
-            body.Children.Add(new TextBlock { Text = isRoot ? "✦" : "●", HorizontalAlignment = System.Windows.HorizontalAlignment.Center, FontSize = isRoot ? 18 : 10, FontWeight = FontWeights.Bold, Foreground = isRoot ? UiTheme.SurfaceBrush : UiTheme.AccentBrush });
-            body.Children.Add(new TextBlock { Text = isRoot ? "全部分类" : path.Split(" / ").Last(), HorizontalAlignment = System.Windows.HorizontalAlignment.Center, FontSize = isRoot || depth == 0 ? 12 : 11, FontWeight = FontWeights.SemiBold, Foreground = isRoot ? UiTheme.SurfaceBrush : UiTheme.TextTertiaryBrush, TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+            body.Children.Add(new TextBlock { Text = isRoot ? "✦" : "●", HorizontalAlignment = System.Windows.HorizontalAlignment.Center, FontSize = isRoot ? 18 : 10, FontWeight = FontWeights.Bold, Foreground = isRoot ? UiTheme.AccentForegroundBrush : UiTheme.AccentBrush });
+            body.Children.Add(new TextBlock { Text = isRoot ? "全部分类" : path.Split(" / ").Last(), HorizontalAlignment = System.Windows.HorizontalAlignment.Center, FontSize = isRoot || depth == 0 ? 12 : 11, FontWeight = FontWeights.SemiBold, Foreground = isRoot ? UiTheme.AccentForegroundBrush : UiTheme.TextTertiaryBrush, TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
             body.Children.Add(new TextBlock { Text = isRoot ? $"{count:N0} 部视频" : $"{count:N0} 部", HorizontalAlignment = System.Windows.HorizontalAlignment.Center, FontSize = 10, Foreground = isRoot ? UiTheme.AccentSoftBackgroundBrush : UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 3, 0, 0) });
             card.Child = body;
             Canvas.SetLeft(card, positions[path].X); Canvas.SetTop(card, positions[path].Y);
@@ -3609,7 +3610,7 @@ public partial class MainWindow : Window
     void ToggleSidebar(object sender, RoutedEventArgs e)
     {
         var collapsed = SidebarColumn.Width.Value > 28;
-        SidebarColumn.Width = new GridLength(collapsed ? 28 : UiTheme.Num(UiTheme.SidebarWidth));
+        SidebarColumn.Width = new GridLength(collapsed ? 28 : 88);
         SidebarToggle.Content = collapsed ? "›" : "‹";
         SidebarToggle.ToolTip = collapsed ? "展开侧栏" : "收缩侧栏";
         LogoMark.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
@@ -3620,6 +3621,14 @@ public partial class MainWindow : Window
             button.Width = 60;
             button.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
         }
+        if (!collapsed)
+        {
+            LibraryNav.Visibility = UiTheme.IsClassicMode ? Visibility.Collapsed : Visibility.Visible;
+            AllNav.Visibility = RecentNav.Visibility = FavoriteNav.Visibility = StatusNav.Visibility =
+                UiTheme.IsClassicMode ? Visibility.Visible : Visibility.Collapsed;
+            ReviewNav.Visibility = PluginsNav.Visibility = UiTheme.IsClassicMode ? Visibility.Collapsed : Visibility.Visible;
+        }
+        ApplySidebarPresentation();
     }
     void ToggleHeader(object sender, RoutedEventArgs e)
     {
@@ -3878,7 +3887,7 @@ public partial class MainWindow : Window
         panel.Children.Add(field);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
         var cancel = new Button { Content = "取消", Width = 70, Height = 30, Margin = new Thickness(0, 0, 8, 0) };
-        var accept = new Button { Content = "确定", Width = 70, Height = 30, Background = UiTheme.AccentBrush, Foreground = UiTheme.AccentForegroundBrush };
+        var accept = new Button { Content = "确定", Tag = "primary", Width = 70, Height = 30, Background = UiTheme.AccentBrush, Foreground = UiTheme.AccentForegroundBrush };
         cancel.Click += (_, _) => dialog.DialogResult = false;
         accept.Click += (_, _) => dialog.DialogResult = true;
         buttons.Children.Add(cancel); buttons.Children.Add(accept); panel.Children.Add(buttons); dialog.Content = panel;

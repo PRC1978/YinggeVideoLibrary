@@ -11,17 +11,19 @@
           it would defeat foreground inheritance inside accent buttons.
         -->
         <Style TargetType="TextBox">
-            <Setter Property="Background" Value="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"/>
+            <Setter Property="Background" Value="{Binding InputSurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"/>
             <Setter Property="Foreground" Value="{Binding TextPrimaryBrush, Source={x:Static local:UiThemeState.Instance}}"/>
             <Setter Property="BorderBrush" Value="{Binding BorderBrushToken, Source={x:Static local:UiThemeState.Instance}}"/>
             <Setter Property="CaretBrush" Value="{Binding TextPrimaryBrush, Source={x:Static local:UiThemeState.Instance}}"/>
             <Setter Property="SelectionBrush" Value="{Binding AccentBrush, Source={x:Static local:UiThemeState.Instance}}"/>
+            <Style.Triggers><Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter Property="BorderBrush" Value="{Binding FocusRingBrush, Source={x:Static local:UiThemeState.Instance}}"/><Setter Property="BorderThickness" Value="2"/></Trigger></Style.Triggers>
         </Style>
         <Style TargetType="PasswordBox">
-            <Setter Property="Background" Value="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"/>
+            <Setter Property="Background" Value="{Binding InputSurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"/>
             <Setter Property="Foreground" Value="{Binding TextPrimaryBrush, Source={x:Static local:UiThemeState.Instance}}"/>
             <Setter Property="BorderBrush" Value="{Binding BorderBrushToken, Source={x:Static local:UiThemeState.Instance}}"/>
             <Setter Property="CaretBrush" Value="{Binding TextPrimaryBrush, Source={x:Static local:UiThemeState.Instance}}"/>
+            <Style.Triggers><Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter Property="BorderBrush" Value="{Binding FocusRingBrush, Source={x:Static local:UiThemeState.Instance}}"/><Setter Property="BorderThickness" Value="2"/></Trigger></Style.Triggers>
         </Style>
         <Style TargetType="ComboBoxItem">
             <Setter Property="Foreground" Value="{Binding TextPrimaryBrush, Source={x:Static local:UiThemeState.Instance}}"/>
@@ -48,7 +50,7 @@
         <Style TargetType="ComboBox">
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
-            <Setter Property="Background" Value="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"/>
+            <Setter Property="Background" Value="{Binding InputSurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"/>
             <Setter Property="Foreground" Value="{Binding TextPrimaryBrush, Source={x:Static local:UiThemeState.Instance}}"/>
             <Setter Property="BorderBrush" Value="{Binding BorderBrushToken, Source={x:Static local:UiThemeState.Instance}}"/>
             <Setter Property="Padding" Value="9,4"/>
@@ -105,6 +107,7 @@
                             </Popup>
                         </Grid>
                         <ControlTemplate.Triggers>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter Property="BorderBrush" Value="{Binding FocusRingBrush, Source={x:Static local:UiThemeState.Instance}}"/></Trigger>
                             <Trigger Property="IsEditable" Value="True">
                                 <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/>
                                 <Setter TargetName="ContentSite" Property="Visibility" Value="Collapsed"/>
@@ -165,11 +168,11 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="RadioButton">
-                        <Border x:Name="ThemeCard" Effect="{Binding SoftShadow, Source={x:Static local:UiThemeState.Instance}}" Background="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"
+                        <Grid><Border IsHitTestVisible="False" Background="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}" CornerRadius="12" Effect="{Binding SoftShadow, Source={x:Static local:UiThemeState.Instance}}"/><Border x:Name="ThemeCard" Background="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"
                                 BorderBrush="{Binding BorderBrushToken, Source={x:Static local:UiThemeState.Instance}}"
                                 BorderThickness="1" CornerRadius="12" Padding="9" Margin="0,0,8,8">
                             <ContentPresenter HorizontalAlignment="Stretch"/>
-                        </Border>
+                        </Border></Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
                                 <Setter TargetName="ThemeCard" Property="BorderBrush" Value="{Binding AccentBrush, Source={x:Static local:UiThemeState.Instance}}"/>
@@ -231,7 +234,7 @@
             </Setter>
         </Style>
         <Style TargetType="Button">
-            <Setter Property="Background" Value="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"/>
+            <Setter Property="Background" Value="{Binding RaisedSurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"/>
             <Setter Property="Foreground" Value="{Binding TextPrimaryBrush, Source={x:Static local:UiThemeState.Instance}}"/>
             <Setter Property="BorderBrush" Value="{Binding BorderBrushToken, Source={x:Static local:UiThemeState.Instance}}"/>
             <Setter Property="Padding" Value="10,5"/>
@@ -250,8 +253,11 @@
                                 <Setter TargetName="Chrome" Property="BorderBrush" Value="{Binding AccentBrush, Source={x:Static local:UiThemeState.Instance}}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Chrome" Property="Background" Value="{Binding SelectionBackgroundBrush, Source={x:Static local:UiThemeState.Instance}}"/>
+                                <Setter TargetName="Chrome" Property="Background" Value="{Binding PressedSurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"/>
                             </Trigger>
+                            <MultiTrigger><MultiTrigger.Conditions><Condition Property="Tag" Value="primary"/><Condition Property="IsMouseOver" Value="True"/></MultiTrigger.Conditions><Setter TargetName="Chrome" Property="Background" Value="{Binding AccentHoverBrush, Source={x:Static local:UiThemeState.Instance}}"/><Setter TargetName="Chrome" Property="BorderBrush" Value="{Binding AccentHoverBrush, Source={x:Static local:UiThemeState.Instance}}"/></MultiTrigger>
+                            <MultiTrigger><MultiTrigger.Conditions><Condition Property="Tag" Value="primary"/><Condition Property="IsPressed" Value="True"/></MultiTrigger.Conditions><Setter TargetName="Chrome" Property="Background" Value="{Binding AccentBrush, Source={x:Static local:UiThemeState.Instance}}"/></MultiTrigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="{Binding FocusRingBrush, Source={x:Static local:UiThemeState.Instance}}"/><Setter TargetName="Chrome" Property="BorderThickness" Value="2"/></Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.45"/>
                             </Trigger>

@@ -222,13 +222,13 @@ public partial class MainWindow
         var accent = UiTheme.AccentBrush;
         return new Button
         {
-            Content = label,
+            Content = label, Tag = primary ? "primary" : null,
             MinWidth = label.Length > 4 ? 104 : 76,
             Height = 38,
             Padding = new Thickness(12, 0, 12, 0),
             Margin = new Thickness(0, 0, 8, 0),
             Background = primary ? accent : UiTheme.SurfaceBrush,
-            Foreground = primary ? UiTheme.SurfaceBrush : UiTheme.TextTertiaryBrush,
+            Foreground = primary ? UiTheme.AccentForegroundBrush : UiTheme.TextTertiaryBrush,
             BorderBrush = primary ? accent : UiTheme.AccentSoftBackgroundBrush,
             Cursor = Cursors.Hand
         };

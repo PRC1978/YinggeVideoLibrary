@@ -45,7 +45,13 @@ public partial class MainWindow
                         var contrast = ThemeContrast(UiTheme.Brush(UiTheme.TextTertiary).Color, surface);
                         if (contrast < 4.5)
                             throw new InvalidOperationException($"{mode} 的辅助文字与 {background} 对比度不足：{contrast:0.00}:1");
+                        if (background != UiTheme.PageBackground &&
+                            ThemeContrast(UiTheme.Brush(UiTheme.Accent).Color, surface) < 4.5)
+                            throw new InvalidOperationException($"{mode} 的强调文字与 {background} 对比度不足");
                     }
+                    if (ThemeContrast(UiTheme.Brush(UiTheme.AccentForeground).Color,
+                            UiTheme.Brush(UiTheme.Accent).Color) < 4.5)
+                        throw new InvalidOperationException($"{mode} 的强调按钮文字对比度不足");
                 }
                 foreach (var (width, height) in new[] { (800, 550), (1240, 780), (1600, 1000) })
                 {
@@ -54,8 +60,8 @@ public partial class MainWindow
                     // The review page only exists outside classic mode; the
                     // status page only exists in classic mode.
                     var pages = UiTheme.IsClassicMode
-                        ? new[] { "all", "categories", "recommendations", "scrape", "status", "settings" }
-                        : new[] { "all", "categories", "recommendations", "scrape", "review", "roles", "plugins", "settings" };
+                        ? new[] { "all", "categories", "folders", "recommendations", "scrape", "status", "settings" }
+                        : new[] { "all", "categories", "folders", "recommendations", "scrape", "review", "roles", "plugins", "settings" };
                     foreach (var page in pages)
                     {
                         ShowView(page);
@@ -150,6 +156,24 @@ public partial class MainWindow
                 throw new InvalidOperationException("人物与审核导航同时保持选中状态");
             if (measuredCardWidths.Any(item => Math.Abs(item.Expected - item.Actual) > 1))
                 throw new InvalidOperationException("界面模式切换后卡片宽度没有跟随密度设置");
+            // A single screenshot per theme misses the old frozen-brush bug:
+            // repeated switches could leave a control painted in the previous
+            // palette. Exercise live bindings and navigation through 20 cycles.
+            var switchChecks = new List<object>();
+            for (var cycle = 0; cycle < 20; cycle++)
+            {
+                var mode = UiTheme.Modes[cycle % UiTheme.Modes.Length].Id;
+                UiTheme.Apply(mode);
+                ApplyInterfaceMode();
+                var titleColor = (PageTitle.Foreground as SolidColorBrush)?.Color;
+                if (titleColor != UiTheme.TextPrimaryBrush.Color)
+                    throw new InvalidOperationException($"第 {cycle + 1} 次切换后标题仍使用旧主题颜色");
+                if ((ReviewNav.Visibility == Visibility.Visible) == UiTheme.IsClassicMode)
+                    throw new InvalidOperationException($"第 {cycle + 1} 次切换后审核入口状态不正确");
+                switchChecks.Add(new { cycle = cycle + 1, mode, titleColor = titleColor?.ToString() });
+            }
+            File.WriteAllText(Path.Combine(outputDirectory, "theme-switch.json"),
+                JsonSerializer.Serialize(switchChecks, new JsonSerializerOptions { WriteIndented = true }));
             // The complete list must reflow after a live theme change. A
             // hidden ListBox used to report width 0 and stayed at one column.
             config.ShowAll = true;

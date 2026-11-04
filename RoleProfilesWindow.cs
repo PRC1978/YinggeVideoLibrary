@@ -363,10 +363,10 @@ internal sealed partial class RoleProfilesView : Grid
     static Brush Line() => UiTheme.AccentSoftBackgroundBrush;
     static Button UiButton(string text, bool primary = false) => new()
     {
-        Content = text, MinHeight = 35, Padding = new Thickness(11, 6, 11, 6),
+        Content = text, Tag = primary ? "primary" : null, MinHeight = 35, Padding = new Thickness(11, 6, 11, 6),
         Margin = new Thickness(0, 0, 7, 6), Background = primary
             ? UiTheme.AccentBrush : UiTheme.SurfaceBrush,
-        Foreground = primary ? UiTheme.SurfaceBrush : Ink(), BorderBrush = Line(), BorderThickness = new Thickness(1)
+        Foreground = primary ? UiTheme.AccentForegroundBrush : Ink(), BorderBrush = Line(), BorderThickness = new Thickness(1)
     };
 
     void BuildVerifiedOptions()

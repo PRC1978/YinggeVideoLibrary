@@ -193,7 +193,7 @@ public static class UiTheme
         [Cinema] = (new Palette(
             "#0A0A0A", "#101010", "#171717", "#202020", "#303030", "#585858",
             "#F5F5F5", "#C6C6C6", "#A8A8A8",
-            "#C41E3A", "#E4E4E4", "#FFFFFF", "#2B191D", "#F5F5F5", "#D4AF37",
+            "#E75469", "#F0697E", "#0A0A0A", "#2B191D", "#F5F5F5", "#D4AF37",
             "#29181B", "#FFFFFF",
             "#D4AF37", "#F05A69", "#71B89C",
             "#A8A8A8", "#3E3E3E", "#C9000000"),
@@ -391,6 +391,21 @@ public sealed class UiThemeState : INotifyPropertyChanged
         : IsGlass
             ? new LinearGradientBrush(Color.FromArgb(82, 255, 255, 255), Color.FromArgb(32, 2, 6, 16), 90)
             : BorderBrushToken;
+    public Brush InputSurfaceBrush => IsNeumorphism
+        ? new LinearGradientBrush(Color.FromRgb(210, 218, 229), Color.FromRgb(236, 241, 248), 135)
+        : IsGlass
+            ? new LinearGradientBrush(Color.FromArgb(45, 255, 255, 255), Color.FromArgb(18, 255, 255, 255), 90)
+            : SurfaceBrush;
+    public Brush RaisedSurfaceBrush => IsNeumorphism
+        ? new LinearGradientBrush(Color.FromRgb(238, 243, 249), Color.FromRgb(214, 223, 234), 135)
+        : IsGlass
+            ? new LinearGradientBrush(Color.FromArgb(48, 255, 255, 255), Color.FromArgb(20, 255, 255, 255), 90)
+            : SurfaceBrush;
+    public Brush PressedSurfaceBrush => IsNeumorphism
+        ? InputSurfaceBrush
+        : IsGlass
+            ? new SolidColorBrush(Color.FromArgb(67, 255, 255, 255))
+            : SelectionBackgroundBrush;
     public Brush PageBackdropBrush => IsGlass ? new LinearGradientBrush(
         Color.FromRgb(6, 10, 19), Color.FromRgb(11, 19, 34), 26) : PageBackgroundBrush;
     public Brush MainContentBackdropBrush => IsGlass

@@ -17,9 +17,67 @@ public partial class MainWindow
 {
     WrapPanel? librarySegments;
     RoleProfilesView? embeddedRoles;
+    readonly List<TextBlock> modernSidebarHeadings = [];
+
+    void EnsureSidebarGroups()
+    {
+        if (modernSidebarHeadings.Count != 0 || SidebarScroll.Content is not StackPanel items) return;
+        foreach (var (before, text) in new[]
+        {
+            (LibraryNav, "浏览"), (CategoriesNav, "整理"), (OnlineNav, "扩展")
+        })
+        {
+            var heading = new TextBlock
+            {
+                Text = text, FontSize = 11, FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(19, 9, 0, 3),
+                IsHitTestVisible = false, Visibility = Visibility.Collapsed
+            };
+            heading.SetBinding(TextBlock.ForegroundProperty, new System.Windows.Data.Binding("TextTertiaryBrush")
+                { Source = UiThemeState.Instance });
+            items.Children.Insert(items.Children.IndexOf(before), heading);
+            modernSidebarHeadings.Add(heading);
+        }
+    }
+
+    void ApplySidebarPresentation()
+    {
+        EnsureSidebarGroups();
+        var collapsed = SidebarColumn.Width.Value <= 28;
+        var wide = !UiTheme.IsClassicMode && !collapsed && ActualWidth >= 1180;
+        if (!collapsed)
+            SidebarColumn.Width = new GridLength(UiTheme.IsClassicMode ? UiTheme.Num(UiTheme.SidebarWidth) : wide ? 188 : 88);
+        foreach (var heading in modernSidebarHeadings)
+            heading.Visibility = wide ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var button in new[] { LibraryNav, AllNav, RecentNav, FavoriteNav, RecommendationsNav,
+            CategoriesNav, FoldersNav, StatusNav, RolesNav, ScrapeNav, ReviewNav, OnlineNav, PluginsNav, SettingsNav })
+        {
+            button.Width = wide ? 176 : UiTheme.IsClassicMode ? 60 : 66;
+            button.Height = wide ? 46 : UiTheme.IsClassicMode ? 50 : 58;
+            button.Margin = ReferenceEquals(button, SettingsNav) ? new Thickness(0, 0, 0, 15)
+                : wide ? new Thickness(0, 0, 0, 1) : new Thickness(0, 2, 0, 4);
+            button.HorizontalContentAlignment = wide ? System.Windows.HorizontalAlignment.Left : System.Windows.HorizontalAlignment.Center;
+            button.Padding = wide ? new Thickness(10, 0, 0, 0) : new Thickness(0);
+            if (button.Content is not StackPanel content || content.Children.Count < 2) continue;
+            content.Orientation = wide ? System.Windows.Controls.Orientation.Horizontal : System.Windows.Controls.Orientation.Vertical;
+            content.HorizontalAlignment = wide ? System.Windows.HorizontalAlignment.Left : System.Windows.HorizontalAlignment.Center;
+            if (content.Children[0] is TextBlock icon)
+            {
+                icon.Width = wide ? 38 : double.NaN;
+                icon.TextAlignment = TextAlignment.Center;
+            }
+            if (content.Children[1] is TextBlock label)
+            {
+                label.FontSize = wide ? 13 : 11;
+                label.VerticalAlignment = VerticalAlignment.Center;
+                label.TextAlignment = wide ? TextAlignment.Left : TextAlignment.Center;
+            }
+        }
+    }
 
     void UpdateHeaderResponsive()
     {
+        ApplySidebarPresentation();
         var compact = ActualWidth < 1040;
         Grid.SetRow(Toolbar, compact ? 1 : 0);
         Grid.SetColumn(Toolbar, compact ? 0 : 1);
@@ -41,8 +99,7 @@ public partial class MainWindow
         foreach (var item in new[] { PreviousPage, NextPage, PageJumpButton }) item.Style = pagerStyle;
         foreach (var item in new[] { reviewPreviousPageButton, reviewNextPageButton, reviewTopPreviousPageButton, reviewTopNextPageButton })
             if (item is not null) item.Style = pagerStyle;
-        if (SidebarColumn.Width.Value > 28)
-            SidebarColumn.Width = new GridLength(UiTheme.Num(UiTheme.SidebarWidth));
+        ApplySidebarPresentation();
         LibraryNav.Visibility = classic ? Visibility.Collapsed : Visibility.Visible;
         AllNav.Visibility = classic ? Visibility.Visible : Visibility.Collapsed;
         RecentNav.Visibility = classic ? Visibility.Visible : Visibility.Collapsed;

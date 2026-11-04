@@ -287,7 +287,7 @@ public partial class MainWindow
             HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
         var cancel = new Button { Content = "取消", Width = 90, Height = 34, IsCancel = true,
             Margin = new Thickness(0, 0, 8, 0) };
-        var confirm = new Button { Content = "确认修改", Width = 110, Height = 34, IsDefault = true,
+        var confirm = new Button { Content = "确认修改", Tag = "primary", Width = 110, Height = 34, IsDefault = true,
             Background = UiTheme.AccentBrush, Foreground = UiTheme.AccentForegroundBrush };
         confirm.Click += (_, _) =>
         {

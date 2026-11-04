@@ -21,34 +21,16 @@ public partial class MainWindow
             TextWrapping = TextWrapping.Wrap, Foreground = UiTheme.TextSecondaryBrush,
             Margin = new Thickness(0, 4, 0, 8)
         });
-        var saved = ErrorUploadSettings.Load();
-        TextBox Input(string label, string value)
-        {
-            body.Children.Add(new TextBlock { Text = label, Foreground = UiTheme.TextPrimaryBrush,
-                Margin = new Thickness(0, 4, 0, 2) });
-            var box = new TextBox { Text = value, Height = 34, Width = 480,
-                HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
-                Padding = new Thickness(8, 4, 8, 4) };
-            body.Children.Add(box);
-            return box;
-        }
-        var target = Input("SSH 目标（user@host）", saved.Target);
-        var port = Input("SSH 端口", saved.Port);
-        var keyPath = Input("本机 SSH 私钥路径", saved.KeyPath);
-        body.Children.Add(new TextBlock { Text = "连接设置只保存在这台电脑；远端目录固定为 ~/yingge-logs/。",
+        body.Children.Add(new TextBlock { Text = "本地导出无需登录；上传请使用下方的云端账号入口，登录后预览脱敏内容。",
             TextWrapping = TextWrapping.Wrap, Foreground = UiTheme.TextSecondaryBrush,
             Margin = new Thickness(0, 4, 0, 8) });
         var buttons = new WrapPanel();
         var export = new Button { Content = "加密导出日志包", Style = (Style)FindResource("Action") };
         var decrypt = new Button { Content = "在本机解密查看", Style = (Style)FindResource("Action") };
-        var upload = new Button { Content = "上传加密日志包", Style = (Style)FindResource("Action") };
         export.Click += async (_, _) => await ExportErrorReportAsync(export);
         decrypt.Click += async (_, _) => await DecryptErrorReportAsync(decrypt);
-        upload.Click += async (_, _) => await UploadErrorReportAsync(upload,
-            new ErrorUploadSettings { Target = target.Text.Trim(), Port = port.Text.Trim(), KeyPath = keyPath.Text.Trim() });
         buttons.Children.Add(export);
         buttons.Children.Add(decrypt);
-        buttons.Children.Add(upload);
         body.Children.Add(buttons);
         return body;
     }
@@ -109,42 +91,6 @@ public partial class MainWindow
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
         { MessageBox.Show(this, ex.Message, "导出失败", MessageBoxButton.OK, MessageBoxImage.Warning); }
-        finally { button.IsEnabled = true; }
-    }
-
-    async Task UploadErrorReportAsync(Button button, ErrorUploadSettings connection)
-    {
-        if (!SshEncryptedReportUploader.ValidTarget(connection.Target) ||
-            !SshEncryptedReportUploader.ValidPort(connection.Port))
-        {
-            MessageBox.Show(this, "请填写有效的 user@host 和 SSH 端口。", "上传日志");
-            return;
-        }
-        var picker = new Microsoft.Win32.OpenFileDialog
-        {
-            Title = "选择加密日志包", Filter = "映格加密日志包 (*.yglog)|*.yglog",
-            CheckFileExists = true, Multiselect = false
-        };
-        if (picker.ShowDialog(this) != true) return;
-        var passphrase = PromptErrorReportPassphrase("验证日志加密口令");
-        if (passphrase is null) return;
-        button.IsEnabled = false;
-        try
-        {
-            var content = await File.ReadAllBytesAsync(picker.FileName);
-            var snapshot = await Task.Run(() => EncryptedErrorReport.Decrypt(content, passphrase));
-            if (!EncryptedErrorReport.IsErrorOnly(snapshot))
-                throw new InvalidDataException("此包包含非错误日志内容，不能上传。请重新导出。 ");
-            if (MessageBox.Show(this, $"将加密包上传到 {connection.Target}:{connection.Port} 的 ~/yingge-logs/。\n不会上传明文或口令。继续？",
-                    "确认上传", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-            connection.Save();
-            var remote = await SshEncryptedReportUploader.UploadAsync(content,
-                connection.Target, connection.Port, connection.KeyPath);
-            MessageBox.Show(this, "加密日志包已上传：" + remote, "上传完成");
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
-                                   or CryptographicException or ArgumentException)
-        { MessageBox.Show(this, ex.Message, "上传失败", MessageBoxButton.OK, MessageBoxImage.Warning); }
         finally { button.IsEnabled = true; }
     }
 

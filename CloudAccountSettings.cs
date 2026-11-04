@@ -1,4 +1,6 @@
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace YinggeVideoLibrary;
@@ -12,7 +14,22 @@ internal sealed class CloudAccountSettings
     [System.Text.Json.Serialization.JsonIgnore]
     public bool IsConfigured =>
         Uri.TryCreate(ServerUrl.Trim(), UriKind.Absolute, out var uri) &&
-        uri.Scheme == Uri.UriSchemeHttps && !string.IsNullOrWhiteSpace(uri.Host);
+        uri.Scheme == Uri.UriSchemeHttps && !string.IsNullOrWhiteSpace(uri.Host) &&
+        uri.UserInfo.Length == 0 && uri.AbsolutePath == "/" && uri.Query.Length == 0 &&
+        uri.Fragment.Length == 0;
+
+    // Credentials and queued reports must stay with the endpoint that created
+    // them. A changed server URL must never receive another server's token.
+    internal string EndpointKey
+    {
+        get
+        {
+            if (!IsConfigured) throw new InvalidOperationException("请先填写 HTTPS 服务器地址。");
+            var uri = new Uri(ServerUrl.Trim(), UriKind.Absolute);
+            var origin = uri.GetLeftPart(UriPartial.Authority).ToLowerInvariant();
+            return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(origin)))[..24];
+        }
+    }
 
     internal static string FilePath => Path.Combine(AppPaths.DataDirectory, "cloud-account.json");
 

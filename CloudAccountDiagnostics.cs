@@ -89,10 +89,20 @@ internal static class CloudAccountDiagnostics
             }
         }
 
-        var settingsPath = CloudAccountSettings.FilePath;
-        var tokenNotInSettings = !File.Exists(settingsPath) ||
-                                 !File.ReadAllText(settingsPath).Contains("token", StringComparison.OrdinalIgnoreCase);
-        Check("session_not_in_settings_file", tokenNotInSettings, settingsPath);
+        var serializedSettings = JsonSerializer.Serialize(new CloudAccountSettings
+        {
+            ServerUrl = "https://reports.example.com"
+        });
+        Check("session_not_in_settings_file",
+            !serializedSettings.Contains("token", StringComparison.OrdinalIgnoreCase),
+            serializedSettings);
+
+        var first = new CloudAccountSettings { ServerUrl = "https://reports.example.com" };
+        var sameOrigin = new CloudAccountSettings { ServerUrl = "https://REPORTS.example.com/" };
+        var other = new CloudAccountSettings { ServerUrl = "https://other.example.com" };
+        Check("session_scoped_to_server",
+            first.EndpointKey == sameOrigin.EndpointKey && first.EndpointKey != other.EndpointKey,
+            "同一服务器复用凭据；不同服务器使用不同凭据和待上传队列。 ");
 
         var document = new
         {

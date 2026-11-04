@@ -12,8 +12,6 @@ namespace YinggeVideoLibrary;
 // into a message; nothing here is on the video library's critical path.
 internal sealed class CloudAccountRuntime : IDisposable
 {
-    const string CredentialName = "CloudAccountSession";
-
     readonly CloudAccountClient client;
 
     internal CloudAccountRuntime(CloudAccountSettings settings)
@@ -21,7 +19,8 @@ internal sealed class CloudAccountRuntime : IDisposable
         if (!settings.IsConfigured)
             throw new InvalidOperationException("请先填写 HTTPS 服务器地址。");
 
-        Outbox = new LocalUploadOutbox(Path.Combine(AppPaths.DataDirectory, "cloud-outbox"));
+        var endpointKey = settings.EndpointKey;
+        Outbox = new LocalUploadOutbox(Path.Combine(AppPaths.DataDirectory, "cloud-outbox", endpointKey));
         client = new CloudAccountClient(
             new CloudClientOptions
             {
@@ -29,7 +28,7 @@ internal sealed class CloudAccountRuntime : IDisposable
                 ClientVersion = typeof(CloudAccountRuntime).Assembly.GetName().Version?.ToString() ?? "0.0.0",
                 Timeout = TimeSpan.FromSeconds(12)
             },
-            new WindowsCredentialSessionStore(CredentialName));
+            new WindowsCredentialSessionStore("CloudAccountSession-" + endpointKey));
     }
 
     internal LocalUploadOutbox Outbox { get; }

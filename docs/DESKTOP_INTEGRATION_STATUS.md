@@ -2,6 +2,8 @@
 
 集成分支 `codex/desktop-cloud-integration` 从 `codex/postgresql-local` 建立，依次合入 `codex/local-person-tag-discovery` 和 `codex/cloud-accounts-postgresql`。原工作树和分支未改动。
 
+云端服务线后续提交 `38e1e13` 已再次合入，包含正确域名 `yingevideo.top` 与 Ubuntu 22.04 / PostgreSQL 14 隔离验收。未在本分支部署服务。
+
 ## 已集成
 
 - 本地人物按姓名查找公开资料、已有同名档案提示、本地标签建议。
@@ -15,18 +17,18 @@
 - 云端离线自检只检查序列化结果，不读取真实数据目录中的 `cloud-account.json`。
 - 设置页移除无需账号的旧 SSH 上传入口，保留本机加密导出与解密查看。联网上传只能走云端账号入口。
 - 修复退出登录的顺序：构造带旧令牌的退出请求后再清本地凭据，确保服务器端会话被撤销。
+- 修正首次证书部署顺序：HTTP 验证配置先启动，证书签发成功后再加载 HTTPS 配置；续期后重载 nginx。
 
 ## 验证
 
 - Release 构建：0 警告、0 错误。
 - 完整功能自检：`passed=true`、`realLibraryRead=false`、`localTagReuseRequiresExactEvidence=true`。
 - 云端客户端离线自检：7/7，`realLibraryRead=false`。
-- 云端服务及客户端全套测试：64/64，通过临时 PostgreSQL 18.6 集群；新增的退出测试验证服务器返回撤销后的 401。
+- 合入云端后服务及客户端全套测试：65/65，通过临时 PostgreSQL 18.6 集群；退出测试验证服务器返回撤销后的 401。WorkBuddy 另在 Ubuntu 22.04 / PostgreSQL 14 隔离环境通过 64/64。
 - 隔离库的设置页离屏诊断：退出码 0，阶段为 `settings ui verified`。
 
 ## 尚未完成
 
 - 本地 PostgreSQL 尚未成为日常读写后端，不能声称迁移完成。
-- 云端服务未在 Ubuntu 22.04 / PostgreSQL 14 上实测，尚未部署；邀请登录和真实 HTTPS 上传未做端到端验收。
-- 云端分支文档及服务端问题地址仍需从错拼域名统一为 `yingevideo.top` / `reports.yingevideo.top`；由云端服务线处理后再合入。
+- 云端服务已在 Ubuntu 22.04 / PostgreSQL 14 隔离实测，但尚未部署；公网 HTTPS、正式邀请登录和真实客户端上传未验收。
 - 未安装、未推送、未发布。

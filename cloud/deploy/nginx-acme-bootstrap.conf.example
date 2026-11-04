@@ -1,0 +1,14 @@
+# Temporary HTTP-only configuration used before the first certificate exists.
+# Replace this file with nginx-reports.conf.example only after certbot succeeds.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name reports.yingevideo.top;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+        try_files $uri =404;
+    }
+
+    location / { return 503; }
+}

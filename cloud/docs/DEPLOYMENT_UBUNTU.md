@@ -79,14 +79,27 @@ EOF
 
 ## 5. nginx 与证书
 
+首次部署时证书文件不存在，不能直接启用引用证书的 443 配置。先只开放
+ACME 验证路径，签发成功后再切换到完整 HTTPS 配置：
+
 ```bash
-sudo cp deploy/nginx-reports.conf.example /etc/nginx/sites-available/yingge-cloud-accounts
-# 文件中的域名已是 reports.yingevideo.top
-sudo ln -s /etc/nginx/sites-available/yingge-cloud-accounts /etc/nginx/sites-enabled/
+sudo install -d -m 0755 /var/www/html/.well-known/acme-challenge
+sudo cp deploy/nginx-acme-bootstrap.conf.example /etc/nginx/sites-available/yingge-cloud-accounts
+sudo ln -s /etc/nginx/sites-available/yingge-cloud-accounts /etc/nginx/sites-enabled/yingge-cloud-accounts
+sudo systemctl enable --now nginx
 sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d reports.yingevideo.top          # 自动写入证书路径并配置续期
-sudo systemctl list-timers | grep certbot   # 确认自动续期
+sudo certbot certonly --webroot -w /var/www/html -d reports.yingevideo.top
+sudo test -s /etc/letsencrypt/live/reports.yingevideo.top/fullchain.pem
+sudo cp deploy/nginx-reports.conf.example /etc/nginx/sites-available/yingge-cloud-accounts
+sudo nginx -t && sudo systemctl reload nginx
+sudo install -d -m 0755 /etc/letsencrypt/renewal-hooks/deploy
+printf '#!/bin/sh\nnginx -t && systemctl reload nginx\n' | sudo tee /etc/letsencrypt/renewal-hooks/deploy/reload-yingge-nginx.sh >/dev/null
+sudo chmod 0755 /etc/letsencrypt/renewal-hooks/deploy/reload-yingge-nginx.sh
+sudo systemctl list-timers | grep certbot
+sudo certbot renew --dry-run
 ```
+
+执行前先确认公网 80 转发到这台主机。以上步骤只供正式部署使用，本轮隔离验收未执行。
 
 `Security__KnownProxies__0=127.0.0.1` 是必需的：只有来自本机 nginx 的 `X-Forwarded-Proto`
 会被信任，其他来源伪造该头无效。

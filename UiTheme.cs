@@ -37,7 +37,7 @@ public static class UiTheme
         (Compact, "紧凑高密度", "同屏更多内容，文字保持可读"),
         (Contrast, "高对比护眼", "高对比文字，明显焦点框"),
         (Neumorphism, "新拟物派", "柔和灰底、圆角与双向光影"),
-        (Glass, "雾面玻璃", "渐变底色、半透明面板与柔和光影"),
+        (Glass, "雾面玻璃", "深墨夜景、无色玻璃与香槟金光点"),
         (LineField, "量化线场", "纸白底、钴蓝线条、清晰的资料层级"),
         (Editorial, "纸感档案", "暖纸色、克制分隔与作品优先"),
     ];
@@ -225,11 +225,11 @@ public static class UiTheme
             "#6652BD", "#8D9BAE", "#701B2538"),
             new Density(13.5, 12, 11, 27, 17, 174, 234, 18, 88, 54, 40, 46, 36, 20)),
         [Glass] = (new Palette(
-            "#E8F1FA", "#D9FFFFFF", "#E8FFFFFF", "#CCF6FAFF", "#AAFFFFFF", "#7EA5C5",
-            "#14243A", "#334E68", "#4D657C",
-            "#2759D6", "#1742AD", "#FFFFFF", "#D9E9FA", "#1742AD", "#7456B8",
-            "#D6E7F8", "#173F8C", "#9B5B18", "#A52D3B", "#166951",
-            "#2759D6", "#8CA8C8", "#8616253C"),
+            "#0B1322", "#11FFFFFF", "#14FFFFFF", "#1FFFFFFF", "#28FFFFFF", "#4DFFFFFF",
+            "#F5F7FB", "#D6E0ED", "#B6C5D7",
+            "#E4B863", "#F0CA7F", "#0B1322", "#25FFFFFF", "#E4B863", "#7C9CC4",
+            "#2EFFFFFF", "#FFFFFF", "#E4B863", "#F07882", "#7BC9A8",
+            "#D6E0ED", "#33517A", "#C9060A13"),
             new Density(13.5, 12, 11, 27, 17, 178, 238, 16, 88, 54, 40, 46, 38, 20)),
         [LineField] = (new Palette(
             "#FAFAF8", "#F1F2EF", "#FFFFFF", "#EEEEEB", "#D9DBD5", "#A9B4C5",
@@ -387,17 +387,17 @@ public sealed class UiThemeState : INotifyPropertyChanged
     public bool IsGlass => UiTheme.Current == UiTheme.Glass;
     public bool IsCinema => UiTheme.Current == UiTheme.Cinema;
     public Brush PageBackdropBrush => IsGlass ? new LinearGradientBrush(
-        Color.FromRgb(214, 229, 250), Color.FromRgb(229, 239, 232), 26) : PageBackgroundBrush;
+        Color.FromRgb(6, 10, 19), Color.FromRgb(11, 19, 34), 26) : PageBackgroundBrush;
     public Brush MainContentBackdropBrush => IsGlass
-        ? new LinearGradientBrush(Color.FromRgb(209, 225, 250), Color.FromRgb(231, 242, 236), 32)
+        ? new LinearGradientBrush(Color.FromRgb(11, 19, 34), Color.FromRgb(7, 12, 22), 32)
         : IsCinema ? new LinearGradientBrush(Color.FromRgb(10, 10, 10), Color.FromRgb(22, 22, 22), 155)
         : new LinearGradientBrush(UiTheme.PageBackgroundBrush.Color,
             UiTheme.SurfaceAltBrush.Color, 45);
     public Effect? SoftShadow => IsNeumorphism || IsGlass ? new DropShadowEffect
     {
-        Color = IsGlass ? Color.FromRgb(64, 96, 142) : Color.FromRgb(160, 169, 183),
-        Direction = 315, BlurRadius = IsGlass ? 20 : 12,
-        ShadowDepth = IsGlass ? 6 : 4, Opacity = IsGlass ? .22 : .52
+        Color = IsGlass ? Color.FromRgb(3, 7, 18) : Color.FromRgb(160, 169, 183),
+        Direction = 315, BlurRadius = IsGlass ? 40 : 12,
+        ShadowDepth = IsGlass ? 14 : 4, Opacity = IsGlass ? .55 : .52
     } : null;
     public Effect? SoftHighlight => IsNeumorphism ? new DropShadowEffect
     {

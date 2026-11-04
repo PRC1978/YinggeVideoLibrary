@@ -32,8 +32,17 @@ public partial class MainWindow
                 {
                     foreach (var background in new[] { UiTheme.PageBackground, UiTheme.Surface, UiTheme.SurfaceAlt })
                     {
-                        var contrast = ThemeContrast(UiTheme.Brush(UiTheme.TextTertiary).Color,
-                            UiTheme.Brush(background).Color);
+                        var surface = UiTheme.Brush(background).Color;
+                        if (surface.A < 255)
+                        {
+                            var page = UiTheme.Brush(UiTheme.PageBackground).Color;
+                            var alpha = surface.A / 255d;
+                            surface = Color.FromRgb(
+                                (byte)Math.Round(surface.R * alpha + page.R * (1 - alpha)),
+                                (byte)Math.Round(surface.G * alpha + page.G * (1 - alpha)),
+                                (byte)Math.Round(surface.B * alpha + page.B * (1 - alpha)));
+                        }
+                        var contrast = ThemeContrast(UiTheme.Brush(UiTheme.TextTertiary).Color, surface);
                         if (contrast < 4.5)
                             throw new InvalidOperationException($"{mode} 的辅助文字与 {background} 对比度不足：{contrast:0.00}:1");
                     }

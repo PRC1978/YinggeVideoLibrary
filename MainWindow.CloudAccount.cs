@@ -44,7 +44,7 @@ public partial class MainWindow
         });
 
         var saved = CloudAccountSettings.Load();
-        var server = LabeledInput(body, "服务器地址（HTTPS，例如 https://reports.example.com）", saved.ServerUrl);
+        var server = LabeledInput(body, "服务器地址（HTTPS，例如 https://reports.yingevideo.top）", saved.ServerUrl);
         var username = LabeledInput(body, "账号名", "");
         body.Children.Add(new TextBlock
         {

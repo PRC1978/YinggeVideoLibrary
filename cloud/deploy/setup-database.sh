@@ -54,6 +54,9 @@ fi
 # PUBLIC must not be able to create objects in the schema, and the app role
 # needs USAGE before it can touch any table.
 sudo -u postgres psql -v ON_ERROR_STOP=1 --quiet -d "${DB_NAME}" <<SQL
+-- PostgreSQL 14 (Ubuntu 22.04) 的 public schema 归 postgres 所有；不转交 owner，
+-- 撤销 PUBLIC 权限后迁移会报 3F000: no schema has been selected to create in。
+alter schema public owner to ${OWNER_ROLE};
 revoke all on schema public from public;
 grant usage on schema public to ${APP_ROLE};
 grant select, insert, update, delete on all tables in schema public to ${APP_ROLE};

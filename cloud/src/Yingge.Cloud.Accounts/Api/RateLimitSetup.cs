@@ -9,7 +9,7 @@ internal static class RateLimitSetup
 {
     public const string Login = "login";
     public const string Register = "register";
-    public const string Upload = "upload";
+    public const string Session = "session";
 
     public static IServiceCollection AddCloudRateLimiting(this IServiceCollection services)
     {
@@ -34,11 +34,14 @@ internal static class RateLimitSetup
             limiter.AddPolicy(Register, context =>
                 Fixed(context, cloud => cloud.Security.RegisterPerHour, TimeSpan.FromHours(1)));
 
-            // Uploads are limited per session token, so one misbehaving client
-            // cannot exhaust the allowance of every user behind the same NAT.
-            limiter.AddPolicy(Upload, context =>
-                Fixed(context, cloud => Math.Max(2, cloud.Reports.BurstLimit + 1),
-                    TimeSpan.FromMinutes(1), perSession: true));
+            // Uploads are throttled by the account quota in the database, after
+            // authentication. A revoked or expired token therefore gets 401, not
+            // a misleading 429 from a token-keyed bucket.
+            //
+            // Session reads, the report list and logout must never be blocked by
+            // an upload quota: a user who exhausted it still has to sign out.
+            limiter.AddPolicy(Session, context =>
+                Fixed(context, _ => 30, TimeSpan.FromMinutes(1), perSession: true));
 
             limiter.OnRejected = async (context, token) =>
             {

@@ -164,6 +164,33 @@ public sealed class LoginSessionTests(PostgresFixture fixture) : CloudTestBase(f
     }
 
     [Fact]
+    public async Task Logout_is_not_blocked_by_the_upload_rate_limiter()
+    {
+        var account = await CreateAccountAsync();
+        var limited = new CloudAppFactory(Fixture, new Dictionary<string, string?>
+        {
+            ["Reports:BurstLimit"] = "2"
+        });
+        await using (limited)
+        {
+            using var client = limited.CreateClient();
+            var auth = await TestSupport.LoginAsync(client, account.Username, account.Password);
+            for (var attempt = 0; attempt < 2; attempt++)
+                await TestSupport.SendAsync(client, HttpMethod.Post, "/api/v1/reports",
+                    Report("失败：配额样本 " + attempt), auth.Token);
+
+            var blocked = await TestSupport.SendAsync(client, HttpMethod.Post, "/api/v1/reports",
+                Report("失败：应超配额"), auth.Token);
+            Assert.Equal(HttpStatusCode.TooManyRequests, blocked.StatusCode);
+            Assert.Equal(ProblemCodes.UploadQuotaExceeded, (await TestSupport.ProblemAsync(blocked))!.Code);
+
+            var logout = await TestSupport.SendAsync(client, HttpMethod.Post, "/api/v1/auth/logout",
+                token: auth.Token);
+            Assert.Equal(HttpStatusCode.NoContent, logout.StatusCode);
+        }
+    }
+
+    [Fact]
     public async Task Login_rate_limit_returns_429_with_a_retry_after_header()
     {
         var account = await CreateAccountAsync();

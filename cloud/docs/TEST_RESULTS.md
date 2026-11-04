@@ -10,7 +10,8 @@
 | 认证 | `initdb -A trust`（回环 + 临时目录，仅测试用；生产为 scram + socket） |
 | 隔离 | 每个测试前 `truncate ... restart identity cascade`；每个测试类独立 `WebApplicationFactory` 与独立存储目录 |
 | 命令 | `YINGGE_TEST_PG_BIN=<pg bin> dotnet test tests/Yingge.Cloud.Tests` |
-| 跨平台 | 夹具自动按平台查找 `postgres`/`postgres.exe`，Linux 下扫描 `/usr/lib/postgresql/*/bin`，可在目标服务器上复跑 |
+| 跨平台 | 夹具自动按平台查找 `postgres`/`postgres.exe`，Linux 下扫描 `/usr/lib/postgresql/*/bin` |
+| 服务器复测 | Ubuntu 22.04 + PostgreSQL **14.24**：64/64 通过；功能验收 23/23，见 `ACCEPTANCE_SERVER_2026-11-04.md` |
 
 ```
 已通过! - 失败: 0，通过: 64，已跳过: 0，总计: 64，持续时间: 1 m 36 s
@@ -57,7 +58,7 @@ exit=0，ok=true，6/6
 | --- | --- |
 | `private_data_masked` | 路径、凭据、磁力链接被替换 |
 | `draft_validated_locally` | 脱敏 1 处，同一套校验在本地通过 |
-| `plain_http_refused` | `http://reports.example.com` 构造即被拒绝 |
+| `plain_http_refused` | `http://reports.yingevideo.top` 构造即被拒绝 |
 | `outbox_roundtrip` | 落盘→读取→删除，临时目录内完成 |
 | `offline_failure_keeps_local_copy` | 连接失败后 `Remaining=1`，本地文件保留 |
 | `session_not_in_settings_file` | 令牌不落配置文件 |
@@ -77,8 +78,7 @@ exit=0，ok=true，6/6
 
 ## 尚未验证
 
-1. Ubuntu 22.04 + PostgreSQL 14 上的真实运行：本机用 PG 18.6 验证，代码限制 ≥14、未使用 15+ 特性，
-   但**没有在 PG 14 上跑过**。
-2. 真实 HTTPS：`reports.yingvideo.top` 仍 NXDOMAIN，证书未签发，`smoke-local.sh` 未对生产执行。
-3. 服务器网络：443 是否转发到 Kestrel、公网能否访问 5432，均未实测。
-4. 桌面端联网登录/上传：只做了离线自检，未连真实服务端。
+1. 真实 HTTPS：`reports.yingevideo.top` 已解析到 `43.226.58.187`，但证书未签发、80/443 未接线，`smoke-local.sh` 未对生产执行。
+2. 服务器网络：公网 80/443 是否转发到本机、公网能否访问 5432，均未实测（工作站经代理，结果不可信）。
+3. 桌面端联网登录/上传：只做了离线自检，未连真实服务端。
+4. `systemd` 常驻、生产库创建、正式邀请码：均未执行，等部署指令。

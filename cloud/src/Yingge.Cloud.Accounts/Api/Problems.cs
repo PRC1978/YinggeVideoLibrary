@@ -39,7 +39,7 @@ internal sealed class ProblemResult : IResult
             httpContext.Response.Headers.RetryAfter = seconds.ToString(CultureInfo.InvariantCulture);
 
         var problem = new ApiProblem(
-            "https://yingge.top/problems/" + code,
+            "https://reports.yingevideo.top/problems/" + code,
             Title(code),
             status,
             code,

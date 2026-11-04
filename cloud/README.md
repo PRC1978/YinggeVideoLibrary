@@ -21,7 +21,7 @@ cloud/
   src/Yingge.Cloud.Protocol/     共享契约、校验、私密数据扫描
   tests/Yingge.Cloud.Tests/      64 项隔离集成/单元测试（真实 PostgreSQL）
   Migrations/ (在 Accounts 内)   *_up.sql / *_down.sql，嵌入程序集
-  deploy/                        Ubuntu 22.04：systemd、nginx、安装/备份/恢复/冒烟脚本
+  deploy/                        Ubuntu 22.04：systemd、nginx、安装/验收/备份/恢复/冒烟/HTTPS 预检脚本
   docs/                          API、部署、安全、测试结果
 ```
 
@@ -65,14 +65,15 @@ bin/Debug/net9.0-windows/映格视频库.exe --self-test-cloud-account %TEMP%\cl
 | [docs/DEPLOYMENT_UBUNTU.md](docs/DEPLOYMENT_UBUNTU.md) | Ubuntu 22.04 部署、证书、备份、升级回滚 |
 | [docs/SECURITY.md](docs/SECURITY.md) | 数据边界、凭据、限速、残余风险、事故处置 |
 | [docs/TEST_RESULTS.md](docs/TEST_RESULTS.md) | 64 项测试、备份恢复演练、未验证事项 |
+| [docs/ACCEPTANCE_SERVER_2026-11-04.md](docs/ACCEPTANCE_SERVER_2026-11-04.md) | 服务器隔离验收：命令、结果、回滚、HTTPS 前置条件 |
 
 ## 状态
 
 | 项 | 状态 |
 | --- | --- |
 | 代码与迁移 | 完成，`dotnet build` 0 警告 0 错误 |
-| 隔离 PostgreSQL 测试 | 64/64 通过（PG 18.6，Windows） |
+| 隔离 PostgreSQL 测试 | 64/64 通过（PG 18.6/Windows 与 **PG 14.24/Ubuntu 22.04** 各一轮） |
 | 客户端离线自检 | 6/6 通过 |
-| Ubuntu 22.04 + PG 14 实机 | **未执行** |
-| 域名 / 证书 / 公网端口 | **未验证**（`reports.yingvideo.top` 仍 NXDOMAIN） |
+| Ubuntu 22.04 隔离验收 | 已执行：64/64 测试 + 23/23 功能验收（临时库，已清理） |
+| 域名 / 证书 / 公网端口 | 域名已解析；证书与公网转发**未验证** |
 | 生产部署 | **未执行**（需用户明确授权） |

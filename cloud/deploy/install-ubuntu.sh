@@ -43,7 +43,7 @@ if [[ ! -f /etc/yingge-cloud/accounts.env ]]; then
 已写入 /etc/yingge-cloud/accounts.env 模板。
 请填入数据库口令，并创建 /etc/yingge-cloud/admin.env（仅 root 可读）:
 
-  Database__AdminConnectionString=Host=/var/run/postgresql;Database=yingge_cloud;Username=yingge_cloud_owner;Password=...
+  Database__AdminConnectionString=Host=127.0.0.1;Port=5432;Database=yingge_cloud;Username=yingge_cloud_owner;Password=...
 
 然后重新运行本脚本。
 EOF

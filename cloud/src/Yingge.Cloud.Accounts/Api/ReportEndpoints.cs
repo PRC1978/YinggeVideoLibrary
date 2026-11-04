@@ -13,9 +13,9 @@ internal static class ReportEndpoints
     public static void MapReportEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v1/reports");
-        group.MapPost("", Upload).RequireRateLimiting(RateLimitSetup.Upload);
-        group.MapGet("", List).RequireRateLimiting(RateLimitSetup.Upload);
-        group.MapDelete("/{id:guid}", Delete).RequireRateLimiting(RateLimitSetup.Upload);
+        group.MapPost("", Upload);
+        group.MapGet("", List).RequireRateLimiting(RateLimitSetup.Session);
+        group.MapDelete("/{id:guid}", Delete).RequireRateLimiting(RateLimitSetup.Session);
     }
 
     static async Task<IResult> Upload(HttpContext http, SessionAuthenticator authenticator,

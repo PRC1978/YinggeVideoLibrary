@@ -6,7 +6,7 @@
 
 - 引入 Npgsql 10.0.3；可在独立进程连接本机 PostgreSQL。
 - 新增显式、只读源文件的事务导入：`library-index.json` → `library_video` / `library_folder`，`metadata.json` → `library_metadata`。视频 ID 沿用现有路径 SHA-256 前 24 位规则。导入标记保存两个原文件的 SHA-256。
-- 目标库已有导入标记或数据时拒绝覆盖；导入持有事务级 advisory lock。任一写入失败会回滚整个事务。旧 JSON 保留不动。
+- 目标库已有导入标记或数据时拒绝覆盖；导入前校验资料格式版本，导入持有事务级 advisory lock。任一写入失败会回滚整个事务。旧 JSON 保留不动。
 - `--self-test-postgres <隔离库目录> <结果 JSON>` 通过 `YINGGE_POSTGRES_TEST_CONNECTION` 指向隔离测试数据库，验证数量、逐字段内容、源文件哈希及重复导入拒绝。
 
 ## 当前边界

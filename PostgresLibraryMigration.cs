@@ -48,6 +48,10 @@ internal static class PostgresLibraryMigration
             ?? throw new InvalidDataException("视频索引为空，未导入。 ");
         var metadata = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(metadataBytes)
             ?? throw new InvalidDataException("资料文件为空，未导入。 ");
+        var checkedMetadata = JsonSerializer.Deserialize<Dictionary<string, MovieMetadata>>(metadataBytes)
+            ?? throw new InvalidDataException("资料文件格式无效，未导入。 ");
+        if (checkedMetadata.Values.Any(value => value is null || value.SchemaVersion is < 1 or > 2))
+            throw new InvalidDataException("资料文件含无效版本，未导入。 ");
         if (index.Folders is null || index.Entries is null || index.Entries.Any(e =>
                 string.IsNullOrWhiteSpace(e.Path) || e.Size < 0))
             throw new InvalidDataException("视频索引含无效记录，未导入。 ");

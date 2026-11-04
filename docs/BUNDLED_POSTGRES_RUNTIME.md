@@ -47,3 +47,14 @@ first product probe exposed an inherited-output-pipe wait;
 that was fixed before the successful run. `realLibraryRead=false` in the final
 result. This tests the runtime mechanism, **not** production migration or the
 Inno Setup installation path.
+
+An opt-in Inno Setup 7.1.0 compile was also run with the current branch's
+single-file desktop build and the staged PostgreSQL files. Compiler output
+listed the PostgreSQL binaries and license notices and ended with a successful
+compile. The deliberately named `YinggeVideoLibrary-PG-TEST-NOT-RELEASE.exe`
+is 81,178,420 bytes, SHA-256
+`91FC766CAEBCD8C81E323B71447136477667B6B55158C00D7391D8324ACB3C1D`.
+It lives only under ignored `artifacts/pg-setup-probe`. It was **not installed**:
+the probe uses the existing product AppId, so executing it could interact with
+an already installed version even with a different target directory. An
+installer-level isolated upgrade test needs a distinct test AppId first.

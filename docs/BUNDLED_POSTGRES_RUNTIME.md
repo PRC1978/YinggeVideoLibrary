@@ -35,6 +35,13 @@ or create a database cluster. Shipping that variant is not ready.
 4. Define major-version upgrade handling with a logical backup/restore. Do not
    start a new PostgreSQL major version on an old cluster's data directory.
 
-An isolated cluster start probe was attempted in this environment but the
-command was rejected by automatic approval review. No `initdb` or server
-process ran; therefore runtime startup and installation are **unverified**.
+The first combined shell probe was rejected by automatic approval review; no
+process ran from that command. A narrower, credential-free isolation probe
+then initialized and started PostgreSQL with all logins rejected. After that,
+`--self-test-bundled-postgres` verified the product's process code using a
+fresh isolated cluster: PostgreSQL 18.6 answered over `127.0.0.1`, the random
+password round-tripped through Windows Credential Manager, and `pg_ctl` stopped
+the server. The first product probe exposed an inherited-output-pipe wait;
+that was fixed before the successful run. `realLibraryRead=false` in the final
+result. This tests the runtime mechanism, **not** production migration or the
+Inno Setup installation path.

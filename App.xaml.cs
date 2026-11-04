@@ -77,6 +77,11 @@ public partial class App : System.Windows.Application
             Shutdown(await PostgresMigrationDiagnostics.RunToFileAsync(e.Args[1], e.Args[2]));
             return;
         }
+        if (e.Args.Length > 2 && e.Args[0] == "--self-test-bundled-postgres")
+        {
+            Shutdown(await BundledPostgresRuntime.RunProbeToFileAsync(e.Args[1], e.Args[2]));
+            return;
+        }
         if (e.Args.Length > 1 && e.Args[0] == "--self-test-error-upload")
         {
             Shutdown(await EncryptedErrorReportDiagnostics.VerifyUploadAsync(e.Args[1]));

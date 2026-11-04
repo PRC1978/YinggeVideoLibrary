@@ -9,6 +9,58 @@ namespace YinggeVideoLibrary;
 
 public partial class MainWindow
 {
+    internal async Task<int> WriteHiddenMotionDiagnosticAsync(string outputPath)
+    {
+        try
+        {
+            var results = new List<object>();
+            foreach (var (mode, expectedMilliseconds) in new[]
+                { (UiMotion.Smooth, 0), (UiMotion.Balanced, 130), (UiMotion.Animated, 280) })
+            {
+                config.UiMotion = mode;
+                ShowView("settings");
+                ShowView("all");
+                await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
+                var initialOpacity = LibraryScroll.Opacity;
+                var initialY = (LibraryScroll.RenderTransform as TranslateTransform)?.Y ?? 0;
+                await Task.Delay(expectedMilliseconds + 100);
+                await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
+                var finalOpacity = LibraryScroll.Opacity;
+                var finalY = (LibraryScroll.RenderTransform as TranslateTransform)?.Y ?? 0;
+                var passed = mode == UiMotion.Smooth
+                    ? Math.Abs(initialOpacity - 1) < .001 && Math.Abs(initialY) < .001
+                    : initialOpacity < 1 && initialY > 0 &&
+                      Math.Abs(finalOpacity - 1) < .01 && Math.Abs(finalY) < .1;
+                results.Add(new { mode, expectedMilliseconds, initialOpacity, initialY,
+                    finalOpacity, finalY, passed });
+                if (!passed) throw new InvalidOperationException($"{mode} 的页面动效未按设置完成");
+            }
+            config.UiMotion = UiMotion.Animated;
+            ShowView("settings");
+            ShowView("all");
+            config.UiMotion = UiMotion.Smooth;
+            ShowView("settings");
+            var interruptedOpacity = LibraryScroll.Opacity;
+            var interruptedY = (LibraryScroll.RenderTransform as TranslateTransform)?.Y ?? 0;
+            var interruptionPassed = Math.Abs(interruptedOpacity - 1) < .001 && Math.Abs(interruptedY) < .001;
+            results.Add(new { mode = "animated-to-smooth", expectedMilliseconds = 0,
+                initialOpacity = interruptedOpacity, initialY = interruptedY,
+                finalOpacity = interruptedOpacity, finalY = interruptedY, passed = interruptionPassed });
+            if (!interruptionPassed) throw new InvalidOperationException("切换到流畅优先后残留了旧页面动画");
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
+            File.WriteAllText(outputPath, JsonSerializer.Serialize(new { passed = true, results },
+                new JsonSerializerOptions { WriteIndented = true }));
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
+            File.WriteAllText(outputPath, JsonSerializer.Serialize(new { passed = false, error = ex.ToString() },
+                new JsonSerializerOptions { WriteIndented = true }));
+            return 1;
+        }
+    }
+
     /// <summary>Screenshot every interface mode at the three acceptance window
     /// sizes, covering the pages that differ per mode (library, scrape, review,
     /// settings). Runs fully offscreen against an isolated --data-dir library.

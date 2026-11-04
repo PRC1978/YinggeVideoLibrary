@@ -461,6 +461,8 @@ public partial class MainWindow : Window
     System.Windows.Point spherePanStart;
     System.Windows.Vector spherePanOrigin;
     bool spherePanning;
+    bool sphereGestureRotates;
+    double sphereRotationOrigin;
     double sphereRotation;
     bool sphereRotationEnabled;
     Button? sphereRotationButton;
@@ -1701,6 +1703,13 @@ public partial class MainWindow : Window
         // Switching pages used to inherit the previous page's offset, so the
         // new page opened mid-scroll. Only reset when the page really changed.
         if (changedView) LibraryScroll.ScrollToTop();
+        if (changedView)
+        {
+            // A previous page may still be animating when navigation or the
+            // motion preference changes. Never carry its opacity or offset to
+            // the next page (especially in the no-animation mode).
+            ResetPageMotion();
+        }
         if (changedView && target != "online" && UiMotion.PageFadeMilliseconds(config.UiMotion) is var fade && fade > 0)
         {
             // StyleKit's Fade In Up pattern adapted to a single WPF page
@@ -1714,6 +1723,17 @@ public partial class MainWindow : Window
             slide.BeginAnimation(TranslateTransform.YProperty,
                 new DoubleAnimation(config.UiMotion == UiMotion.Animated ? 14 : 8, 0,
                     TimeSpan.FromMilliseconds(fade)) { EasingFunction = easing });
+        }
+    }
+
+    void ResetPageMotion()
+    {
+        LibraryScroll.BeginAnimation(OpacityProperty, null);
+        LibraryScroll.Opacity = 1;
+        if (LibraryScroll.RenderTransform is TranslateTransform slide)
+        {
+            slide.BeginAnimation(TranslateTransform.YProperty, null);
+            slide.Y = 0;
         }
     }
 
@@ -2472,7 +2492,7 @@ public partial class MainWindow : Window
         CategoryPanel.Children.Clear();
         sphereCategoryChips.Clear();
         CategoryPanel.Children.Add(new TextBlock { Text = "分类工作台", FontSize = 19, FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextSecondaryBrush, Margin = new Thickness(0, 0, 0, 4) });
-        CategoryPanel.Children.Add(new TextBlock { Text = "点击节点筛选，拖动视频归类；按住鼠标中键移动图面，滚轮缩放，底边可调整高度。", Foreground = UiTheme.TextTertiaryBrush, FontSize = 12, Margin = new Thickness(0, 0, 0, 14) });
+        CategoryPanel.Children.Add(new TextBlock { Text = "点击节点筛选，拖动视频归类；中键拖动旋转，Shift＋中键移动图面，滚轮缩放，底边可调整高度。", Foreground = UiTheme.TextTertiaryBrush, FontSize = 12, Margin = new Thickness(0, 0, 0, 14) });
         CategoryPanel.Children.Add(BuildGraphMoveActions());
         var graphIndex = GetSphereGraphIndexForUi();
         if (graphIndex is null)
@@ -2616,13 +2636,23 @@ public partial class MainWindow : Window
         sphereGraphTranslation.X = (width - sphereGraphCanvas.Width * scale) / 2 + spherePanOffset.X;
         sphereGraphTranslation.Y = (height - sphereGraphCanvas.Height * scale) / 2 + spherePanOffset.Y;
         if (sphereZoomLabel is not null) sphereZoomLabel.Text = $"{sphereZoom:P0}";
+        UpdateSphereAccessibility();
+    }
+
+    void UpdateSphereAccessibility()
+    {
+        if (sphereGraphViewport is null) return;
+        System.Windows.Automation.AutomationProperties.SetName(sphereGraphViewport,
+            $"分类关系图，缩放 {sphereZoom:P0}，旋转 {sphereRotation * 180 / Math.PI:0} 度，平移 {spherePanOffset.X:0}、{spherePanOffset.Y:0}");
     }
 
     void ZoomSphereGraph(double factor, System.Windows.Point? anchor = null)
     {
         if (sphereGraphViewport is null || sphereGraphCanvas is null || sphereGraphScale is null || sphereGraphTranslation is null) return;
         var previousZoom = sphereZoom;
-        sphereZoom = Math.Clamp(previousZoom * factor, .45, 4);
+        // 100% means fitted to the viewport. Shrinking below that made the
+        // vector graph occupy a tiny rectangle and look like a static image.
+        sphereZoom = Math.Clamp(previousZoom * factor, 1, 4);
         if (Math.Abs(sphereZoom - previousZoom) < .0001) return;
         var width = sphereGraphViewport.ActualWidth;
         var height = sphereGraphViewport.ActualHeight;
@@ -2656,7 +2686,15 @@ public partial class MainWindow : Window
         spherePanning = true;
         spherePanStart = e.GetPosition(sphereGraphViewport);
         spherePanOrigin = spherePanOffset;
-        sphereGraphViewport.Cursor = System.Windows.Input.Cursors.SizeAll;
+        sphereGestureRotates = (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) == 0;
+        sphereRotationOrigin = sphereRotation;
+        if (sphereGestureRotates && sphereRotationEnabled)
+        {
+            sphereRotationEnabled = false;
+            sphereGraphTimer.Stop();
+            if (sphereRotationButton is not null) sphereRotationButton.Content = "▶  开始旋转";
+        }
+        sphereGraphViewport.Cursor = sphereGestureRotates ? System.Windows.Input.Cursors.Hand : System.Windows.Input.Cursors.SizeAll;
         sphereGraphViewport.CaptureMouse();
         e.Handled = true;
     }
@@ -2665,9 +2703,25 @@ public partial class MainWindow : Window
     {
         if (!spherePanning || sphereGraphViewport is null) return;
         if (e.MiddleButton != System.Windows.Input.MouseButtonState.Pressed) { EndSpherePan(); return; }
-        spherePanOffset = spherePanOrigin + (e.GetPosition(sphereGraphViewport) - spherePanStart);
-        UpdateSphereViewport();
+        var displacement = e.GetPosition(sphereGraphViewport) - spherePanStart;
+        if (sphereGestureRotates) SetSphereRotation(sphereRotationOrigin + displacement.X * .008);
+        else SetSpherePanOffset(spherePanOrigin + displacement);
         e.Handled = true;
+    }
+
+    void SetSphereRotation(double radians)
+    {
+        sphereRotation = radians;
+        if (sphereMapSurface is null) return;
+        sphereMapSurface.Rotation = radians;
+        sphereMapSurface.InvalidateVisual();
+        UpdateSphereAccessibility();
+    }
+
+    void SetSpherePanOffset(System.Windows.Vector offset)
+    {
+        spherePanOffset = offset;
+        UpdateSphereViewport();
     }
 
     void SphereGraphMouseUp(object sender, System.Windows.Input.MouseButtonEventArgs e)

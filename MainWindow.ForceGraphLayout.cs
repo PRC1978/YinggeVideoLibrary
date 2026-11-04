@@ -134,12 +134,16 @@ public partial class MainWindow
                 y[i] += Math.Clamp(fy[i] - y[i] * .009, -.045, .045);
             }
         }
-        var bound = Math.Max(.92, Math.Max(x.Max(value => Math.Abs(value)),
-            y.Max(value => Math.Abs(value))));
+        // Fit the solved positions to the graph viewport. A fixed .92 lower
+        // bound left small libraries contracted into a tiny central picture.
+        var boundX = Math.Max(.28, x.Max(value => Math.Abs(value)));
+        var boundY = Math.Max(.28, y.Max(value => Math.Abs(value)));
         for (var i = 0; i < count; i++)
         {
-            var px = x[i] * .92 / bound;
-            var py = y[i] * .92 / bound;
+            // The drawing surface is wide. Normalize each axis separately so
+            // a tall solved graph does not waste most of that width.
+            var px = x[i] * .90 / boundX;
+            var py = y[i] * .90 / boundY;
             nodes[i].Angle = Math.Atan2(py, px);
             nodes[i].Radius = Math.Sqrt(px * px + py * py);
         }

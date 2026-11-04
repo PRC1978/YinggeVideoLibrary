@@ -137,6 +137,20 @@ public partial class App : System.Windows.Application
             Shutdown(searchResult);
             return;
         }
+        if (e.Args.Length > 1 && e.Args[0] == "--diagnose-ui-motion")
+        {
+            var motionProbe = new MainWindow
+            {
+                Left = -30000, Top = -30000, Width = 1240, Height = 780,
+                ShowActivated = false, ShowInTaskbar = false, Opacity = 0
+            };
+            MainWindow = motionProbe;
+            motionProbe.Show();
+            var motionResult = await motionProbe.WriteHiddenMotionDiagnosticAsync(e.Args[1]);
+            motionProbe.Close();
+            Shutdown(motionResult);
+            return;
+        }
         // --diagnose-ui-theme <输出目录>：所有界面模式 × 三档窗口 × 关键页面截图。
         if (e.Args.Length > 1 && e.Args[0] == "--diagnose-ui-theme")
         {

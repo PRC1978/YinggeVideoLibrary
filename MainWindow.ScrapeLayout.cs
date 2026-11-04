@@ -107,6 +107,13 @@ public partial class MainWindow
             if (!ReferenceEquals(e.Source, pages) || pages.SelectedItem is not TabItem selected ||
                 selected.Content is not FrameworkElement content) return;
             var duration = UiMotion.PageFadeMilliseconds(config.UiMotion);
+            content.BeginAnimation(OpacityProperty, null);
+            content.Opacity = 1;
+            if (content.RenderTransform is System.Windows.Media.TranslateTransform oldMovement)
+            {
+                oldMovement.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty, null);
+                oldMovement.Y = 0;
+            }
             if (duration == 0) return;
             if (UiTheme.Current is UiTheme.Cinema or UiTheme.Glass) duration = Math.Max(duration, 320);
             Dispatcher.BeginInvoke(new Action(() =>

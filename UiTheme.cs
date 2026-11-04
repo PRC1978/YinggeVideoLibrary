@@ -409,10 +409,33 @@ public sealed class UiThemeState : INotifyPropertyChanged
     public Brush PageBackdropBrush => IsGlass ? new LinearGradientBrush(
         Color.FromRgb(6, 10, 19), Color.FromRgb(11, 19, 34), 26) : PageBackgroundBrush;
     public Brush MainContentBackdropBrush => IsGlass
-        ? new LinearGradientBrush(Color.FromRgb(11, 19, 34), Color.FromRgb(7, 12, 22), 32)
+        ? GlassSceneBrush
         : IsCinema ? new LinearGradientBrush(Color.FromRgb(10, 10, 10), Color.FromRgb(22, 22, 22), 155)
         : new LinearGradientBrush(UiTheme.PageBackgroundBrush.Color,
             UiTheme.SurfaceAltBrush.Color, 45);
+    // The glass surface needs a scene to refract. These soft light wells sit
+    // behind every translucent panel, and are drawn once rather than blurred
+    // per card. This keeps the visual depth while lists continue to scroll.
+    static readonly Brush GlassSceneBrush = CreateGlassSceneBrush();
+    static Brush CreateGlassSceneBrush()
+    {
+        var scene = new DrawingGroup();
+        scene.Children.Add(new GeometryDrawing(new SolidColorBrush(Color.FromRgb(7, 12, 23)), null,
+            new RectangleGeometry(new Rect(0, 0, 1000, 1000))));
+        scene.Children.Add(new GeometryDrawing(
+            new RadialGradientBrush(Color.FromArgb(110, 38, 70, 111), Colors.Transparent), null,
+            new EllipseGeometry(new System.Windows.Point(730, 250), 490, 380)));
+        scene.Children.Add(new GeometryDrawing(
+            new RadialGradientBrush(Color.FromArgb(46, 159, 126, 79), Colors.Transparent), null,
+            new EllipseGeometry(new System.Windows.Point(130, 760), 420, 360)));
+        var brush = new DrawingBrush(scene)
+        {
+            Viewbox = new Rect(0, 0, 1000, 1000), ViewboxUnits = BrushMappingMode.Absolute,
+            Stretch = Stretch.Fill
+        };
+        brush.Freeze();
+        return brush;
+    }
     public Effect? SoftShadow => IsNeumorphism || IsGlass ? new DropShadowEffect
     {
         Color = IsGlass ? Color.FromRgb(3, 7, 18) : Color.FromRgb(160, 169, 183),

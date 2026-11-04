@@ -1224,6 +1224,7 @@ public partial class MainWindow
         sphereZoom = 1;
         spherePanOffset = default;
         spherePanning = false;
+        sphereGestureRotates = false;
         sphereRotation = 0;
         sphereMouseDownPath = null;
 
@@ -1332,6 +1333,7 @@ public partial class MainWindow
             CanContentScroll = false, PanningMode = PanningMode.None,
             Background = UiTheme.SurfaceBrush, Content = canvas, ClipToBounds = true
         };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(scroll, "CategoryGraphViewport");
         var camera = new TransformGroup();
         sphereGraphScale = new ScaleTransform(1, 1);
         sphereGraphTranslation = new TranslateTransform();
@@ -1358,8 +1360,9 @@ public partial class MainWindow
             tools.Children.Add(button);
             return button;
         }
-        Control("−", "缩小节点与关系线", () => ZoomSphereGraph(1 / 1.2));
+        Control("−", "缩小到适应视口，不会把整张图缩成小图片", () => ZoomSphereGraph(1 / 1.2));
         sphereZoomLabel = new TextBlock { Text = "100%", Width = 44, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = UiTheme.TextTertiaryBrush };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(sphereZoomLabel, "CategoryGraphZoom");
         tools.Children.Add(sphereZoomLabel);
         Control("+", "放大节点与关系线", () => ZoomSphereGraph(1.2));
         Control("适应", "重置缩放和位置", ResetSphereGraphView);
@@ -1371,7 +1374,7 @@ public partial class MainWindow
         DockPanel.SetDock(tools, Dock.Right); header.Children.Add(tools);
         var title = new StackPanel();
         title.Children.Add(new TextBlock { Text = "力导向分类关系图", FontWeight = FontWeights.SemiBold, FontSize = 15, Foreground = UiTheme.TextTertiaryBrush });
-        title.Children.Add(new TextBlock { Text = $"{counts.Count:N0} 个分类 + {connectedTags.Count:N0} 个相关标签全部绘出 · {relevantCount:N0} 部视频 · 中键移动图面，滚轮缩放节点与关系线", FontSize = 11, Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 3, 0, 0) });
+        title.Children.Add(new TextBlock { Text = $"{counts.Count:N0} 个分类 + {connectedTags.Count:N0} 个相关标签全部绘出 · {relevantCount:N0} 部视频 · 中键旋转，Shift＋中键平移，滚轮缩放", FontSize = 11, Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 3, 0, 0) });
         header.Children.Add(title);
 
         var tagOptions = new List<SphereTagOption> { new("", index.VideoCount) };

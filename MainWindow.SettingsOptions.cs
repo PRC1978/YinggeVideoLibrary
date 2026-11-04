@@ -158,6 +158,7 @@ public partial class MainWindow
             {
                 if (config.UiMotion == id) return;
                 config.UiMotion = id;
+                if (id == UiMotion.Smooth) ResetPageMotion();
                 SaveConfig();
             };
             motionButtons.Add(motion);

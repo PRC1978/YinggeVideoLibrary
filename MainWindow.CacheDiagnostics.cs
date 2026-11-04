@@ -459,7 +459,14 @@ public partial class MainWindow
                 }
                 // Exercise every navigator page. The 24-row page limit must
                 // never truncate the nodes or relationships on the sphere.
-                var graphPanel = ((System.Windows.Controls.Border)CategoryPanel.Children[^1]).Child as System.Windows.Controls.StackPanel
+                // The quick-search list may follow the graph in the category
+                // workbench. Locate the graph by its viewport, not by a
+                // brittle last-child position.
+                var graphPanel = CategoryPanel.Children.OfType<System.Windows.Controls.Border>()
+                    .Select(border => border.Child as System.Windows.Controls.StackPanel)
+                    .FirstOrDefault(panel => panel is not null && panel.Children
+                        .OfType<System.Windows.Controls.ScrollViewer>()
+                        .Any(child => ReferenceEquals(child, sphereGraphViewport)))
                     ?? throw new InvalidOperationException("分类图布局未创建");
                 var navPanel = graphPanel.Children[^1] as System.Windows.Controls.StackPanel
                     ?? throw new InvalidOperationException("分类节点导航未创建");
@@ -489,12 +496,23 @@ public partial class MainWindow
                     throw new InvalidOperationException($"分类图有 {sphere.NodeCount} 个节点，但分页导航仅能访问 {seenPaths.Count} 个；图索引期望 {expectedNavigationPaths.Count} 个不同路径");
                 ZoomSphereGraph(1.2);
                 if (sphereZoom <= 1) throw new InvalidOperationException("分类图放大操作失败");
+                ZoomSphereGraph(.1);
+                if (Math.Abs(sphereZoom - 1) > .001)
+                    throw new InvalidOperationException("分类图缩小后不再适应视口");
                 ResetSphereGraphView();
+                SetSphereRotation(.24);
+                if (Math.Abs(sphere.Rotation - .24) > .001)
+                    throw new InvalidOperationException("分类图旋转没有更新矢量绘制层");
+                if (!System.Windows.Automation.AutomationProperties.GetName(viewport).Contains("旋转 14 度", StringComparison.Ordinal))
+                    throw new InvalidOperationException("分类图视口没有报告实际旋转角度");
+                SetSphereRotation(0);
                 var oldX = sphereGraphTranslation?.X ?? throw new InvalidOperationException("分类图平移变换未创建");
-                spherePanOffset = new System.Windows.Vector(40, 25);
-                UpdateSphereViewport();
+                SetSpherePanOffset(new System.Windows.Vector(40, 25));
                 if (Math.Abs(sphereGraphTranslation.X - oldX - 40) > .5)
                     throw new InvalidOperationException("分类图平移操作失败");
+                var accessibleGraphName = System.Windows.Automation.AutomationProperties.GetName(viewport);
+                if (!accessibleGraphName.Contains("平移 40、25", StringComparison.Ordinal))
+                    throw new InvalidOperationException("分类图视口没有报告实际平移状态");
                 ResetSphereGraphView();
                 var oldHeight = viewport.ActualHeight;
                 sphereManualViewportHeight = oldHeight + 80;

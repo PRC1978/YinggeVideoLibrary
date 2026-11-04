@@ -1920,6 +1920,7 @@ public partial class MainWindow : Window
         BatchStatusAction.IsEnabled = hasSelection && !batchOperationInProgress;
         BatchFavoriteAction.IsEnabled = hasSelection && !batchOperationInProgress;
         AiTagAction.IsEnabled = hasSelection && !batchOperationInProgress && Volatile.Read(ref aiRequestRunning) == 0;
+        LocalTagAction.IsEnabled = hasSelection && !batchOperationInProgress && !localTagDiscoveryRunning;
         SelectVisibleAction.IsEnabled = hasScope && !batchOperationInProgress;
         SelectFilteredAction.IsEnabled = hasScope && !batchOperationInProgress;
         InvertSelectionAction.IsEnabled = hasScope && !batchOperationInProgress;

@@ -47,6 +47,7 @@ internal static class FeatureDiagnostics
         try
         {
             findings["sphereExactTagCategoryLinks"] = MainWindow.VerifySphereRelationsForDiagnostics();
+            findings["forceGraphLayoutDeterministic"] = MainWindow.VerifyForceLayoutForDiagnostics();
             findings["graphMovePreviewAndUndo"] = CategoryGraphMovePlan.VerifyForDiagnostics();
             findings["graphMoveDurableHistoryAndConflicts"] = CategoryGraphMoveHistoryStore.VerifyForDiagnostics();
             foreach (var metric in MainWindow.VerifySphereIncrementalIndexForDiagnostics())

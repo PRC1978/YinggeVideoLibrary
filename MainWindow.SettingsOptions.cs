@@ -75,6 +75,26 @@ public partial class MainWindow
                 Tag = id
             };
             System.Windows.Automation.AutomationProperties.SetName(choice, label);
+            var previewScale = new ScaleTransform(1, 1);
+            choice.RenderTransform = previewScale;
+            choice.RenderTransformOrigin = new System.Windows.Point(.5, .5);
+            void AnimatePreview(double target)
+            {
+                var duration = UiMotion.FeedbackMilliseconds(config.UiMotion);
+                if (duration == 0)
+                {
+                    previewScale.ScaleX = previewScale.ScaleY = 1;
+                    return;
+                }
+                var easing = new System.Windows.Media.Animation.QuadraticEase
+                { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut };
+                var animation = new System.Windows.Media.Animation.DoubleAnimation(target,
+                    TimeSpan.FromMilliseconds(duration)) { EasingFunction = easing };
+                previewScale.BeginAnimation(ScaleTransform.ScaleXProperty, animation);
+                previewScale.BeginAnimation(ScaleTransform.ScaleYProperty, animation);
+            }
+            choice.MouseEnter += (_, _) => AnimatePreview(1.035);
+            choice.MouseLeave += (_, _) => AnimatePreview(1);
             choice.Checked += (_, _) =>
             {
                 if (config.UiTheme == id) return;
@@ -176,6 +196,7 @@ public partial class MainWindow
             UiTheme.Compact => ("#F5F7FA", "#E6ECF6", "#FFFFFF", "#476BDD"),
             UiTheme.Contrast => ("#E8F2E4", "#C7DCC4", "#F8FFF5", "#275E3E"),
             UiTheme.Neumorphism => ("#E0E5EC", "#D3DAE4", "#E0E5EC", "#6652BD"),
+            UiTheme.Glass => ("#D6E5FA", "#D8E8F7", "#E8FFFFFF", "#2759D6"),
             UiTheme.LineField => ("#FAFAF8", "#EEEEEB", "#FFFFFF", "#2152E7"),
             UiTheme.Editorial => ("#F5F1E9", "#EDE8DD", "#FAF7F0", "#62563F"),
             UiTheme.Tech => ("#EFF5FF", "#DDEAFF", "#FFFFFF", "#4169E1"),
@@ -200,6 +221,7 @@ public partial class MainWindow
             {
                 UiTheme.Classic => "熟悉的原版布局", UiTheme.Tech => "明亮清爽", UiTheme.Cinema => "深色海报优先",
                 UiTheme.Compact => "同屏更多内容", UiTheme.Neumorphism => "柔和立体光影",
+                UiTheme.Glass => "渐变与半透明层次",
                 UiTheme.LineField => "纸白与蓝色线条", UiTheme.Editorial => "温暖的档案纸感", _ => "文字更清楚"
             }, FontSize = 11, Foreground = UiTheme.TextTertiaryBrush, TextTrimming = TextTrimming.CharacterEllipsis });
         content.ToolTip = hint;

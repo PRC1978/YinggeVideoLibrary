@@ -23,6 +23,11 @@ public partial class MainWindow
     void ApplyInterfaceMode()
     {
         var classic = UiTheme.IsClassicMode;
+        var navigationStyle = (Style)FindResource(classic ? "Nav" : "NavModern");
+        foreach (var item in new[] { LibraryNav, AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, RolesNav, ScrapeNav, ReviewNav, OnlineNav, PluginsNav, SettingsNav })
+            item.Style = navigationStyle;
+        var pagerStyle = (Style)FindResource(classic ? "Action" : "PagerModern");
+        foreach (var item in new[] { PreviousPage, NextPage, PageJumpButton }) item.Style = pagerStyle;
         if (SidebarColumn.Width.Value > 28)
             SidebarColumn.Width = new GridLength(UiTheme.Num(UiTheme.SidebarWidth));
         LibraryNav.Visibility = classic ? Visibility.Collapsed : Visibility.Visible;

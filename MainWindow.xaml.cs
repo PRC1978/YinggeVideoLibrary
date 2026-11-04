@@ -1627,6 +1627,7 @@ public partial class MainWindow : Window
         {
             button.Background = Brushes.Transparent;
             button.Foreground = UiTheme.TextTertiaryBrush;
+            button.Tag = null;
         }
         var classic = UiTheme.IsClassicMode;
         var selected = target switch
@@ -1647,6 +1648,7 @@ public partial class MainWindow : Window
         };
         selected.Background = UiTheme.SelectionBackgroundBrush;
         selected.Foreground = UiTheme.SelectionForegroundBrush;
+        selected.Tag = "active";
         Toolbar.Visibility = target is "settings" or "status" or "scrape" or "online" or "recommendations" or "folders" or "plugins" or "review" or "roles" ? Visibility.Collapsed : Visibility.Visible;
         LibraryScroll.Visibility = target == "online" ? Visibility.Collapsed : Visibility.Visible;
         AllListPanel.Visibility = Visibility.Collapsed;
@@ -1698,8 +1700,19 @@ public partial class MainWindow : Window
         // new page opened mid-scroll. Only reset when the page really changed.
         if (changedView) LibraryScroll.ScrollToTop();
         if (changedView && target != "online" && UiMotion.PageFadeMilliseconds(config.UiMotion) is var fade && fade > 0)
+        {
+            // StyleKit's Fade In Up pattern adapted to a single WPF page
+            // transform. The list and graph contents are never animated
+            // individually, so large libraries do not gain per-card work.
+            var easing = new QuadraticEase { EasingMode = EasingMode.EaseOut };
             LibraryScroll.BeginAnimation(OpacityProperty,
-                new DoubleAnimation(0.72, 1, TimeSpan.FromMilliseconds(fade)));
+                new DoubleAnimation(.78, 1, TimeSpan.FromMilliseconds(fade)) { EasingFunction = easing });
+            var slide = LibraryScroll.RenderTransform as TranslateTransform ?? new TranslateTransform();
+            LibraryScroll.RenderTransform = slide;
+            slide.BeginAnimation(TranslateTransform.YProperty,
+                new DoubleAnimation(config.UiMotion == UiMotion.Animated ? 14 : 8, 0,
+                    TimeSpan.FromMilliseconds(fade)) { EasingFunction = easing });
+        }
     }
 
     void RenderCards()
@@ -2482,6 +2495,10 @@ public partial class MainWindow : Window
         var chips = new WrapPanel();
         var categoryCounts = graphIndex.AllCategoryCounts;
         var graphIndexMs = categoryRenderClock.Elapsed.TotalMilliseconds;
+        // The relationship graph is the primary content of this page. Keep
+        // the category shortcuts and searchable list immediately below it so
+        // the graph is visible without scrolling past several tool rows.
+        CategoryPanel.Children.Add(BuildSphereCategoryGraphV2(graphIndex));
         // Preserve the configured shortcuts; the complete set of nested
         // categories below uses a searchable, recycled list.
         foreach (var name in new[] { "全部", "未分类" }.Concat(config.CategoryNames).Distinct())
@@ -2557,12 +2574,10 @@ public partial class MainWindow : Window
         };
         UpdateCategoryList();
         CategoryPanel.Children.Add(categoryList);
-        var controlsMs = categoryRenderClock.Elapsed.TotalMilliseconds - graphIndexMs;
-        CategoryPanel.Children.Add(BuildSphereCategoryGraphV2(graphIndex));
         StartCategoryCardPopulation();
         if (graphIndex.AllCategoryCounts.Count > 500)
         {
-            categoryRenderProfile = $"索引/占位 {graphIndexMs:F1} ms，筛选控件 {controlsMs:F1} ms，球形图 {categoryRenderClock.Elapsed.TotalMilliseconds - graphIndexMs - controlsMs:F1} ms，总计 {categoryRenderClock.Elapsed.TotalMilliseconds:F1} ms";
+            categoryRenderProfile = $"索引/占位 {graphIndexMs:F1} ms，分类控件及力导向图 {categoryRenderClock.Elapsed.TotalMilliseconds - graphIndexMs:F1} ms，总计 {categoryRenderClock.Elapsed.TotalMilliseconds:F1} ms";
         }
     }
 

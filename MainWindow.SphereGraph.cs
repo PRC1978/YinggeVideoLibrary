@@ -126,7 +126,8 @@ public partial class MainWindow
         readonly List<SphereMapNode> nodes;
         readonly (SphereMapNode Node, double Cos, double Sin)[] polarNodes;
         readonly SphereMapNode[] rankedLabels;
-        readonly ImageSource baseLayer;
+        readonly Drawing baseLayer;
+        readonly bool forceMode;
         readonly Dictionary<string, System.Windows.Point> basePoints = new(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<(int X, int Y), List<SphereMapNode>> hitCells = [];
         readonly Dictionary<string, SphereMapNode> byPath;
@@ -165,8 +166,9 @@ public partial class MainWindow
         }
 
         public SphereMapSurface(List<SphereMapNode> nodes, IReadOnlyDictionary<string, Dictionary<string, int>> tagCategories,
-            IReadOnlyDictionary<string, int>? rootTagCategories = null)
+            IReadOnlyDictionary<string, int>? rootTagCategories = null, bool forceMode = false)
         {
+            this.forceMode = forceMode;
             var dark = UiTheme.Current == UiTheme.Cinema;
             Backdrop = FrozenBrush(dark ? Color.FromRgb(15, 21, 33) : Color.FromRgb(247, 250, 255));
             NodeBrush = FrozenBrush(dark ? Color.FromRgb(108, 157, 239) : Color.FromRgb(78, 124, 222));
@@ -235,8 +237,8 @@ public partial class MainWindow
             basePoints[""] = center;
             foreach (var (node, cosine, sine) in polarNodes)
                 basePoints[node.Path] = new System.Windows.Point(
-                    center.X + cosine * node.Radius * 246,
-                    center.Y + sine * node.Radius * 232);
+                    center.X + cosine * node.Radius * (forceMode ? 500 : 246),
+                    center.Y + sine * node.Radius * (forceMode ? 270 : 232));
             BuildHitCells();
             foreach (var (tag, categories) in tagCategories)
             {
@@ -262,11 +264,11 @@ public partial class MainWindow
             BaseLayerBuildMs = constructionClock.Elapsed.TotalMilliseconds - layerStarted;
         }
 
-        ImageSource BuildBaseLayer()
+        Drawing BuildBaseLayer()
         {
             var center = basePoints[""];
-            var layer = new DrawingVisual();
-            using (var dc = layer.RenderOpen())
+            var layer = new DrawingGroup();
+            using (var dc = layer.Open())
             {
                 foreach (var node in nodes)
                 {
@@ -281,11 +283,11 @@ public partial class MainWindow
                         NodePen, point, radius, radius);
                 }
             }
-            var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(
-                (int)Width, (int)Height, 96, 96, PixelFormats.Pbgra32);
-            bitmap.Render(layer);
-            bitmap.Freeze();
-            return bitmap;
+            // Keep paths and nodes as vector drawing instructions. Scaling a
+            // cached bitmap made zoom look like enlarging a screenshot and
+            // blurred every edge; DrawingGroup remains sharp at every zoom.
+            layer.Freeze();
+            return layer;
         }
 
         static Brush FrozenBrush(Color color)
@@ -546,13 +548,16 @@ public partial class MainWindow
             var bounds = new Rect(0, 0, Width, Height);
             dc.DrawRectangle(Backdrop, null, bounds);
             var center = new System.Windows.Point(Width / 2, Height / 2 + 7);
-            dc.DrawEllipse(GlobeBrush, GlobePen, center, 265, 265);
-            dc.PushTransform(new RotateTransform(25, center.X, center.Y));
-            dc.DrawEllipse(null, OrbitPen, center, 248, 74);
-            dc.Pop();
-            dc.PushTransform(new RotateTransform(-37, center.X, center.Y));
-            dc.DrawEllipse(null, OrbitPen, center, 247, 117);
-            dc.Pop();
+            if (!forceMode)
+            {
+                dc.DrawEllipse(GlobeBrush, GlobePen, center, 265, 265);
+                dc.PushTransform(new RotateTransform(25, center.X, center.Y));
+                dc.DrawEllipse(null, OrbitPen, center, 248, 74);
+                dc.Pop();
+                dc.PushTransform(new RotateTransform(-37, center.X, center.Y));
+                dc.DrawEllipse(null, OrbitPen, center, 247, 117);
+                dc.Pop();
+            }
 
             RefreshFocusedBranches();
             var rotation = RotationMatrix(center, Rotation);
@@ -561,7 +566,7 @@ public partial class MainWindow
             // matrix rotates the cached layer around the globe while labels,
             // hit testing and focused relationships remain crisp and live.
             dc.PushTransform(new MatrixTransform(rotation));
-            dc.DrawImage(baseLayer, bounds);
+            dc.DrawDrawing(baseLayer);
             if (focusedBranches.Count > 0)
                 dc.DrawGeometry(null, FocusLinkPen, FocusedLinkGeometry());
 
@@ -585,7 +590,7 @@ public partial class MainWindow
             if (!string.Equals(DropPath, SelectedPath, StringComparison.OrdinalIgnoreCase)) DrawFocusedNode(DropPath, true);
             if (!string.Equals(HoverPath, SelectedPath, StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(HoverPath, DropPath, StringComparison.OrdinalIgnoreCase)) DrawFocusedNode(HoverPath, false);
-            dc.DrawEllipse(RootBrush, RootPen, center, 43, 43);
+            dc.DrawEllipse(RootBrush, RootPen, center, forceMode ? 32 : 43, forceMode ? 32 : 43);
             DrawCentered(dc, "✦", center.X, center.Y - 14, 16, UiTheme.SurfaceBrush, FontWeights.Bold);
             DrawCentered(dc, RootLabel, center.X, center.Y + 8, 11, UiTheme.SurfaceBrush, FontWeights.SemiBold);
 
@@ -1208,6 +1213,8 @@ public partial class MainWindow
     {
         var graphClock = System.Diagnostics.Stopwatch.StartNew();
         sphereGraphTimer.Stop();
+        sphereRotationEnabled = false;
+        sphereRotationButton = null;
         sphereGraphCanvas = null;
         sphereGraphViewport = null;
         sphereMapSurface = null;
@@ -1249,9 +1256,10 @@ public partial class MainWindow
             tagCategoryLinks = selectedLinks;
         }
         var nodes = LayoutSphereNodes(counts, connectedTags);
+        LayoutForceNodes(nodes, tagCategoryLinks);
         var layoutMs = graphClock.Elapsed.TotalMilliseconds;
         sphereMapSurface = new SphereMapSurface(nodes, tagCategoryLinks,
-            sphereTagFilter.Length == 0 ? null : counts)
+            sphereTagFilter.Length == 0 ? null : counts, forceMode: true)
         {
             RootCount = relevantCount,
             RootLabel = sphereTagFilter.Length == 0 ? "全部分类" :
@@ -1342,9 +1350,6 @@ public partial class MainWindow
         scroll.Unloaded += (_, _) => SizeChanged -= resizeWindow;
 
         var header = new DockPanel { Margin = new Thickness(10, 0, 10, 10), LastChildFill = true };
-        sphereRotationButton = new Button { Content = sphereRotationEnabled ? "Ⅱ  暂停旋转" : "▶  开始旋转", Style = (Style)FindResource("Action"), Padding = new Thickness(11, 0, 11, 0), Margin = new Thickness(8, 0, 0, 0), ToolTip = "开始或暂停球形图旋转" };
-        sphereRotationButton.Click += ToggleSphereRotation;
-        DockPanel.SetDock(sphereRotationButton, Dock.Right); header.Children.Add(sphereRotationButton);
         var tools = new StackPanel { Orientation = Orientation.Horizontal };
         Button Control(string text, string hint, Action action)
         {
@@ -1353,10 +1358,10 @@ public partial class MainWindow
             tools.Children.Add(button);
             return button;
         }
-        Control("−", "缩小球形图", () => ZoomSphereGraph(1 / 1.2));
+        Control("−", "缩小节点与关系线", () => ZoomSphereGraph(1 / 1.2));
         sphereZoomLabel = new TextBlock { Text = "100%", Width = 44, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = UiTheme.TextTertiaryBrush };
         tools.Children.Add(sphereZoomLabel);
-        Control("+", "放大球形图", () => ZoomSphereGraph(1.2));
+        Control("+", "放大节点与关系线", () => ZoomSphereGraph(1.2));
         Control("适应", "重置缩放和位置", ResetSphereGraphView);
         if (selectedCategory is not "全部" and not "未分类") Control("返回上级", "查看上一级分类", () =>
         {
@@ -1365,8 +1370,8 @@ public partial class MainWindow
         });
         DockPanel.SetDock(tools, Dock.Right); header.Children.Add(tools);
         var title = new StackPanel();
-        title.Children.Add(new TextBlock { Text = "球形智能分类图", FontWeight = FontWeights.SemiBold, FontSize = 15, Foreground = UiTheme.TextTertiaryBrush });
-        title.Children.Add(new TextBlock { Text = $"{counts.Count:N0} 个分类 + {connectedTags.Count:N0} 个相关标签全部绘出 · {relevantCount:N0} 部视频 · 悬停节点查看真实共现连线", FontSize = 11, Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 3, 0, 0) });
+        title.Children.Add(new TextBlock { Text = "力导向分类关系图", FontWeight = FontWeights.SemiBold, FontSize = 15, Foreground = UiTheme.TextTertiaryBrush });
+        title.Children.Add(new TextBlock { Text = $"{counts.Count:N0} 个分类 + {connectedTags.Count:N0} 个相关标签全部绘出 · {relevantCount:N0} 部视频 · 中键移动图面，滚轮缩放节点与关系线", FontSize = 11, Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 3, 0, 0) });
         header.Children.Add(title);
 
         var tagOptions = new List<SphereTagOption> { new("", index.VideoCount) };
@@ -1388,7 +1393,7 @@ public partial class MainWindow
             RenderCategories();
         };
         tagBar.Children.Add(tagPicker);
-        tagBar.Children.Add(new TextBlock { Text = "选择标签后，球面展示与它相关的全部分类及层级。密集节点可在下方搜索并定位。", Foreground = UiTheme.TextTertiaryBrush, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) });
+        tagBar.Children.Add(new TextBlock { Text = "选择标签后，关系图展示与它相关的全部分类及层级。密集节点可在下方搜索并定位。", Foreground = UiTheme.TextTertiaryBrush, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) });
 
         var navigator = BuildSphereNavigator(nodes);
         var navigatorMs = graphClock.Elapsed.TotalMilliseconds - layoutMs - surfaceMs;
@@ -1414,7 +1419,6 @@ public partial class MainWindow
         panel.Children.Add(scroll);
         panel.Children.Add(resizeHandle);
         panel.Children.Add(navigator);
-        if (view == "categories" && sphereRotationEnabled) sphereGraphTimer.Start();
         if (nodes.Count > 500)
         {
             sphereGraphBuildProfile = $"节点布局 {layoutMs:F1} ms，绘制层 {surfaceMs:F1} ms（关系准备 {sphereMapSurface.AssociationBuildMs:F1} ms、底图 {sphereMapSurface.BaseLayerBuildMs:F1} ms），导航 {navigatorMs:F1} ms，总计 {graphClock.Elapsed.TotalMilliseconds:F1} ms";

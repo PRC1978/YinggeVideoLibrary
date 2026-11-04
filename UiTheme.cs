@@ -2,6 +2,8 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
+using Brush = System.Windows.Media.Brush;
+using Color = System.Windows.Media.Color;
 using FontFamily = System.Windows.Media.FontFamily;
 
 namespace YinggeVideoLibrary;
@@ -23,6 +25,7 @@ public static class UiTheme
     public const string Compact = "compact";
     public const string Contrast = "contrast";
     public const string Neumorphism = "neumorphism";
+    public const string Glass = "glass";
     public const string LineField = "line-field";
     public const string Editorial = "editorial";
 
@@ -34,6 +37,7 @@ public static class UiTheme
         (Compact, "紧凑高密度", "同屏更多内容，文字保持可读"),
         (Contrast, "高对比护眼", "高对比文字，明显焦点框"),
         (Neumorphism, "新拟物派", "柔和灰底、圆角与双向光影"),
+        (Glass, "雾面玻璃", "渐变底色、半透明面板与柔和光影"),
         (LineField, "量化线场", "纸白底、钴蓝线条、清晰的资料层级"),
         (Editorial, "纸感档案", "暖纸色、克制分隔与作品优先"),
     ];
@@ -220,6 +224,13 @@ public static class UiTheme
             "#986018", "#AA3745", "#277456",
             "#6652BD", "#8D9BAE", "#701B2538"),
             new Density(13.5, 12, 11, 27, 17, 174, 234, 18, 88, 54, 40, 46, 36, 20)),
+        [Glass] = (new Palette(
+            "#E8F1FA", "#D9FFFFFF", "#E8FFFFFF", "#CCF6FAFF", "#AAFFFFFF", "#7EA5C5",
+            "#14243A", "#334E68", "#4D657C",
+            "#2759D6", "#1742AD", "#FFFFFF", "#D9E9FA", "#1742AD", "#7456B8",
+            "#D6E7F8", "#173F8C", "#9B5B18", "#A52D3B", "#166951",
+            "#2759D6", "#8CA8C8", "#8616253C"),
+            new Density(13.5, 12, 11, 27, 17, 178, 238, 16, 88, 54, 40, 46, 38, 20)),
         [LineField] = (new Palette(
             "#FAFAF8", "#F1F2EF", "#FFFFFF", "#EEEEEB", "#D9DBD5", "#A9B4C5",
             "#202A38", "#4A586B", "#59677B",
@@ -372,10 +383,18 @@ public sealed class UiThemeState : INotifyPropertyChanged
     };
     public FontFamily MetricFontFamily => new("Segoe UI");
     public bool IsNeumorphism => UiTheme.Current == UiTheme.Neumorphism;
-    public Effect? SoftShadow => IsNeumorphism ? new DropShadowEffect
+    public bool IsGlass => UiTheme.Current == UiTheme.Glass;
+    public Brush PageBackdropBrush => IsGlass ? new LinearGradientBrush(
+        Color.FromRgb(214, 229, 250), Color.FromRgb(229, 239, 232), 26) : PageBackgroundBrush;
+    public Brush MainContentBackdropBrush => IsGlass
+        ? new LinearGradientBrush(Color.FromRgb(209, 225, 250), Color.FromRgb(231, 242, 236), 32)
+        : new LinearGradientBrush(UiTheme.PageBackgroundBrush.Color,
+            UiTheme.SurfaceAltBrush.Color, 45);
+    public Effect? SoftShadow => IsNeumorphism || IsGlass ? new DropShadowEffect
     {
-        Color = System.Windows.Media.Color.FromRgb(160, 169, 183), Direction = 315, BlurRadius = 12,
-        ShadowDepth = 4, Opacity = 0.52
+        Color = IsGlass ? Color.FromRgb(64, 96, 142) : Color.FromRgb(160, 169, 183),
+        Direction = 315, BlurRadius = IsGlass ? 20 : 12,
+        ShadowDepth = IsGlass ? 6 : 4, Opacity = IsGlass ? .22 : .52
     } : null;
     public Effect? SoftHighlight => IsNeumorphism ? new DropShadowEffect
     {

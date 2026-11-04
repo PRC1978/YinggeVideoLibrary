@@ -77,8 +77,28 @@ internal static class BundledPostgresRuntime
             findings["listenAddresses"] = listenAddresses;
             findings["loopbackOnly"] = address == "127.0.0.1" && listenAddresses == "127.0.0.1";
             findings["credentialRoundTrip"] = WindowsCredentialStore.Read(credentialName) == password;
+            var sourceDirectory = Path.Combine(probeRoot, "source");
+            Directory.CreateDirectory(sourceDirectory);
+            var samplePath = Path.Combine(probeRoot, "media", "sample.mp4");
+            var videoId = Convert.ToHexString(SHA256.HashData(
+                Encoding.UTF8.GetBytes(samplePath.ToLowerInvariant())))[..24].ToLowerInvariant();
+            await File.WriteAllTextAsync(Path.Combine(sourceDirectory, "library-index.json"),
+                JsonSerializer.Serialize(new LibraryIndex
+                {
+                    Folders = [Path.GetDirectoryName(samplePath)!],
+                    Entries = [new IndexEntry { Path = samplePath, Size = 42,
+                        ModifiedTicks = DateTime.UtcNow.Ticks }]
+                }));
+            await File.WriteAllTextAsync(Path.Combine(sourceDirectory, "metadata.json"),
+                JsonSerializer.Serialize(new Dictionary<string, MovieMetadata>
+                    { [videoId] = new MovieMetadata { Title = "isolated sample" } }));
+            var imported = await PostgresLibraryMigration.ImportAsync(sourceDirectory, builder.ConnectionString);
+            var verified = await PostgresLibraryMigration.VerifyContentAsync(sourceDirectory, builder.ConnectionString);
+            findings["sampleImportVerified"] = imported.VideoCount == 1 &&
+                imported.MetadataCount == 1 && verified;
             findings["passed"] = version.StartsWith("18.6", StringComparison.Ordinal) &&
-                findings["loopbackOnly"] is true && findings["credentialRoundTrip"] is true;
+                findings["loopbackOnly"] is true && findings["credentialRoundTrip"] is true &&
+                findings["sampleImportVerified"] is true;
         }
         catch (Exception ex)
         {

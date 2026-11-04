@@ -41,7 +41,9 @@ then initialized and started PostgreSQL with all logins rejected. After that,
 `--self-test-bundled-postgres` verified the product's process code using a
 fresh isolated cluster: PostgreSQL 18.6 answered over `127.0.0.1`, the random
 password round-tripped through Windows Credential Manager, and `pg_ctl` stopped
-the server. The first product probe exposed an inherited-output-pipe wait;
+the server. The probe also imported and compared one synthetic video and its
+metadata through the real migration code (`sampleImportVerified=true`). The
+first product probe exposed an inherited-output-pipe wait;
 that was fixed before the successful run. `realLibraryRead=false` in the final
 result. This tests the runtime mechanism, **not** production migration or the
 Inno Setup installation path.

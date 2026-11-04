@@ -22,6 +22,7 @@ public partial class MainWindow
     DateTimeOffset? periodicBackupNextDueUtc;
 
     readonly List<System.Windows.Controls.RadioButton> themeModeButtons = new();
+    int themeLayoutVersion;
 
     void InitializeSettingsOptions()
     {
@@ -84,8 +85,10 @@ public partial class MainWindow
                 ApplyInterfaceMode();
                 // The complete list uses row virtualization. Recompute its
                 // column count after the new card width and page width settle.
+                var layoutVersion = ++themeLayoutVersion;
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
+                    if (layoutVersion != themeLayoutVersion || UiTheme.Current != id) return;
                     UpdateLayout();
                     ReflowVirtualRows();
                     if (view is "all" or "recent" or "favorites") RenderCards();
@@ -106,6 +109,7 @@ public partial class MainWindow
         {
             config.UiTheme = UiTheme.Classic;
             config.UiMotion = UiMotion.Balanced;
+            ++themeLayoutVersion;
             UiTheme.Apply(UiTheme.Classic);
             foreach (var choice in themeModeButtons)
                 choice.IsChecked = Equals(choice.Tag, UiTheme.Classic);

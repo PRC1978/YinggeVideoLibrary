@@ -46,8 +46,8 @@ public partial class MainWindow
         MissingFilterButton.Visibility = onVideoPage && (missing > 0 || availabilityFilter == 1) ? Visibility.Visible : Visibility.Collapsed;
         UnavailableFilterButton.Content = $"位置暂不可用 {unavailable}";
         UnavailableFilterButton.Visibility = onVideoPage && (unavailable > 0 || availabilityFilter == 2) ? Visibility.Visible : Visibility.Collapsed;
-        HighlightChip(MissingFilterButton, availabilityFilter == 1, Color.FromRgb(180, 35, 24));
-        HighlightChip(UnavailableFilterButton, availabilityFilter == 2, Color.FromRgb(180, 83, 9));
+        HighlightChip(MissingFilterButton, availabilityFilter == 1, UiTheme.DangerBrush);
+        HighlightChip(UnavailableFilterButton, availabilityFilter == 2, UiTheme.WarningBrush);
         if (MissingFilesSummary is not null)
         {
             MissingFilesSummary.Text = missing == 0 && unavailable == 0
@@ -61,19 +61,22 @@ public partial class MainWindow
     static readonly Brush ChipIdleBackground = UiTheme.SurfaceBrush;
     static readonly Brush ChipIdleBorder = UiTheme.AccentSoftBackgroundBrush;
     static readonly Brush ChipIdleForeground = UiTheme.TextTertiaryBrush;
-    static readonly Brush ChipMissingBackground = new SolidColorBrush(Color.FromArgb(30, 180, 35, 24));
-    static readonly Brush ChipMissingBorder = UiTheme.DangerBrush;
-    static readonly Brush ChipMissingForeground = UiTheme.DangerBrush;
-    static readonly Brush ChipUnavailableBackground = new SolidColorBrush(Color.FromArgb(30, 180, 83, 9));
-    static readonly Brush ChipUnavailableBorder = UiTheme.DangerBrush;
-    static readonly Brush ChipUnavailableForeground = UiTheme.DangerBrush;
-
-    static void HighlightChip(Button button, bool active, Color accent)
+    static void HighlightChip(Button button, bool active, SolidColorBrush accent)
     {
-        var missingAccent = accent == Color.FromRgb(180, 35, 24);
-        button.Background = active ? (missingAccent ? ChipMissingBackground : ChipUnavailableBackground) : ChipIdleBackground;
-        button.BorderBrush = active ? (missingAccent ? ChipMissingBorder : ChipUnavailableBorder) : ChipIdleBorder;
-        button.Foreground = active ? (missingAccent ? ChipMissingForeground : ChipUnavailableForeground) : ChipIdleForeground;
+        var color = accent.Color;
+        button.Background = active
+            ? new SolidColorBrush(Color.FromArgb(30, color.R, color.G, color.B))
+            : ChipIdleBackground;
+        button.BorderBrush = active ? accent : ChipIdleBorder;
+        button.Foreground = active ? accent : ChipIdleForeground;
+    }
+
+    void InvalidateAvailabilityChipTheme()
+    {
+        // Count caching intentionally skips restyling on ordinary searches.
+        // A theme change needs one explicit refresh even if the counts match.
+        lastMissingChip = -1;
+        UpdateAvailabilityChips();
     }
 
     void ToggleMissingFilter(object sender, RoutedEventArgs e)

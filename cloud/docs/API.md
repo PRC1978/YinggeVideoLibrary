@@ -100,7 +100,7 @@
 ## 错误体
 
 ```json
-{"type":"https://yingge.top/problems/duplicate_report","title":"重复提交","status":409,
+{"type":"https://reports.yingevideo.top/problems/duplicate_report","title":"重复提交","status":409,
  "code":"duplicate_report","detail":"这份日志已经上传过，无需重复提交。"}
 ```
 

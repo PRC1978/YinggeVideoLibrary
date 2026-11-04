@@ -40,7 +40,7 @@ public sealed class ClientTests(PostgresFixture fixture) : CloudTestBase(fixture
     public void Client_refuses_plain_http_to_a_remote_host()
     {
         var exception = Assert.Throws<ArgumentException>(() => new CloudAccountClient(
-            new CloudClientOptions { BaseAddress = new Uri("http://reports.example.com") }));
+            new CloudClientOptions { BaseAddress = new Uri("http://reports.yingevideo.top") }));
         Assert.Contains("HTTPS", exception.Message, StringComparison.Ordinal);
     }
 

@@ -51,7 +51,12 @@ public sealed class PostgresFixture : IAsyncLifetime
             create role yingge_app login password '{AppPassword}' nosuperuser nocreatedb nocreaterole;
             create database {Database} owner yingge_owner;
             """, viaPsql: true);
-        await ExecuteAdminAsync(Database, "revoke all on schema public from public;", viaPsql: true);
+        // PostgreSQL 14 keeps the public schema owned by the bootstrap superuser;
+// 15+ hands it to pg_database_owner. Handing it to the database owner makes
+// the same migrations work on both, and is what production setup does too.
+        await ExecuteAdminAsync(Database,
+            "alter schema public owner to yingge_owner; revoke all on schema public from public;",
+            viaPsql: true);
 
         OwnerDataSource = Db.Create(OwnerConnectionString, 6, "tests-migrate");
         await Migrator.ApplyAsync(OwnerDataSource, null, CancellationToken.None);
@@ -67,7 +72,7 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        await OwnerDataSource.DisposeAsync();
+        if (OwnerDataSource is not null) await OwnerDataSource.DisposeAsync();
         if (postmaster is { HasExited: false })
         {
             try
@@ -169,9 +174,18 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     Process StartPostmaster()
     {
+        // Debian/Ubuntu compile PostgreSQL with a default socket directory that
+        // only the postgres user can write to; the unprivileged test user needs
+        // its own directory or the postmaster cannot create its lock file.
+        var socketOption = OperatingSystem.IsWindows()
+            ? ""
+            : $" -c unix_socket_directories=\"{Path.Combine(Root, "socket")}\"";
+        if (!OperatingSystem.IsWindows()) Directory.CreateDirectory(Path.Combine(Root, "socket"));
+
         var info = new ProcessStartInfo(Executable("postgres"),
             $"-D \"{dataDirectory}\" -p {Port} -c listen_addresses=127.0.0.1 " +
-            "-c fsync=off -c full_page_writes=off -c synchronous_commit=off -c max_connections=100")
+            "-c fsync=off -c full_page_writes=off -c synchronous_commit=off -c max_connections=100" +
+            socketOption)
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,

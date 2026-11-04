@@ -7,12 +7,13 @@
 | 组件 | 位置 | 端口 |
 | --- | --- | --- |
 | Kestrel（本服务） | `/opt/yingge-cloud/app` | `127.0.0.1:5080` |
-| PostgreSQL 14 | 系统包，Unix socket `/var/run/postgresql` | 不监听 TCP |
+| PostgreSQL 14 | 系统包，`listen_addresses=localhost` | `127.0.0.1:5432`（不对外） |
 | nginx + certbot | 系统包 | `443`（`80` 仅 ACME 与跳转） |
 | 日志文件 | `/var/lib/yingge-cloud/reports` | — |
 
-数据库只走 Unix socket，`postgresql.conf` 保持 `listen_addresses = 'localhost'`；`setup-database.sh`
-不修改监听配置。**不要**为方便远程管理把 5432 暴露到公网。
+PostgreSQL 保持 Ubuntu 默认的 `listen_addresses = 'localhost'`。服务通过 `127.0.0.1:5432` 以 scram 口令连接：
+Ubuntu 的 pg_hba 对 Unix socket 使用 peer 认证（进程用户必须与角色同名），socket + 口令在默认配置下会失败。
+`setup-database.sh` 不修改监听配置。**不要**为方便远程管理把 5432 暴露到公网。
 
 ## 1. 依赖
 
@@ -35,12 +36,12 @@ sudo -E ./deploy/setup-database.sh
 ```
 
 脚本创建两个非超级用户：`yingge_cloud_owner`（建表/迁移）与 `yingge_cloud_app`（仅 DML），
-撤销 `public` 的默认建表权，并为 owner 之后新建的表配置默认授权。
+把 `public` schema 转交 owner（PG14 的 public 归 postgres，不转交会导致迁移报 3F000）、撤销默认建表权，并为 owner 之后新建的表配置默认授权。
 
 确认 5432 没有对公网开放（在本机执行）：
 
 ```bash
-sudo ss -ltnp | grep -E ':5432|:5080'      # 期望：5432 只出现 127.0.0.1 或 unix socket
+sudo ss -ltnp | grep -E ':5432|:5080'      # 期望：5432/5080 都只绑定 127.0.0.1
 sudo ufw status                              # 期望：没有 allow 5432
 # 在外部机器执行，期望超时或被拒绝：
 #   nc -vz 43.226.58.187 5432
@@ -69,7 +70,7 @@ sudo nano /etc/yingge-cloud/accounts.env          # 填入 Database__AppConnecti
 
 sudo install -m 0600 -o root -g root /dev/null /etc/yingge-cloud/admin.env
 sudo tee /etc/yingge-cloud/admin.env >/dev/null <<'EOF'
-Database__AdminConnectionString=Host=/var/run/postgresql;Database=yingge_cloud;Username=yingge_cloud_owner;Password=...
+Database__AdminConnectionString=Host=127.0.0.1;Port=5432;Database=yingge_cloud;Username=yingge_cloud_owner;Password=...
 EOF
 ```
 
@@ -80,10 +81,10 @@ EOF
 
 ```bash
 sudo cp deploy/nginx-reports.conf.example /etc/nginx/sites-available/yingge-cloud-accounts
-sudo sed -i 's/reports.example.com/<你的域名>/g' /etc/nginx/sites-available/yingge-cloud-accounts
+# 文件中的域名已是 reports.yingevideo.top
 sudo ln -s /etc/nginx/sites-available/yingge-cloud-accounts /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d <你的域名>          # 自动写入证书路径并配置续期
+sudo certbot --nginx -d reports.yingevideo.top          # 自动写入证书路径并配置续期
 sudo systemctl list-timers | grep certbot   # 确认自动续期
 ```
 
@@ -93,15 +94,15 @@ sudo systemctl list-timers | grep certbot   # 确认自动续期
 ## 6. 验证
 
 ```bash
-sudo BASE_URL=https://<你的域名> ./deploy/smoke-local.sh
+sudo BASE_URL=https://reports.yingevideo.top ./deploy/smoke-local.sh
 ```
 
 脚本依次验证：注册 → 登录 → 上传 → 列表 → 删除 → 退出，全部走真实 TLS（curl 默认校验证书）。
 任何一步失败都会打印 HTTP 状态并退出非零。
 
 ```bash
-curl -sS https://<你的域名>/api/v1/health
-curl -sSI https://<你的域名>/api/v1/auth/login   # 只看证书与状态码，不发凭据
+curl -sS https://reports.yingevideo.top/api/v1/health
+curl -sSI https://reports.yingevideo.top/api/v1/auth/login   # 只看证书与状态码，不发凭据
 ```
 
 在服务器上复跑集成测试，确认 PostgreSQL **14** 的行为（测试会另建临时集群，不碰生产库）：
@@ -166,11 +167,18 @@ sudo systemctl start yingge-cloud-accounts
 
 `migrate-down` 会删除表；执行前先跑 `backup.sh`。只回滚代码、保留数据时，跳过 `migrate-down`。
 
-## 10. 尚未验证（必须完成才能对公众开放）
+## 10. 当前状态与尚未验证
 
-1. **域名未生效**：2026-11-04 用 Cloudflare DoH 复查，`yingvideo.top` 与 `reports.yingvideo.top`
-   仍返回 `Status=3`（NXDOMAIN），根域 NS 也查不到。域名未委派前，certbot 无法签发证书。
-2. 本文件中的服务器步骤没有在 `43.226.58.187` 上执行过：本次只交付代码、脚本和隔离测试，
-   未登录服务器、未改数据库、未部署。
-3. 公网 443 是否真正转发到本机、证书能否自动续期、5432 是否意外可达，需要在服务器上按第 2、5 节实测。
-4. 真实客户端只做过离线自检（`--self-test-cloud-account`）；联网登录与上传需要服务器就绪后补测。
+已在 `43.226.58.187` 上完成隔离验收（2026-11-04，见 `ACCEPTANCE_SERVER_2026-11-04.md`）：
+
+- PostgreSQL **14.24** 已安装并仅监听 `127.0.0.1:5432`；.NET SDK 9.0.320 已安装。
+- 临时库迁移 + 64 项测试通过，功能验收 23/23，备份恢复比对通过；临时对象已全部清理。
+- 验证中修正了 PG14 的 `public` schema 所有权、socket/peer 认证、日志目录位置、退出限速四个问题。
+
+仍未完成：
+
+1. **证书尚未签发**：`reports.yingevideo.top` 已解析到 `43.226.58.187`，本机 80/443 空闲，但未安装
+   nginx/certbot；HTTP-01 还需要公网 80 确实转发到本机（工作站经代理，无法可靠验证）。
+2. **未创建生产库与服务**：没有创建 `yingge_cloud` 库、没有安装 systemd 单元、没有生成正式邀请码。
+3. 公网 443 是否转发到本机、5432 是否可达，需要在干净出口的网络里复核。
+4. 真实客户端只做过离线自检（`--self-test-cloud-account`）；联网登录与上传需服务端上线后补测。

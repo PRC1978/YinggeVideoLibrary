@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # End-to-end check against a deployed instance over real HTTPS.
-#   sudo BASE_URL=https://reports.example.com ./smoke-local.sh
+#   sudo BASE_URL=https://reports.yingevideo.top ./smoke-local.sh
 #
 # It creates one throwaway account, uploads one synthetic report, deletes it,
 # and leaves nothing behind. No user data is touched.

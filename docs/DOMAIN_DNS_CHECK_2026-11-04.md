@@ -1,3 +1,7 @@
+> **2026-11-04 21:55 更正**：实际域名是 `yingevideo.top`（本文此前少写一个 `e`）。复核结果：
+> `yingevideo.top` 与 `reports.yingevideo.top` 均解析到 `43.226.58.187`（Cloudflare DoH，Status=0），
+> DNSPod 的 NS 正常，无需修改 NS。下面的探测记录保留原样，仅域名拼写有误。
+
 # yingvideo.top 域名检查（2026-11-04）
 
 用户截图中的 `@`、`www`、`reports` 三条 A 记录均指向 `43.226.58.187`，主机名和记录值的写法没有明显错误。

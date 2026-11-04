@@ -13,8 +13,8 @@ internal static class AuthEndpoints
         var group = app.MapGroup("/api/v1/auth");
         group.MapPost("/register", Register).RequireRateLimiting(RateLimitSetup.Register);
         group.MapPost("/login", Login).RequireRateLimiting(RateLimitSetup.Login);
-        group.MapPost("/logout", Logout).RequireRateLimiting(RateLimitSetup.Upload);
-        group.MapGet("/session", Session).RequireRateLimiting(RateLimitSetup.Upload);
+        group.MapPost("/logout", Logout).RequireRateLimiting(RateLimitSetup.Session);
+        group.MapGet("/session", Session).RequireRateLimiting(RateLimitSetup.Session);
     }
 
     static async Task<IResult> Register(RegisterRequest? request, HttpContext http,

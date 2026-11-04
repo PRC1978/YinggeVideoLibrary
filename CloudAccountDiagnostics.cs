@@ -44,14 +44,14 @@ internal static class CloudAccountDiagnostics
         {
             using var rejected = new CloudAccountClient(new CloudClientOptions
             {
-                BaseAddress = new Uri("http://reports.example.com")
+                BaseAddress = new Uri("http://reports.yingevideo.top")
             });
         }
         catch (ArgumentException)
         {
             plainHttpRefused = true;
         }
-        Check("plain_http_refused", plainHttpRefused, "http://reports.example.com");
+        Check("plain_http_refused", plainHttpRefused, "http://reports.yingevideo.top");
 
         var directory = Path.Combine(Path.GetTempPath(),
             "yingge-cloud-selftest-" + Guid.NewGuid().ToString("N")[..8]);

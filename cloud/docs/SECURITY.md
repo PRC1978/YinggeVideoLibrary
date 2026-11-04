@@ -35,12 +35,12 @@
 - 只接受 HTTPS：`Security:RequireHttps=true` 时非 TLS 请求返回 426。客户端在非回环地址上拒绝 `http://`。
 - Kestrel 只监听 `127.0.0.1:5080`，由 nginx 终止 TLS；只有 `Security:KnownProxies` 中的地址
   可以影响 `X-Forwarded-For/Proto`。
-- PostgreSQL 只监听本机 socket，不对公网开放 5432。
+- PostgreSQL 只监听 `127.0.0.1:5432`（Ubuntu 默认 `listen_addresses=localhost`），不对公网开放 5432。
 - 不跟随重定向、不关闭证书校验；DNS 与证书由系统信任链验证。
 
 ## 5. 限速、配额与审计
 
-- 登录 10 次/分钟/IP；注册 5 次/小时/IP；全局 300 次/分钟/IP；上传按会话 3 次/分钟。
+- 登录 10 次/分钟/IP；注册 5 次/小时/IP；全局 300 次/分钟/IP；上传由账号级配额约束（24h 10 份、5min 3 份），在认证之后判定。
 - 账号级配额：24 小时 10 份、5 分钟 3 份；超限返回 429 与 `Retry-After`。
 - 所有拒绝路径都会写审计（原因、条数索引），但不写正文，也不写 `error_reports`。
 - 审计可用于追溯“谁在何时上传/被拒绝/被停用”，但不足以还原日志内容。

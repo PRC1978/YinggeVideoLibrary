@@ -463,7 +463,10 @@ public partial class MainWindow : Window
     bool spherePanning;
     bool sphereGestureRotates;
     double sphereRotationOrigin;
+    double spherePitchOrigin;
     double sphereRotation;
+    double spherePitch;
+    System.Windows.Input.MouseButton sphereDragButton;
     bool sphereRotationEnabled;
     Button? sphereRotationButton;
     int LastSearchHitCount;
@@ -2492,7 +2495,7 @@ public partial class MainWindow : Window
         CategoryPanel.Children.Clear();
         sphereCategoryChips.Clear();
         CategoryPanel.Children.Add(new TextBlock { Text = "分类工作台", FontSize = 19, FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextSecondaryBrush, Margin = new Thickness(0, 0, 0, 4) });
-        CategoryPanel.Children.Add(new TextBlock { Text = "点击节点筛选，拖动视频归类；中键拖动旋转，Shift＋中键移动图面，滚轮缩放，底边可调整高度。", Foreground = UiTheme.TextTertiaryBrush, FontSize = 12, Margin = new Thickness(0, 0, 0, 14) });
+        CategoryPanel.Children.Add(new TextBlock { Text = "点击节点筛选，拖动视频归类；左键拖空白处或右键拖动平移，中键横纵拖动旋转三维图，滚轮缩放。", Foreground = UiTheme.TextTertiaryBrush, FontSize = 12, Margin = new Thickness(0, 0, 0, 14) });
         CategoryPanel.Children.Add(BuildGraphMoveActions());
         var graphIndex = GetSphereGraphIndexForUi();
         if (graphIndex is null)
@@ -2606,9 +2609,7 @@ public partial class MainWindow : Window
     void RotateSphereGraph()
     {
         if (!sphereRotationEnabled || sphereMapSurface is null || sphereGraphCanvas is null) return;
-        sphereRotation += .012;
-        sphereMapSurface.Rotation = sphereRotation;
-        sphereMapSurface.InvalidateVisual();
+        SetSphereRotation(sphereRotation + .012, spherePitch);
     }
 
     void ToggleSphereRotation(object sender, RoutedEventArgs e)
@@ -2643,7 +2644,7 @@ public partial class MainWindow : Window
     {
         if (sphereGraphViewport is null) return;
         System.Windows.Automation.AutomationProperties.SetName(sphereGraphViewport,
-            $"分类关系图，缩放 {sphereZoom:P0}，旋转 {sphereRotation * 180 / Math.PI:0} 度，平移 {spherePanOffset.X:0}、{spherePanOffset.Y:0}");
+            $"三维分类关系图，缩放 {sphereZoom:P0}，水平旋转 {sphereRotation * 180 / Math.PI:0} 度，俯仰 {spherePitch * 180 / Math.PI:0} 度，平移 {spherePanOffset.X:0}、{spherePanOffset.Y:0}");
     }
 
     void ZoomSphereGraph(double factor, System.Windows.Point? anchor = null)
@@ -2670,6 +2671,7 @@ public partial class MainWindow : Window
     {
         sphereZoom = 1;
         spherePanOffset = default;
+        SetSphereRotation(0, 0);
         UpdateSphereViewport();
     }
 
@@ -2682,12 +2684,18 @@ public partial class MainWindow : Window
 
     void SphereGraphMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        if (e.ChangedButton != System.Windows.Input.MouseButton.Middle || sphereGraphViewport is null) return;
+        if (sphereGraphViewport is null || sphereMapSurface is null) return;
+        if (e.ChangedButton is not (System.Windows.Input.MouseButton.Middle or System.Windows.Input.MouseButton.Right or System.Windows.Input.MouseButton.Left)) return;
+        if (e.ChangedButton == System.Windows.Input.MouseButton.Left &&
+            sphereMapSurface.HitPath(e.GetPosition(sphereMapSurface)) is not null) return;
         spherePanning = true;
+        sphereDragButton = e.ChangedButton;
         spherePanStart = e.GetPosition(sphereGraphViewport);
         spherePanOrigin = spherePanOffset;
-        sphereGestureRotates = (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) == 0;
+        sphereGestureRotates = e.ChangedButton == System.Windows.Input.MouseButton.Middle &&
+            (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) == 0;
         sphereRotationOrigin = sphereRotation;
+        spherePitchOrigin = spherePitch;
         if (sphereGestureRotates && sphereRotationEnabled)
         {
             sphereRotationEnabled = false;
@@ -2702,18 +2710,29 @@ public partial class MainWindow : Window
     void SphereGraphMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
         if (!spherePanning || sphereGraphViewport is null) return;
-        if (e.MiddleButton != System.Windows.Input.MouseButtonState.Pressed) { EndSpherePan(); return; }
+        var pressed = sphereDragButton switch
+        {
+            System.Windows.Input.MouseButton.Left => e.LeftButton,
+            System.Windows.Input.MouseButton.Right => e.RightButton,
+            _ => e.MiddleButton
+        };
+        if (pressed != System.Windows.Input.MouseButtonState.Pressed) { EndSpherePan(); return; }
         var displacement = e.GetPosition(sphereGraphViewport) - spherePanStart;
-        if (sphereGestureRotates) SetSphereRotation(sphereRotationOrigin + displacement.X * .008);
+        if (sphereGestureRotates) SetSphereRotation(sphereRotationOrigin + displacement.X * .006,
+            Math.Clamp(spherePitchOrigin - displacement.Y * .006, -1.25, 1.25));
         else SetSpherePanOffset(spherePanOrigin + displacement);
         e.Handled = true;
     }
 
-    void SetSphereRotation(double radians)
+    void SetSphereRotation(double radians) => SetSphereRotation(radians, spherePitch);
+
+    void SetSphereRotation(double radians, double pitch)
     {
         sphereRotation = radians;
+        spherePitch = pitch;
         if (sphereMapSurface is null) return;
         sphereMapSurface.Rotation = radians;
+        sphereMapSurface.Pitch = pitch;
         sphereMapSurface.InvalidateVisual();
         UpdateSphereAccessibility();
     }
@@ -2726,7 +2745,7 @@ public partial class MainWindow : Window
 
     void SphereGraphMouseUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        if (e.ChangedButton != System.Windows.Input.MouseButton.Middle || !spherePanning) return;
+        if (e.ChangedButton != sphereDragButton || !spherePanning) return;
         EndSpherePan();
         e.Handled = true;
     }

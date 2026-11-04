@@ -149,6 +149,18 @@ public partial class MainWindow
                         encoder.Frames.Add(BitmapFrame.Create(bitmap));
                         using var output = File.Create(Path.Combine(outputDirectory, $"{mode}-{width}x{height}-{page}.png"));
                         encoder.Save(output);
+                        if (mode == UiTheme.Glass && width == 1240 && page == "categories" && sphereMapSurface is not null)
+                        {
+                            SetSphereRotation(.55, .38);
+                            await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
+                            var tilted = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+                            tilted.Render(this);
+                            var tiltedEncoder = new PngBitmapEncoder();
+                            tiltedEncoder.Frames.Add(BitmapFrame.Create(tilted));
+                            using var tiltedOutput = File.Create(Path.Combine(outputDirectory, "glass-1240x780-categories-tilted.png"));
+                            tiltedEncoder.Save(tiltedOutput);
+                            SetSphereRotation(0, 0);
+                        }
                         report.Add(new
                         {
                             mode, width, height, page,

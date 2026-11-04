@@ -503,9 +503,13 @@ public partial class MainWindow
                 SetSphereRotation(.24);
                 if (Math.Abs(sphere.Rotation - .24) > .001)
                     throw new InvalidOperationException("分类图旋转没有更新矢量绘制层");
-                if (!System.Windows.Automation.AutomationProperties.GetName(viewport).Contains("旋转 14 度", StringComparison.Ordinal))
+                if (!System.Windows.Automation.AutomationProperties.GetName(viewport).Contains("水平旋转 14 度", StringComparison.Ordinal))
                     throw new InvalidOperationException("分类图视口没有报告实际旋转角度");
-                SetSphereRotation(0);
+                SetSphereRotation(.24, .20);
+                if (Math.Abs(sphere.Pitch - .20) > .001 ||
+                    !System.Windows.Automation.AutomationProperties.GetName(viewport).Contains("俯仰 11 度", StringComparison.Ordinal))
+                    throw new InvalidOperationException("分类图三维俯仰角没有更新");
+                SetSphereRotation(0, 0);
                 var oldX = sphereGraphTranslation?.X ?? throw new InvalidOperationException("分类图平移变换未创建");
                 SetSpherePanOffset(new System.Windows.Vector(40, 25));
                 if (Math.Abs(sphereGraphTranslation.X - oldX - 40) > .5)

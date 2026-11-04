@@ -35,6 +35,7 @@ public partial class MainWindow
         public string TagName { get; init; } = "";
         public double Angle { get; set; }
         public double Radius { get; set; }
+        public double Z { get; set; }
     }
 
     sealed class SphereGraphIndex
@@ -111,6 +112,7 @@ public partial class MainWindow
         readonly Brush HoverBrush;
         readonly Brush HaloBrush;
         readonly Brush RootBrush;
+        readonly Brush RootTextBrush;
         readonly Brush TextBrush;
         readonly Brush LightTextBrush;
         readonly Brush LabelBackdrop;
@@ -129,6 +131,10 @@ public partial class MainWindow
         readonly Drawing baseLayer;
         readonly bool forceMode;
         readonly Dictionary<string, System.Windows.Point> basePoints = new(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<string, System.Windows.Point> projectedPoints = new(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<string, double> projectedScales = new(StringComparer.OrdinalIgnoreCase);
+        double projectedYaw = double.NaN;
+        double projectedPitch = double.NaN;
         readonly Dictionary<(int X, int Y), List<SphereMapNode>> hitCells = [];
         readonly Dictionary<string, SphereMapNode> byPath;
         readonly Dictionary<string, List<SphereMapNode>> childrenByParent = new(StringComparer.OrdinalIgnoreCase);
@@ -153,6 +159,7 @@ public partial class MainWindow
         public string RootLabel { get; set; } = "全部分类";
         public int RootCount { get; set; }
         public double Rotation { get; set; }
+        public double Pitch { get; set; }
         public double ZoomLevel { get; set; } = 1;
         public int NodeCount => nodes.Count;
         public double AssociationBuildMs { get; private set; }
@@ -207,9 +214,20 @@ public partial class MainWindow
                 HoverBrush = FrozenBrush(UiTheme.AccentHoverBrush.Color);
                 HaloBrush = FrozenBrush(Color.FromArgb(72, accent.R, accent.G, accent.B));
                 RootBrush = FrozenBrush(UiTheme.AccentHoverBrush.Color);
-                TextBrush = FrozenBrush(UiTheme.TextPrimaryBrush.Color);
+                // A translucent theme surface can be light even when the
+                // theme's main text is white. Labels need their own contrast.
+                var labelLuminance = .2126 * surface.R + .7152 * surface.G + .0722 * surface.B;
+                TextBrush = FrozenBrush(labelLuminance > 145
+                    ? Color.FromRgb(25, 36, 54) : Color.FromRgb(244, 247, 252));
                 LightTextBrush = FrozenBrush(subdued);
-                LabelBackdrop = FrozenBrush(Color.FromArgb(244, surface.R, surface.G, surface.B));
+                LabelBackdrop = FrozenBrush(labelLuminance > 145
+                    ? Color.FromArgb(250, 250, 252, 255)
+                    : Color.FromArgb(246, 30, 39, 55));
+                if (UiTheme.Current == UiTheme.Glass)
+                {
+                    LabelBackdrop = FrozenBrush(Color.FromArgb(246, 27, 39, 58));
+                    TextBrush = FrozenBrush(Color.FromRgb(249, 251, 255));
+                }
                 LinkPen = FrozenPen(Color.FromArgb(155, accent.R, accent.G, accent.B), 1.15);
                 FocusLinkPen = FrozenPen(UiTheme.WarningBrush.Color, 2);
                 AssociationPen = FrozenPen(Color.FromArgb(190, alternate.R, alternate.G, alternate.B), 1.45);
@@ -219,6 +237,10 @@ public partial class MainWindow
                 OrbitPen = FrozenPen(Color.FromArgb(100, accent.R, accent.G, accent.B), 1);
                 GlobeBrush = MakeThemeGlobeBrush(surface, UiTheme.AccentSoftBackgroundBrush.Color, ground);
             }
+            var rootColor = ((SolidColorBrush)RootBrush).Color;
+            var rootLuminance = .2126 * rootColor.R + .7152 * rootColor.G + .0722 * rootColor.B;
+            RootTextBrush = FrozenBrush(rootLuminance > 145
+                ? Color.FromRgb(28, 33, 43) : Color.FromRgb(255, 255, 255));
             var constructionClock = System.Diagnostics.Stopwatch.StartNew();
             this.nodes = nodes;
             this.tagCategories = tagCategories;
@@ -255,7 +277,7 @@ public partial class MainWindow
             AssociationBuildMs = constructionClock.Elapsed.TotalMilliseconds;
             rankedLabels = nodes.OrderByDescending(node => node.Count)
                 .ThenBy(node => node.Depth).ThenBy(node => node.Label, StringComparer.CurrentCultureIgnoreCase)
-                .Take(120).ToArray();
+                .Take(nodes.Count <= 80 ? nodes.Count : 120).ToArray();
             AllowDrop = true;
             Cursor = Cursors.Hand;
             ToolTip = "点击节点筛选 · 拖动分类节点到目标节点 · 可把视频拖到节点";
@@ -336,6 +358,56 @@ public partial class MainWindow
                 center.Y - center.X * (232.0 / 246.0) * sine - center.Y * cosine);
         }
 
+        // Project actual three-dimensional node positions. The force layout
+        // supplies X/Y; stable per-node depth separates branches in Z so a
+        // middle drag changes occlusion and apparent size, not just picture angle.
+        void EnsureProjection()
+        {
+            if (Rotation == projectedYaw && Pitch == projectedPitch) return;
+            projectedYaw = Rotation;
+            projectedPitch = Pitch;
+            projectedPoints.Clear();
+            projectedScales.Clear();
+            var center = basePoints[""];
+            projectedPoints[""] = center;
+            projectedScales[""] = 1;
+            var cosineYaw = Math.Cos(Rotation);
+            var sineYaw = Math.Sin(Rotation);
+            var cosinePitch = Math.Cos(Pitch);
+            var sinePitch = Math.Sin(Pitch);
+            foreach (var node in nodes)
+            {
+                var point = basePoints[node.Path];
+                var x = (point.X - center.X) / 500;
+                var y = (point.Y - center.Y) / 270;
+                var z = node.Z;
+                var yawX = x * cosineYaw + z * sineYaw;
+                var yawZ = z * cosineYaw - x * sineYaw;
+                var pitchY = y * cosinePitch - yawZ * sinePitch;
+                var pitchZ = y * sinePitch + yawZ * cosinePitch;
+                var perspective = 2.8 / Math.Max(1.4, 2.8 - pitchZ);
+                projectedPoints[node.Path] = new System.Windows.Point(center.X + yawX * 500 * perspective,
+                    center.Y + pitchY * 270 * perspective);
+                projectedScales[node.Path] = perspective;
+            }
+        }
+
+        public System.Windows.Point ProjectedPoint(string path)
+        {
+            if (Math.Abs(Rotation) < .00001 && Math.Abs(Pitch) < .00001) return basePoints[path];
+            EnsureProjection();
+            return projectedPoints[path];
+        }
+
+        public double ProjectedRadius(string path)
+        {
+            if (path.Length == 0) return 32;
+            var node = byPath[path];
+            if (Math.Abs(Rotation) < .00001 && Math.Abs(Pitch) < .00001) return NodeRadius(node);
+            EnsureProjection();
+            return Math.Clamp(NodeRadius(node) * projectedScales[path], 2.5, 13);
+        }
+
         static Brush MakeGlobeBrush(bool dark)
         {
             var brush = new RadialGradientBrush
@@ -400,6 +472,22 @@ public partial class MainWindow
         {
             var root = basePoints[""];
             if ((root - point).LengthSquared <= 44 * 44) return "";
+            if (Math.Abs(Rotation) >= .00001 || Math.Abs(Pitch) >= .00001)
+            {
+                string? hit = null;
+                var distance = double.MaxValue;
+                foreach (var node in nodes)
+                {
+                    var squared = (ProjectedPoint(node.Path) - point).LengthSquared;
+                    var radius = Math.Max(11, ProjectedRadius(node.Path) + 6);
+                    if (squared <= radius * radius && squared < distance)
+                    {
+                        hit = node.Path;
+                        distance = squared;
+                    }
+                }
+                return hit;
+            }
             // The full hit grid is built once in the unrotated coordinate space.
             // Transform the pointer backwards instead of reprojecting every
             // category on each mouse move or animation frame.
@@ -497,8 +585,8 @@ public partial class MainWindow
             var cache = selected ? selectedLabels : normalLabels;
             if (cache.TryGetValue(node.Path, out var text)) return text;
             text = new FormattedText(node.Label, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
-                LabelTypeface, 11, selected ? HoverBrush : TextBrush, 1)
-            { MaxTextWidth = 122, MaxLineCount = 1, Trimming = TextTrimming.CharacterEllipsis };
+                LabelTypeface, 14, TextBrush, 1)
+            { MaxTextWidth = 138, MaxLineCount = 1, Trimming = TextTrimming.CharacterEllipsis };
             cache[node.Path] = text;
             return text;
         }
@@ -561,27 +649,47 @@ public partial class MainWindow
 
             RefreshFocusedBranches();
             var rotation = RotationMatrix(center, Rotation);
-            System.Windows.Point Position(string path) => rotation.Transform(basePoints[path]);
-            // The full topology is rasterized once on graph construction. A
-            // matrix rotates the cached layer around the globe while labels,
-            // hit testing and focused relationships remain crisp and live.
-            dc.PushTransform(new MatrixTransform(rotation));
-            dc.DrawDrawing(baseLayer);
-            if (focusedBranches.Count > 0)
-                dc.DrawGeometry(null, FocusLinkPen, FocusedLinkGeometry());
+            var projected = Math.Abs(Rotation) >= .00001 || Math.Abs(Pitch) >= .00001;
+            System.Windows.Point Position(string path) => projected ? ProjectedPoint(path) : basePoints[path];
+            if (projected)
+            {
+                foreach (var node in nodes)
+                    dc.DrawLine(LinkPen, Position(node.Parent), Position(node.Path));
+                foreach (var node in nodes)
+                {
+                    var point = Position(node.Path);
+                    var radius = ProjectedRadius(node.Path);
+                    dc.DrawEllipse(node.IsTag ? TagBrush : node.Count == 0 ? NodeLightBrush : NodeBrush,
+                        NodePen, point, radius, radius);
+                }
+                foreach (var path in focusedBranches)
+                    if (byPath.TryGetValue(path, out var node))
+                        dc.DrawLine(FocusLinkPen, Position(node.Parent), Position(path));
+            }
+            else
+            {
+                // At rest the vector topology stays cached as a DrawingGroup.
+                dc.DrawDrawing(baseLayer);
+                if (focusedBranches.Count > 0)
+                    dc.DrawGeometry(null, FocusLinkPen, FocusedLinkGeometry());
+            }
 
             // Cross-links are shown when a category or tag is focused. Drawing
             // all such lines permanently would bury the hierarchy in large
             // libraries; every relationship remains available on hover.
             var associations = FocusAssociations();
             if (associations.Count > 0)
-                dc.DrawGeometry(null, AssociationPen, AssociationLinkGeometry(associations));
-            dc.Pop();
+            {
+                if (projected)
+                    foreach (var association in associations)
+                        dc.DrawLine(AssociationPen, Position(association.TagPath), Position(association.CategoryPath));
+                else dc.DrawGeometry(null, AssociationPen, AssociationLinkGeometry(associations));
+            }
             void DrawFocusedNode(string path, bool active)
             {
                 if (!byPath.TryGetValue(path, out var node)) return;
                 var point = Position(path);
-                var radius = NodeRadius(node);
+                var radius = projected ? ProjectedRadius(path) : NodeRadius(node);
                 dc.DrawEllipse(HaloBrush, null, point, radius + 7, radius + 7);
                 dc.DrawEllipse(active ? SelectedBrush : HoverBrush,
                     NodePen, point, radius + 2, radius + 2);
@@ -591,21 +699,22 @@ public partial class MainWindow
             if (!string.Equals(HoverPath, SelectedPath, StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(HoverPath, DropPath, StringComparison.OrdinalIgnoreCase)) DrawFocusedNode(HoverPath, false);
             dc.DrawEllipse(RootBrush, RootPen, center, forceMode ? 32 : 43, forceMode ? 32 : 43);
-            DrawCentered(dc, "✦", center.X, center.Y - 14, 16, UiTheme.SurfaceBrush, FontWeights.Bold);
-            DrawCentered(dc, RootLabel, center.X, center.Y + 8, 11, UiTheme.SurfaceBrush, FontWeights.SemiBold);
+            DrawCentered(dc, "✦", center.X, center.Y - 14, 16, RootTextBrush, FontWeights.Bold);
+            DrawCentered(dc, RootLabel, center.X, center.Y + 8, 11, RootTextBrush, FontWeights.SemiBold);
 
             // All nodes remain visible as dots. Labels use collision avoidance;
             // the navigator below offers exact access to every dense node.
             var occupied = new List<Rect> { new(center.X - 52, center.Y - 48, 104, 96) };
             var drawn = 0;
-            var labelLimit = ZoomLevel >= 1.6 ? 28 : 16;
+            var labelLimit = nodes.Count <= 80 ? nodes.Count : ZoomLevel >= 1.6 ? 38 : 24;
             void DrawLabel(SphereMapNode node)
             {
                 var point = Position(node.Path);
                 var text = LabelText(node, node.Path.Equals(SelectedPath, StringComparison.OrdinalIgnoreCase));
-                var left = point.X + NodeRadius(node) + 6;
-                if (left + text.Width > Width - 15) left = point.X - NodeRadius(node) - text.Width - 6;
-                var box = new Rect(left - 4, point.Y - 10, text.Width + 8, 20);
+                var radius = projected ? ProjectedRadius(node.Path) : NodeRadius(node);
+                var left = point.X + radius + 6;
+                if (left + text.Width > Width - 15) left = point.X - radius - text.Width - 6;
+                var box = new Rect(left - 5, point.Y - 14, text.Width + 10, 28);
                 if (occupied.Any(existing => existing.IntersectsWith(box))) return;
                 occupied.Add(box);
                 dc.DrawRoundedRectangle(LabelBackdrop, null, box, 4, 4);
@@ -1226,6 +1335,7 @@ public partial class MainWindow
         spherePanning = false;
         sphereGestureRotates = false;
         sphereRotation = 0;
+        spherePitch = 0;
         sphereMouseDownPath = null;
 
         if (sphereTagFilter.Length > 0 && !index.TagCounts.ContainsKey(sphereTagFilter)) sphereTagFilter = "";
@@ -1374,7 +1484,7 @@ public partial class MainWindow
         DockPanel.SetDock(tools, Dock.Right); header.Children.Add(tools);
         var title = new StackPanel();
         title.Children.Add(new TextBlock { Text = "力导向分类关系图", FontWeight = FontWeights.SemiBold, FontSize = 15, Foreground = UiTheme.TextTertiaryBrush });
-        title.Children.Add(new TextBlock { Text = $"{counts.Count:N0} 个分类 + {connectedTags.Count:N0} 个相关标签全部绘出 · {relevantCount:N0} 部视频 · 中键旋转，Shift＋中键平移，滚轮缩放", FontSize = 11, Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 3, 0, 0) });
+        title.Children.Add(new TextBlock { Text = $"{counts.Count:N0} 个分类 + {connectedTags.Count:N0} 个相关标签 · {relevantCount:N0} 部视频 · 拖空白处移动，中键横纵旋转，滚轮缩放", FontSize = 11, Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 3, 0, 0) });
         header.Children.Add(title);
 
         var tagOptions = new List<SphereTagOption> { new("", index.VideoCount) };
@@ -1539,16 +1649,15 @@ public partial class MainWindow
         var mapCenter = new System.Windows.Point(surface.Width / 2, surface.Height / 2 + 7);
         var firstNode = nodes[0];
         surface.Rotation = .31;
-        var rotatedNodeCenter = new System.Windows.Point(
-            mapCenter.X + Math.Cos(firstNode.Angle + surface.Rotation) * firstNode.Radius * 246,
-            mapCenter.Y + Math.Sin(firstNode.Angle + surface.Rotation) * firstNode.Radius * 232);
+        surface.Pitch = .22;
+        var rotatedNodeCenter = surface.ProjectedPoint(firstNode.Path);
         var baseNodeCenter = new System.Windows.Point(
             mapCenter.X + Math.Cos(firstNode.Angle) * firstNode.Radius * 246,
             mapCenter.Y + Math.Sin(firstNode.Angle) * firstNode.Radius * 232);
-        var bitmapNodeCenter = SphereMapSurface.RotationMatrix(mapCenter, surface.Rotation).Transform(baseNodeCenter);
+        var projectedDepthChangesPosition = (baseNodeCenter - rotatedNodeCenter).LengthSquared > 1;
         var hitGridTracksRotation = surface.HitPath(mapCenter) == "" &&
             surface.HitPath(rotatedNodeCenter) == firstNode.Path &&
-            (bitmapNodeCenter - rotatedNodeCenter).LengthSquared < .0001;
+            projectedDepthChangesPosition;
         var firstGeometryBuild = surface.SnapshotGeometryCacheForDiagnostics();
         surface.Rotation += .1;
         var nextGeometryBuild = surface.SnapshotGeometryCacheForDiagnostics();

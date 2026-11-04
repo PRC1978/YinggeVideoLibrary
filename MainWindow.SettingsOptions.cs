@@ -192,7 +192,7 @@ public partial class MainWindow
     {
         var (background, sidebar, card, accent) = id switch
         {
-            UiTheme.Cinema => ("#171D28", "#28313D", "#343E4E", "#D5A24C"),
+            UiTheme.Cinema => ("#0A0A0A", "#171717", "#303030", "#C41E3A"),
             UiTheme.Compact => ("#F5F7FA", "#E6ECF6", "#FFFFFF", "#476BDD"),
             UiTheme.Contrast => ("#E8F2E4", "#C7DCC4", "#F8FFF5", "#275E3E"),
             UiTheme.Neumorphism => ("#E0E5EC", "#D3DAE4", "#E0E5EC", "#6652BD"),
@@ -219,7 +219,7 @@ public partial class MainWindow
             Margin = new Thickness(0, 7, 0, 1), TextTrimming = TextTrimming.CharacterEllipsis });
         content.Children.Add(new TextBlock { Text = id switch
             {
-                UiTheme.Classic => "熟悉的原版布局", UiTheme.Tech => "明亮清爽", UiTheme.Cinema => "深色海报优先",
+                UiTheme.Classic => "熟悉的原版布局", UiTheme.Tech => "明亮清爽", UiTheme.Cinema => "灰阶光影与衬线标题",
                 UiTheme.Compact => "同屏更多内容", UiTheme.Neumorphism => "柔和立体光影",
                 UiTheme.Glass => "渐变与半透明层次",
                 UiTheme.LineField => "纸白与蓝色线条", UiTheme.Editorial => "温暖的档案纸感", _ => "文字更清楚"

@@ -33,7 +33,7 @@ public static class UiTheme
     [
         (Classic, "原版界面", "恢复原有配色与导航，保留当前功能"),
         (Tech, "科技浅色", "清爽浅色底，钴蓝品牌色"),
-        (Cinema, "深色影院", "深色背景，海报优先，暖金点缀"),
+        (Cinema, "深色影院", "黑色电影：灰阶光影、衬线标题、猩红点缀"),
         (Compact, "紧凑高密度", "同屏更多内容，文字保持可读"),
         (Contrast, "高对比护眼", "高对比文字，明显焦点框"),
         (Neumorphism, "新拟物派", "柔和灰底、圆角与双向光影"),
@@ -189,15 +189,15 @@ public static class UiTheme
             "#B26A1B", "#B4232A", "#0E7A5F",
             "#2B4BEB", "#5D74C9", "#8014223B"),
             new Density(13, 12, 11, 26, 17, 172, 232, 12, 88, 52, 36, 44, 34, 18)),
-        // 深色影院：深色底、海报优先、暖金点缀。
+        // 深色影院：Film Noir。以近黑灰阶承载内容，猩红仅标识关键操作。
         [Cinema] = (new Palette(
-            "#10141B", "#151A23", "#1B222D", "#222B38", "#2C3543", "#44506A",
-            "#EDF1F7", "#A9B4C4", "#8492AA",
-            "#E0A458", "#ECB878", "#1A1409", "#2A2418", "#E0A458", "#B08BD9",
-            "#33291A", "#ECB878",
-            "#D8A04C", "#E26D5A", "#5BBF98",
-            "#E0A458", "#3A4A66", "#B3000000"),
-            new Density(13.5, 12, 11, 27, 17, 188, 256, 14, 88, 54, 38, 48, 38, 20)),
+            "#0A0A0A", "#101010", "#171717", "#202020", "#303030", "#585858",
+            "#F5F5F5", "#C6C6C6", "#A8A8A8",
+            "#C41E3A", "#E4E4E4", "#FFFFFF", "#2B191D", "#F5F5F5", "#D4AF37",
+            "#29181B", "#FFFFFF",
+            "#D4AF37", "#F05A69", "#71B89C",
+            "#A8A8A8", "#3E3E3E", "#C9000000"),
+            new Density(13.5, 12, 11, 29, 17, 188, 256, 8, 88, 54, 38, 48, 38, 20)),
         // 紧凑高密度：小字号小卡片，同屏更多内容。
         [Compact] = (new Palette(
             "#F2F3F5", "#FFFFFF", "#FFFFFF", "#F6F7F9", "#D9DCE1", "#B4BAC4",
@@ -378,16 +378,19 @@ public sealed class UiThemeState : INotifyPropertyChanged
     public FontFamily HeadingFontFamily => UiTheme.Current switch
     {
         UiTheme.Editorial => new FontFamily("SimSun"),
+        UiTheme.Cinema => new FontFamily("SimSun"),
         UiTheme.LineField => new FontFamily("Segoe UI"),
         _ => new FontFamily("Microsoft YaHei UI")
     };
     public FontFamily MetricFontFamily => new("Segoe UI");
     public bool IsNeumorphism => UiTheme.Current == UiTheme.Neumorphism;
     public bool IsGlass => UiTheme.Current == UiTheme.Glass;
+    public bool IsCinema => UiTheme.Current == UiTheme.Cinema;
     public Brush PageBackdropBrush => IsGlass ? new LinearGradientBrush(
         Color.FromRgb(214, 229, 250), Color.FromRgb(229, 239, 232), 26) : PageBackgroundBrush;
     public Brush MainContentBackdropBrush => IsGlass
         ? new LinearGradientBrush(Color.FromRgb(209, 225, 250), Color.FromRgb(231, 242, 236), 32)
+        : IsCinema ? new LinearGradientBrush(Color.FromRgb(10, 10, 10), Color.FromRgb(22, 22, 22), 155)
         : new LinearGradientBrush(UiTheme.PageBackgroundBrush.Color,
             UiTheme.SurfaceAltBrush.Color, 45);
     public Effect? SoftShadow => IsNeumorphism || IsGlass ? new DropShadowEffect

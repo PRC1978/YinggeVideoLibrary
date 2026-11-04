@@ -98,6 +98,7 @@
         <Button x:Name="BatchStatusAction" Style="{StaticResource Action}" Content="批量状态" Click="BatchStatusButtonClick" ToolTip="批量设置未看、观看中或已看"/>
         <Button x:Name="BatchFavoriteAction" Style="{StaticResource Action}" Content="批量收藏" Click="BatchFavoriteButtonClick" ToolTip="批量收藏或取消收藏"/>
         <Button x:Name="AiTagAction" Style="{StaticResource Primary}" Content="✦ AI 标签建议" Click="AiSuggestTags" ToolTip="根据视频标题生成标签建议，确认后才会写入本地库"/>
+        <Button x:Name="LocalTagAction" Style="{StaticResource Action}" Content="本地标签建议" Click="SuggestLocalTags" ToolTip="从已有标签、已核实作品资料及文件夹名称找可复用的标签；预览确认后添加"/>
       </WrapPanel>
     </StackPanel>
    </Border>

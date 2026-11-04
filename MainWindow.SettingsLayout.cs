@@ -171,6 +171,7 @@ public partial class MainWindow
         }
         if (key == "data")
         {
+            body.Children.Add(BuildErrorReportSettingsEntry());
             body.Children.Add(BuildLibraryRelocationSettingsEntry());
             body.Children.Add(BuildLicenseSettingsEntry());
             body.Children.Add(BuildCreditsSettingsEntry());
@@ -258,8 +259,13 @@ public partial class MainWindow
             && settingsSections.TryGetValue("data", out var dataSection)
             && dataSection.Content is StackPanel dataBody
             && dataBody.Children.OfType<Button>().Any(button => Equals(button.Content, "关于软件与资料来源"));
+        var encryptedReports = settingsSections.TryGetValue("data", out var reportSection)
+            && reportSection.Content is StackPanel reportBody
+            && reportBody.Children.Cast<UIElement>().Any(child =>
+                SettingSearchText(child).Contains("加密导出日志包", StringComparison.Ordinal) &&
+                SettingSearchText(child).Contains("上传加密日志包", StringComparison.Ordinal));
         var valid = missing.Length == 0 && unfound.Length == 0 && settingsSections.Values.All(section =>
-            section.Content is StackPanel stack && stack.Children.Count > 0) && relocation && licenseReadable && credits;
+            section.Content is StackPanel stack && stack.Children.Count > 0) && relocation && licenseReadable && credits && encryptedReports;
         return (valid, $"主题 {settingsSections.Count}；缺少主题 [{string.Join(", ", missing)}]；缺少选项 [{string.Join(", ", unfound)}]；迁移向导 {(relocation ? "可用" : "不可用")}；内嵌许可 {(licenseReadable ? "可读" : "缺失")}；来源致谢 {(credits ? "可用" : "缺失")}");
     }
 }

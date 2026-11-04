@@ -100,6 +100,7 @@ internal static class FeatureDiagnostics
             foreach (var (name, passed) in TmdbUsagePolicyDiagnostics.Verify()) findings[name] = passed;
             foreach (var (name, passed) in CrossSourceRelationDiagnostics.Verify()) findings[name] = passed;
             foreach (var (name, passed) in RoleProfileDiagnostics.Verify(directory)) findings[name] = passed;
+            foreach (var (name, passed) in EncryptedErrorReportDiagnostics.Verify(directory)) findings[name] = passed;
             foreach (var result in SiteListImportDiagnostics.Run()) findings[result.Key] = result.Value;
             foreach (var result in SiteListLocalActionDiagnostics.Run()) findings[result.Key] = result.Value;
             foreach (var (name, checkPassed) in IndexRootMismatchDiagnostics.Verify(

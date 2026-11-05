@@ -97,7 +97,15 @@ internal sealed class PostgresPrivateCluster : IAsyncDisposable
                 ["-D", data, "-l", Path.Combine(libraryDirectory, "postgres.log"),
                  "-o", $"-h 127.0.0.1 -p {port}", "-w", "start"],
                 runtimeDirectory, cancellationToken);
-            if (started != 0) throw new InvalidOperationException("私有数据库启动失败。 ");
+            if (started != 0)
+            {
+                // pg_ctl may time out after postgres has actually launched.
+                // Do not leave that process owning the library after we release
+                // the owner lease.
+                try { await RunAsync(controlBinary, ["-D", data, "-m", "fast", "-w", "stop"],
+                    runtimeDirectory, CancellationToken.None); } catch { }
+                throw new InvalidOperationException("私有数据库启动失败。 ");
+            }
             var builder = new NpgsqlConnectionStringBuilder
             {
                 Host = "127.0.0.1", Port = port, Database = "postgres", Username = "yingge_owner",

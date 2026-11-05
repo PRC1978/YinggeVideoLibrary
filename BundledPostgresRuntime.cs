@@ -191,6 +191,46 @@ internal static class BundledPostgresRuntime
                 await PostgresLibraryExport.VerifyOfflineAsync(mutatedQueueExport) &&
                 await PostgresLibraryMigration.VerifyContentAsync(
                     mutatedQueueExport, builder.ConnectionString);
+            var thirdFailed = await PostgresScrapeQueueStore.MarkFailedAsync(
+                builder.ConnectionString, "QUEUE-THIRD-ITEM", "isolated failure");
+            var failedPending = await PostgresScrapeQueueStore.HasPendingAsync(
+                builder.ConnectionString, "queue-third-item");
+            var failedSnapshot = await PostgresScrapeQueueStore.LoadAsync(builder.ConnectionString);
+            var retried = await PostgresScrapeQueueStore.RetryFailuresAsync(builder.ConnectionString);
+            var retrySnapshot = await PostgresScrapeQueueStore.LoadAsync(builder.ConnectionString);
+            var retryItem = retrySnapshot.Single(item => item.VideoId == "queue-third-item");
+            retryItem.Attempts = 2;
+            retryItem.NextAttemptAt = DateTimeOffset.UtcNow.AddMinutes(2);
+            retryItem.LastError = "retry delayed";
+            var rescheduled = await PostgresScrapeQueueStore.RescheduleAsync(
+                builder.ConnectionString, retryItem);
+            var rescheduleSnapshot = await PostgresScrapeQueueStore.LoadAsync(builder.ConnectionString);
+            var delayUntil = DateTimeOffset.UtcNow.AddHours(1);
+            var delayed = await PostgresScrapeQueueStore.DelayAllUntilAsync(
+                builder.ConnectionString, delayUntil);
+            var delayedSnapshot = await PostgresScrapeQueueStore.LoadAsync(builder.ConnectionString);
+            var cancelled = await PostgresScrapeQueueStore.ClearPendingAsync(builder.ConnectionString);
+            findings["queueLifecycleEvidence"] = new
+            {
+                thirdFailed, failedPending, failedItem = failedSnapshot.Single(item =>
+                    item.VideoId == "queue-third-item"), retried, rescheduled,
+                rescheduledItem = rescheduleSnapshot.Single(item =>
+                    item.VideoId == "queue-third-item"), delayed,
+                delayedTimes = delayedSnapshot.Select(item => item.NextAttemptAt).ToArray(),
+                delayUntil, cancelled
+            };
+            findings["queueLifecycleVerified"] = thirdFailed && !failedPending &&
+                failedSnapshot.Single(item => item.VideoId == "queue-third-item") is
+                    { Failed: true, LastError: "isolated failure" } &&
+                retried == 1 && retryItem.Attempts == 2 &&
+                rescheduled && rescheduleSnapshot.Single(item => item.VideoId == "queue-third-item") is
+                    { Attempts: 2, LastError: "retry delayed" } &&
+                // PostgreSQL stores microseconds; DateTimeOffset can carry one
+                // extra decimal place that is truncated on the round trip.
+                delayed == 2 && delayedSnapshot.All(item =>
+                    item.NextAttemptAt >= delayUntil.AddTicks(-10)) &&
+                cancelled == 2 &&
+                (await PostgresScrapeQueueStore.LoadAsync(builder.ConnectionString)).Count == 0;
             findings["assetBackupVerified"] =
                 (await File.ReadAllBytesAsync(Path.Combine(exportDirectory, "posters", "sample.jpg")))
                     .SequenceEqual(new byte[] { 1, 2, 3, 4 }) &&
@@ -522,6 +562,7 @@ internal static class BundledPostgresRuntime
                 findings["nestedDocumentPathsVerified"] is true &&
                 findings["queueJournalMigrationVerified"] is true &&
                 findings["queueMutationRollbackVerified"] is true &&
+                findings["queueLifecycleVerified"] is true &&
                 findings["assetBackupVerified"] is true &&
                 findings["failedExportLeavesNoPartialBackup"] is true &&
                 findings["legacyModeGuardVerified"] is true &&

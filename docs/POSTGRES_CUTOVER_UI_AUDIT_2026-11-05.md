@@ -14,6 +14,12 @@ export generates a fresh `scrape-queue.json` from the table instead of copying
 stale journal files. A private-cluster probe imported two tasks, removed one,
 added another, and verified that the database and verified rollback export
 both contained only the current two tasks (`queueMutationRollbackVerified=true`).
+The same private-cluster probe now exercises pending lookup, failure marking,
+retry, reschedule, delay, and cancellation against the database table
+(`queueLifecycleVerified=true`). These operations are committed under the
+export/review advisory transaction gate, so a rollback snapshot sees a single
+queue revision. PostgreSQL's microsecond timestamp precision is accounted for
+in the delay assertion.
 This does not switch the normal scheduler, source backoff, or UI queue actions
 to PostgreSQL. Normal startup remains blocked from database mode.
 

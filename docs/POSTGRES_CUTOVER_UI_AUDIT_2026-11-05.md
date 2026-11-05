@@ -24,7 +24,10 @@ history. These now join the backup allowlist, and the PostgreSQL migration also
 imports plugin enablement. An isolated feature diagnostic wrote all three,
 created a verified backup, and compared their bytes in the package
 (`backupPreservesPluginAndCleanupState=true`). This does not yet test restore
-through the graphical settings flow.
+through the graphical settings flow. A separate isolated restore diagnostic
+changed those three live files after backup, staged the restore, applied it
+offline, and compared all three with the saved package
+(`restoreReplacesPluginAndCleanupState=true`).
 
 The migration and rollback export now include the managed `title-candidates`
 and `ai-jobs` snapshots. Only their documented fixed-length hexadecimal JSON

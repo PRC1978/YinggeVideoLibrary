@@ -156,12 +156,45 @@ internal static class BundledPostgresRuntime
             findings["stateDocumentCasVerified"] = configDocument is not null &&
                 reloadedConfig?.Revision == revisedHash &&
                 reloadedConfig.Content.SequenceEqual(revisedConfig) && staleWriteRejected;
+            var metadataBeforeReview = await PostgresLibraryMetadataStore.ReadAsync(builder.ConnectionString);
+            var historyBeforeReview = await PostgresLibraryDocumentStore.ReadAsync(
+                builder.ConnectionString, "review-history.jsonl");
+            var reviewMetadata = new Dictionary<string, MovieMetadata>(metadataBeforeReview.Records,
+                StringComparer.Ordinal) { [videoId] = new MovieMetadata { Title = "review approved" } };
+            var reviewConfig = Encoding.UTF8.GetBytes("{\"folders\":[],\"review\":\"approved\"}");
+            var reviewHistory = Encoding.UTF8.GetBytes("{\"id\":\"isolated-review\"}\n{\"id\":\"approved\"}\n");
+            var reviewRevision = await PostgresLibraryAtomicStateStore.CommitAsync(
+                builder.ConnectionString, reviewMetadata, metadataBeforeReview.Revision,
+                [new("config.json", reviewConfig, reloadedConfig?.Revision),
+                 new("review-history.jsonl", reviewHistory, historyBeforeReview?.Revision)]);
+            var metadataAfterReview = await PostgresLibraryMetadataStore.ReadAsync(builder.ConnectionString);
+            var configAfterReview = await PostgresLibraryDocumentStore.ReadAsync(
+                builder.ConnectionString, "config.json");
+            var historyAfterReview = await PostgresLibraryDocumentStore.ReadAsync(
+                builder.ConnectionString, "review-history.jsonl");
+            var staleReviewRejected = false;
+            try
+            {
+                await PostgresLibraryAtomicStateStore.CommitAsync(builder.ConnectionString,
+                    new Dictionary<string, MovieMetadata>(StringComparer.Ordinal)
+                        { [videoId] = new MovieMetadata { Title = "must roll back" } }, reviewRevision,
+                    [new("config.json", Encoding.UTF8.GetBytes("{}"), reloadedConfig?.Revision)]);
+            }
+            catch (InvalidOperationException) { staleReviewRejected = true; }
+            var metadataAfterRejection = await PostgresLibraryMetadataStore.ReadAsync(builder.ConnectionString);
+            findings["atomicReviewStateVerified"] = metadataAfterReview.Revision == reviewRevision &&
+                metadataAfterReview.Records[videoId].Title == "review approved" &&
+                configAfterReview?.Content.SequenceEqual(reviewConfig) is true &&
+                historyAfterReview?.Content.SequenceEqual(reviewHistory) is true &&
+                staleReviewRejected && metadataAfterRejection.Revision == reviewRevision &&
+                metadataAfterRejection.Records[videoId].Title == "review approved";
             findings["passed"] = version.StartsWith("18.6", StringComparison.Ordinal) &&
                 findings["loopbackOnly"] is true && findings["credentialRoundTrip"] is true &&
                 findings["sampleImportVerified"] is true && findings["stateDocumentCasVerified"] is true &&
                 findings["activeSessionImportBlocked"] is true &&
                 findings["rollbackExportVerified"] is true &&
-                findings["legacyModeGuardVerified"] is true;
+                findings["legacyModeGuardVerified"] is true &&
+                findings["atomicReviewStateVerified"] is true;
         }
         catch (Exception ex)
         {

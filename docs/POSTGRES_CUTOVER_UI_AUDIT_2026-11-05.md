@@ -98,6 +98,11 @@ not a claim that these interactions have passed.
   verification rejects it, then restored the bytes and passed again. A failed
   export can leave a `.partial-*` directory for diagnosis.
   `realLibraryRead=false`; server stopped after the probe.
+- An isolated PostgreSQL transaction now saves review-related config bytes,
+  work metadata, and review history bytes together. The probe confirmed all
+  three after a successful commit, then supplied a stale config revision and
+  verified the attempted metadata change rolled back (`atomicReviewStateVerified=true`).
+  This is a storage primitive only: the live review UI is not wired to it yet.
 - After the UI correction, 237 layout records across nine themes and three
   window sizes passed the existing timeout/graph-link checks. The redirected
   diagnostic rendered four review rows in each non-classic mode.

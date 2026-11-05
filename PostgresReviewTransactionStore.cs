@@ -9,6 +9,19 @@ namespace YinggeVideoLibrary;
 // until the whole application switches storage modes.
 internal static class PostgresReviewTransactionStore
 {
+    internal sealed record HistorySnapshot(List<ReviewTransaction> Records, int InvalidLines,
+        string? Revision);
+
+    internal static async Task<HistorySnapshot> LoadAsync(string connectionString,
+        CancellationToken cancellationToken = default)
+    {
+        var document = await PostgresLibraryDocumentStore.ReadAsync(
+            connectionString, "review-history.jsonl", cancellationToken);
+        if (document is null) return new([], 0, null);
+        var records = ReviewTransactionStore.LoadBytes(document.Content, out var invalidLines);
+        return new(records, invalidLines, document.Revision);
+    }
+
     internal static async Task CommitAsync(string connectionString, ReviewTransaction review,
         CancellationToken cancellationToken = default)
     {

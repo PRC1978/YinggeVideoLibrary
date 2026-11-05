@@ -271,10 +271,15 @@ internal static class BundledPostgresRuntime
             var undoHistoryDocument = await PostgresLibraryDocumentStore.ReadAsync(
                 builder.ConnectionString, "review-history.jsonl");
             var undoneConfig = JsonSerializer.Deserialize<LibraryConfig>(undoConfigDocument!.Content)!;
+            var reloadedHistory = await PostgresReviewTransactionStore.LoadAsync(
+                builder.ConnectionString);
             findings["typedReviewUndoVerified"] =
                 !undoneConfig.AiReviews.ContainsKey(videoId) &&
                 !undoneConfig.Tags.ContainsKey(videoId) &&
-                Encoding.UTF8.GetString(undoHistoryDocument!.Content).Contains(undoReview.Id, StringComparison.Ordinal);
+                Encoding.UTF8.GetString(undoHistoryDocument!.Content).Contains(undoReview.Id, StringComparison.Ordinal) &&
+                reloadedHistory.Records.Any(entry => entry.Id == typedReview.Id) &&
+                reloadedHistory.Records.Any(entry => entry.Id == undoReview.Id) &&
+                ReviewTransactionStore.LastUndoable(reloadedHistory.Records) is null;
             if (scale)
             {
                 var baseline = await PostgresLibraryIndexStore.ReadAsync(builder.ConnectionString);

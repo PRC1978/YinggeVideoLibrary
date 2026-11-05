@@ -136,15 +136,28 @@ internal static partial class ReviewTransactionStore
     public static List<ReviewTransaction> Load(string dataDir, out int invalidLines)
     {
         invalidLines = 0;
-        var records = new List<ReviewTransaction>();
         var path = Path.Combine(dataDir, FileName);
-        if (!File.Exists(path)) return records;
+        if (!File.Exists(path)) return [];
         // A review may finish while the background loader is reading a large
         // history. Sharing writes keeps the UI action responsive; a partial
         // line is skipped and the next reload observes the completed record.
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
             FileShare.ReadWrite | FileShare.Delete, 64 * 1024, FileOptions.SequentialScan);
         using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        return Parse(reader, out invalidLines);
+    }
+
+    internal static List<ReviewTransaction> LoadBytes(byte[] content, out int invalidLines)
+    {
+        using var stream = new MemoryStream(content, writable: false);
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        return Parse(reader, out invalidLines);
+    }
+
+    private static List<ReviewTransaction> Parse(TextReader reader, out int invalidLines)
+    {
+        invalidLines = 0;
+        var records = new List<ReviewTransaction>();
         while (reader.ReadLine() is { } line)
         {
             if (string.IsNullOrWhiteSpace(line)) continue;

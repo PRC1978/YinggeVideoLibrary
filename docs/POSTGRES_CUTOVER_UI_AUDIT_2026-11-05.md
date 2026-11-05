@@ -183,3 +183,14 @@ eliminate the need to scroll through review cards on a short window.
   the restored content again (`freshDatabaseRestoreVerified=true`,
   `privateClusterLifecycleVerified=true`, `passed=true`). This covers records
   only; posters and thumbnails require a separate backup policy.
+
+## Review history read path
+
+- The existing history parser now accepts database document bytes as well as
+  file streams, so both modes apply the same hash checks and legacy-record
+  compatibility rules. The PostgreSQL review store exposes a read operation
+  with records, invalid-line count and document revision.
+- The isolated probe reloaded approval and undo from PostgreSQL, confirmed
+  both IDs were present and that no action remained undoable after undo.
+  Release build remained at zero warnings and errors; full bundled database
+  probe returned `passed=true`.

@@ -168,3 +168,18 @@ eliminate the need to scroll through review cards on a short window.
   file journal. Startup, background queue writers, backup/restore and all
   remaining authoritative writes must use one storage mode before enabling
   PostgreSQL for a real library.
+
+## Fresh-database recovery continuation
+
+- Added `PostgresLibraryRecovery.RestoreIntoFreshDatabaseAsync`: it validates
+  every exported file against the manifest before import, imports only into an
+  empty database, then compares imported content with the snapshot. It refuses
+  a second import into the same database. No active database is overwritten.
+- The first probe exposed that the ordinary import created a session lock
+  inside the immutable export directory. Recovery now places its exclusive
+  lease beside that directory; the export remains byte-for-byte verifiable.
+- The isolated probe restored the export to a separate private cluster,
+  rejected a second restore, stopped and reopened that cluster, and verified
+  the restored content again (`freshDatabaseRestoreVerified=true`,
+  `privateClusterLifecycleVerified=true`, `passed=true`). This covers records
+  only; posters and thumbnails require a separate backup policy.

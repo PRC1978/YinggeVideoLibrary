@@ -336,6 +336,17 @@ internal static class BundledPostgresRuntime
             {
                 await using var privateConnection = new NpgsqlConnection(privateCluster.ConnectionString);
                 await privateConnection.OpenAsync();
+                var restored = await PostgresLibraryRecovery.RestoreIntoFreshDatabaseAsync(
+                    exportDirectory, privateCluster.ConnectionString);
+                var secondRestoreBlocked = false;
+                try { await PostgresLibraryRecovery.RestoreIntoFreshDatabaseAsync(
+                    exportDirectory, privateCluster.ConnectionString); }
+                catch (InvalidOperationException) { secondRestoreBlocked = true; }
+                findings["freshDatabaseRestoreVerified"] =
+                    await PostgresLibraryMigration.VerifyContentAsync(
+                        exportDirectory, privateCluster.ConnectionString) &&
+                    restored.VideoCount == exported.VideoCount &&
+                    restored.MetadataCount == exported.MetadataCount && secondRestoreBlocked;
                 try { await using var duplicate = await PostgresPrivateCluster.OpenAsync(
                     runtimeDirectory, privateLibrary); }
                 catch (IOException) { duplicateOwnerBlocked = true; }
@@ -346,7 +357,9 @@ internal static class BundledPostgresRuntime
                 await using var connectionAfterRestart = new NpgsqlConnection(restarted.ConnectionString);
                 await connectionAfterRestart.OpenAsync();
                 findings["privateClusterLifecycleVerified"] = duplicateOwnerBlocked &&
-                    connectionAfterRestart.State == System.Data.ConnectionState.Open;
+                    connectionAfterRestart.State == System.Data.ConnectionState.Open &&
+                    await PostgresLibraryMigration.VerifyContentAsync(
+                        exportDirectory, restarted.ConnectionString);
             }
             findings["passed"] = version.StartsWith("18.6", StringComparison.Ordinal) &&
                 findings["loopbackOnly"] is true && findings["credentialRoundTrip"] is true &&
@@ -358,6 +371,7 @@ internal static class BundledPostgresRuntime
                 findings["atomicReviewStateVerified"] is true &&
                 findings["typedReviewRoundTripVerified"] is true &&
                 findings["typedReviewUndoVerified"] is true &&
+                findings["freshDatabaseRestoreVerified"] is true &&
                 findings["privateClusterLifecycleVerified"] is true &&
                 (!scale || (findings["scaleVerified"] is true && findings["scaleDeltaVerified"] is true));
         }

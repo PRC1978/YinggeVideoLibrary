@@ -96,12 +96,12 @@ internal static class PostgresLibraryMigration
         string IndexSha256, string MetadataSha256);
 
     internal static async Task<Result> ImportAsync(string directory, string connectionString,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, string? sourceLeasePath = null)
     {
         // Take the same exclusive offline lease as backup/restore before
         // reading any source bytes. A running app holds a shared lease for its
         // whole session, so an import cannot observe a half-written library.
-        using var offlineLease = new FileStream(Path.Combine(directory, ".library-session.lock"),
+        using var offlineLease = new FileStream(sourceLeasePath ?? Path.Combine(directory, ".library-session.lock"),
             FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         var indexPath = Path.Combine(directory, "library-index.json");
         var metadataPath = Path.Combine(directory, "metadata.json");

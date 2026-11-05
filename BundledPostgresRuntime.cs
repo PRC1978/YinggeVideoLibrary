@@ -102,6 +102,13 @@ internal static class BundledPostgresRuntime
                 "{\"id\":\"isolated-review\"}\n");
             await File.WriteAllTextAsync(Path.Combine(sourceDirectory,
                 "scrape-queue.snapshot.00000001.json"), "{\"items\":[]}");
+            var legacyBeforeCutover = PostgresStorageModeGuard.LegacyFilesMayOpen(sourceDirectory);
+            var modeMarker = Path.Combine(sourceDirectory, PostgresStorageModeGuard.MarkerName);
+            await File.WriteAllTextAsync(modeMarker, "postgresql");
+            var legacyAfterCutover = PostgresStorageModeGuard.LegacyFilesMayOpen(sourceDirectory);
+            File.Delete(modeMarker);
+            findings["legacyModeGuardVerified"] = legacyBeforeCutover && !legacyAfterCutover &&
+                PostgresStorageModeGuard.LegacyFilesMayOpen(sourceDirectory);
             var activeSessionBlocked = false;
             using (LibraryBackupService.AcquireSessionLease(sourceDirectory))
             {
@@ -146,7 +153,8 @@ internal static class BundledPostgresRuntime
                 findings["loopbackOnly"] is true && findings["credentialRoundTrip"] is true &&
                 findings["sampleImportVerified"] is true && findings["stateDocumentCasVerified"] is true &&
                 findings["activeSessionImportBlocked"] is true &&
-                findings["rollbackExportVerified"] is true;
+                findings["rollbackExportVerified"] is true &&
+                findings["legacyModeGuardVerified"] is true;
         }
         catch (Exception ex)
         {

@@ -40,6 +40,15 @@ a mixed or incomplete state instead of guessing which copy is newer. Keep the
 original files and a verified backup until a complete isolated upgrade,
 restart, restore, and rollback rehearsal passes.
 
+The legacy startup now refuses to open a directory containing
+`storage-postgresql.active`, checking before recovery and again after acquiring
+its session lease. The migration does not create this marker, and normal startup
+does not use PostgreSQL yet. The bundled PostgreSQL probe verified that legacy
+opening changes from allowed to blocked when the marker appears, then returns
+to allowed after removal (`legacyModeGuardVerified=true`). A future cutover must
+write the marker while holding the exclusive offline lease and only after its
+database and rollback copy have been verified.
+
 ## Isolated UI review
 
 Generated a synthetic 60-video, 40-category fixture with 10 posters under

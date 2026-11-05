@@ -328,6 +328,13 @@ public partial class App : System.Windows.Application
         // them in the background so a failed prune can never delay or block startup.
         _ = Task.Run(() => UpdateBackupJanitor.TryRun(System.IO.Path.GetDirectoryName(Environment.ProcessPath)));
         var dataDir = AppPaths.DataDirectory;
+        if (!PostgresStorageModeGuard.LegacyFilesMayOpen(dataDir))
+        {
+            System.Windows.MessageBox.Show("这个视频库已标记为 PostgreSQL 存储。当前版本仍使用文件存储，已停止启动以避免两份资料分叉。请使用支持该存储模式的版本或经核验的回退流程。",
+                "映格视频库 · 存储模式", MessageBoxButton.OK, MessageBoxImage.Warning);
+            Shutdown(1);
+            return;
+        }
         if (!LibraryRelocationService.ApplyPendingAtStartup(dataDir, out var restoreError))
         {
             System.Windows.MessageBox.Show("恢复已停止，视频库尚未加载。\n" + restoreError,
@@ -368,6 +375,15 @@ public partial class App : System.Windows.Application
         {
             System.Windows.MessageBox.Show("无法锁定共享视频库数据，请稍后重试。\n" + ex.Message,
                 "映格视频库 · 数据保护", MessageBoxButton.OK, MessageBoxImage.Warning);
+            Shutdown(1);
+            return;
+        }
+        if (!PostgresStorageModeGuard.LegacyFilesMayOpen(dataDir))
+        {
+            librarySessionLease?.Dispose();
+            librarySessionLease = null;
+            System.Windows.MessageBox.Show("视频库存储模式已切换，当前文件版已停止启动。",
+                "映格视频库 · 存储模式", MessageBoxButton.OK, MessageBoxImage.Warning);
             Shutdown(1);
             return;
         }

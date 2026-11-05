@@ -83,11 +83,6 @@ public partial class App : System.Windows.Application
                 e.Args.Length > 3 && e.Args[3] == "--scale"));
             return;
         }
-        if (e.Args.Length > 1 && e.Args[0] == "--self-test-error-upload")
-        {
-            Shutdown(await EncryptedErrorReportDiagnostics.VerifyUploadAsync(e.Args[1]));
-            return;
-        }
         if (e.Args.Length > 1 && e.Args[0] == "--self-test-cloud-account")
         {
             Shutdown(await CloudAccountDiagnostics.RunToFileAsync(e.Args[1]));

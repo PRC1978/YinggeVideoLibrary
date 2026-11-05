@@ -25,6 +25,7 @@ public partial class MainWindow
     const string InstallerAssetName = "YinggeVideoLibrary-Setup.exe";
     const string PortableAssetName = "YinggeVideoLibrary-win-x64.exe";
     static readonly Uri LatestReleaseApi = new($"https://api.github.com/repos/{UpdateOwner}/{UpdateRepository}/releases/latest");
+    static readonly Uri LatestReleasePage = new($"https://github.com/{UpdateOwner}/{UpdateRepository}/releases/latest");
     static readonly HttpClient UpdateHttp = CreateUpdateHttpClient();
     System.Windows.Controls.Button? updateButton;
     TextBlock? updateStatus;
@@ -200,6 +201,51 @@ public partial class MainWindow
             portable = new ReleaseUpdate(tag, releaseVersion, uri, size, digest[7..], true, notes);
         }
         return portable ?? throw new InvalidDataException("新版本缺少便携更新文件；请稍后重试或手动下载安装包");
+    }
+
+    static string ParseLatestPageTag(Uri? finalUri)
+    {
+        var prefix = $"/{UpdateOwner}/{UpdateRepository}/releases/tag/";
+        if (finalUri is null || finalUri.Scheme != Uri.UriSchemeHttps
+            || !finalUri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+            || !finalUri.AbsolutePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("无法确认 GitHub 最新正式版地址");
+        var tag = finalUri.AbsolutePath[prefix.Length..];
+        if (tag.Length == 0 || tag.Contains('/') || !Version.TryParse(tag.TrimStart('v', 'V'), out _))
+            throw new InvalidDataException("GitHub 最新正式版编号无效");
+        return tag;
+    }
+
+    static string ParsePortableChecksum(string contents)
+    {
+        foreach (var line in contents.Split('\n'))
+        {
+            var parts = line.TrimEnd('\r').Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 2 && parts[1] == PortableAssetName && parts[0].Length == 64
+                && parts[0].All(Uri.IsHexDigit)) return parts[0];
+        }
+        throw new InvalidDataException("发布校验文件缺少便携程序的 SHA-256");
+    }
+
+    static async Task<ReleaseUpdate> ReadLatestReleaseWithoutApiAsync()
+    {
+        using var page = await UpdateHttp.GetAsync(LatestReleasePage, HttpCompletionOption.ResponseHeadersRead);
+        page.EnsureSuccessStatusCode();
+        var tag = ParseLatestPageTag(page.RequestMessage?.RequestUri);
+        var parsed = Version.Parse(tag.TrimStart('v', 'V'));
+        var version = new Version(parsed.Major, parsed.Minor, Math.Max(0, parsed.Build), Math.Max(0, parsed.Revision));
+        var baseUrl = $"https://github.com/{UpdateOwner}/{UpdateRepository}/releases/download/{tag}/";
+        using var checksums = await UpdateHttp.GetAsync(baseUrl + "SHA256SUMS.txt");
+        checksums.EnsureSuccessStatusCode();
+        var digest = ParsePortableChecksum(await checksums.Content.ReadAsStringAsync());
+        var download = new Uri(baseUrl + PortableAssetName);
+        using var asset = new HttpRequestMessage(HttpMethod.Head, download);
+        using var metadata = await UpdateHttp.SendAsync(asset, HttpCompletionOption.ResponseHeadersRead);
+        metadata.EnsureSuccessStatusCode();
+        var size = metadata.Content.Headers.ContentLength ?? 0;
+        if (size < 1_000_000) throw new InvalidDataException("更新文件大小无效");
+        return new ReleaseUpdate(tag, version, download, size, digest, true,
+            "GitHub API 暂时限流。已从 GitHub 正式发布页与 SHA-256 校验文件确认版本；完整更新说明请查看发布页面。");
     }
 
     static System.Windows.Media.Brush UpdateBrush(string color) => UiTheme.FromLegacyHex(color);
@@ -447,10 +493,20 @@ public partial class MainWindow
                 if (interactive && updateStatus is not null) updateStatus.Text = "暂未发布新版本，稍后再试。";
                 return;
             }
-            response.EnsureSuccessStatusCode();
-            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-            var root = document.RootElement;
-            var tag = root.GetProperty("tag_name").GetString() ?? "";
+            ReleaseUpdate? release = null;
+            string tag;
+            if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests)
+            {
+                release = await ReadLatestReleaseWithoutApiAsync();
+                tag = release.Tag;
+            }
+            else
+            {
+                response.EnsureSuccessStatusCode();
+                using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                tag = document.RootElement.GetProperty("tag_name").GetString() ?? "";
+                release = ParseReleaseUpdate(document.RootElement);
+            }
             if (!Version.TryParse(tag.TrimStart('v', 'V'), out var parsedVersion))
                 throw new InvalidDataException("发布版本号无效");
             var releaseVersion = new Version(parsedVersion.Major, parsedVersion.Minor,
@@ -467,7 +523,7 @@ public partial class MainWindow
             }
             // A newer release without a verified portable asset is a failed
             // check, so it must not postpone the next automatic retry.
-            availableUpdate = ParseReleaseUpdate(root);
+            availableUpdate = release;
             TryRecordSuccessfulUpdateCheck();
             var skipped = IsSkippedRelease(DataDir, releaseVersion);
             if (updateStatus is not null) updateStatus.Text = skipped && !interactive
@@ -623,6 +679,23 @@ public partial class MainWindow
                 && !SafeReleaseNotes("a\0b").Contains('\0')
                 && SafeReleaseNotes(new string('x', 15000)).Length == 12000;
         }
+        findings["rateLimitFallbackAcceptsOnlyOfficialReleasePage"] =
+            ParseLatestPageTag(new Uri("https://github.com/PRC1978/YinggeVideoLibrary/releases/tag/v1.6.7")) == "v1.6.7";
+        try
+        {
+            _ = ParseLatestPageTag(new Uri("https://example.com/PRC1978/YinggeVideoLibrary/releases/tag/v1.6.7"));
+            findings["rateLimitFallbackRejectsForeignPage"] = false;
+        }
+        catch (InvalidDataException) { findings["rateLimitFallbackRejectsForeignPage"] = true; }
+        findings["rateLimitFallbackReadsExactPortableDigest"] =
+            ParsePortableChecksum($"{new string('a', 64)}  {PortableAssetName}\n{new string('b', 64)}  {InstallerAssetName}")
+                == new string('a', 64);
+        try
+        {
+            _ = ParsePortableChecksum($"{new string('a', 64)}  {InstallerAssetName}");
+            findings["rateLimitFallbackRejectsMissingPortableDigest"] = false;
+        }
+        catch (InvalidDataException) { findings["rateLimitFallbackRejectsMissingPortableDigest"] = true; }
         try
         {
             using var badHost = JsonDocument.Parse(json.Replace("github.com", "example.com", StringComparison.Ordinal));

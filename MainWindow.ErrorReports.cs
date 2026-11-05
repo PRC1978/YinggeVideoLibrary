@@ -17,11 +17,11 @@ public partial class MainWindow
             Foreground = UiTheme.TextPrimaryBrush });
         body.Children.Add(new TextBlock
         {
-            Text = "只导出最近 100 条错误记录，不包含视频、封面、资料库索引或其他诊断文件。错误文字仍可能含路径或标题；先在本机加密，再决定是否上传。",
+            Text = "只导出最近 100 条错误记录，不包含视频、封面或资料库索引。错误文字仍可能含路径或标题，导出前请核对；本版本仅支持本机加密保存。",
             TextWrapping = TextWrapping.Wrap, Foreground = UiTheme.TextSecondaryBrush,
             Margin = new Thickness(0, 4, 0, 8)
         });
-        body.Children.Add(new TextBlock { Text = "本地导出无需登录；上传请使用下方的云端账号入口，登录后预览脱敏内容。",
+        body.Children.Add(new TextBlock { Text = "本地导出无需登录。云端账号服务尚未上线，目前不能上传日志。",
             TextWrapping = TextWrapping.Wrap, Foreground = UiTheme.TextSecondaryBrush,
             Margin = new Thickness(0, 4, 0, 8) });
         var buttons = new WrapPanel();
@@ -57,7 +57,7 @@ public partial class MainWindow
             var encrypted = await File.ReadAllBytesAsync(picker.FileName);
             var snapshot = await Task.Run(() => EncryptedErrorReport.Decrypt(encrypted, passphrase));
             await File.WriteAllTextAsync(output.FileName, System.Text.Json.JsonSerializer.Serialize(snapshot));
-            MessageBox.Show(this, "日志已在本机解密。该 JSON 是明文，请自行保管；上传入口不会接受它。", "解密完成");
+            MessageBox.Show(this, "日志已在本机解密。该 JSON 是明文，请自行保管。", "解密完成");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
                                    or CryptographicException or System.Text.Json.JsonException)

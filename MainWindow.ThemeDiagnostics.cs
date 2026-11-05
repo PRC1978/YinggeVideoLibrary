@@ -116,6 +116,26 @@ public partial class MainWindow
                         : new[] { "all", "categories", "folders", "recommendations", "scrape", "review", "roles", "plugins", "settings" };
                     foreach (var page in pages)
                     {
+                        // Startup populates videos asynchronously. Seed the
+                        // in-memory review sample only when the review page is
+                        // reached, after the library page has populated.
+                        if (page == "review" && AppPaths.IsRedirected &&
+                            config.AiReviews.Count == 0)
+                        {
+                            foreach (var (video, index) in videos.Take(4)
+                                .Select((video, index) => (video, index)))
+                                config.AiReviews[video.Id] = new AiReviewRecord
+                                {
+                                    VideoId = video.Id,
+                                    CandidateCode = $"UI-{index + 1:000}",
+                                    CandidateTitle = "隔离验收候选 · " + video.Title,
+                                    CandidateSource = "fixture",
+                                    Confidence = 35 + index * 12,
+                                    Status = "pending",
+                                    DecisionSource = "rules",
+                                    Reason = "合成候选用于界面排版与对比度检查；不代表真实搜刮结果。"
+                                };
+                        }
                         ShowView(page);
                         if (page is not ("all" or "categories") &&
                             (MissingFilterButton.Visibility == Visibility.Visible ||

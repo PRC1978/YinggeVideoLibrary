@@ -8,6 +8,16 @@ PostgreSQL runtime, `PostgresLibraryMigration`, `PostgresLibraryIndexStore`, and
 They are not a production cutover. An installer containing PostgreSQL has been
 installed and uninstalled under a separate test AppId, not released.
 
+The current migration now imports a fixed allowlist of user-state documents
+(`config`, ratings, review history/views, graph move history, duplicate history,
+site import, role profiles, AI budget, Javinfo usage, source backoff, scrape
+queue and snapshots, plugin candidates, missing cleanup) in the same database
+transaction as the video index and work metadata. These documents preserve
+their exact bytes in `library_document`; a compare-and-swap store can read,
+replace, and delete them by hash. This is a migration bridge, not a final
+relational schema or an active runtime writer. The import now holds an exclusive
+offline library lease from the first source read through commit.
+
 Do not enable `BundlePostgres` for a normal release until every authoritative
 writer and restore path uses the same storage mode. Moving only the video index
 and metadata would allow review, queue, role, and configuration writes to diverge.
@@ -45,7 +55,11 @@ produced 237 layout records across nine themes and three window sizes, plus
   30,000 videos.
 - The 800×550 glass settings capture shows a reachable theme selector with no
   horizontal clipping in the visible area. The 800×550 cinema review capture
-  shows filters, paging, and actions, but the synthetic data does not prove
+  exposed a real overlap between the queue summary and AI/action buttons.
+  The narrow review panel now stacks those controls while wider panels retain
+  their original layout. The second capture shows no overlap. Four synthetic
+  in-memory review records are now injected into redirected diagnostics so row
+  content is actually drawn; they are never persisted. This does not prove
   candidate approval or rejection.
 - The 1240×780 neumorphism library capture shows four full cards per row.
   Missing-file indicators appear because synthetic paths do not contain real
@@ -64,5 +78,12 @@ not a claim that these interactions have passed.
   selected. With `YINGGE_TEST_PG_BIN` pointed at an isolated PostgreSQL 18.6.1
   binary directory, `dotnet test cloud/tests/Yingge.Cloud.Tests -c Release
   --no-restore` passed 65/65.
+- The expanded bundled PostgreSQL probe passed: loopback only, credential
+  roundtrip, active-session import blocked, synthetic index/metadata and
+  user-state document import verified, and stale compare-and-swap write rejected.
+  `realLibraryRead=false`; server stopped after the probe.
+- After the UI correction, 237 layout records across nine themes and three
+  window sizes passed the existing timeout/graph-link checks. The redirected
+  diagnostic rendered four review rows in each non-classic mode.
 - Cloud production service remains inactive and public HTTP still returns an
   empty response. This is independent of the local library cutover.

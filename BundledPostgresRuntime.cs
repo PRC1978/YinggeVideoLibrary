@@ -92,13 +92,49 @@ internal static class BundledPostgresRuntime
             await File.WriteAllTextAsync(Path.Combine(sourceDirectory, "metadata.json"),
                 JsonSerializer.Serialize(new Dictionary<string, MovieMetadata>
                     { [videoId] = new MovieMetadata { Title = "isolated sample" } }));
+            await File.WriteAllTextAsync(Path.Combine(sourceDirectory, "config.json"),
+                "{\"folders\":[],\"categories\":[\"isolated\"]}");
+            await File.WriteAllTextAsync(Path.Combine(sourceDirectory, "scrape-queue.json"),
+                "{\"items\":[]}");
+            await File.WriteAllTextAsync(Path.Combine(sourceDirectory, "role-profiles.json"),
+                "{\"profiles\":[]}");
+            await File.WriteAllTextAsync(Path.Combine(sourceDirectory, "review-history.jsonl"),
+                "{\"id\":\"isolated-review\"}\n");
+            await File.WriteAllTextAsync(Path.Combine(sourceDirectory,
+                "scrape-queue.snapshot.00000001.json"), "{\"items\":[]}");
+            var activeSessionBlocked = false;
+            using (LibraryBackupService.AcquireSessionLease(sourceDirectory))
+            {
+                try { await PostgresLibraryMigration.ImportAsync(sourceDirectory, builder.ConnectionString); }
+                catch (IOException) { activeSessionBlocked = true; }
+            }
+            findings["activeSessionImportBlocked"] = activeSessionBlocked;
             var imported = await PostgresLibraryMigration.ImportAsync(sourceDirectory, builder.ConnectionString);
             var verified = await PostgresLibraryMigration.VerifyContentAsync(sourceDirectory, builder.ConnectionString);
             findings["sampleImportVerified"] = imported.VideoCount == 1 &&
                 imported.MetadataCount == 1 && verified;
+            var configDocument = await PostgresLibraryDocumentStore.ReadAsync(
+                builder.ConnectionString, "config.json");
+            var revisedConfig = Encoding.UTF8.GetBytes("{\"folders\":[],\"categories\":[\"verified\"]}");
+            var revisedHash = await PostgresLibraryDocumentStore.SaveAsync(
+                builder.ConnectionString, "config.json", revisedConfig,
+                configDocument?.Revision);
+            var reloadedConfig = await PostgresLibraryDocumentStore.ReadAsync(
+                builder.ConnectionString, "config.json");
+            var staleWriteRejected = false;
+            try
+            {
+                await PostgresLibraryDocumentStore.SaveAsync(builder.ConnectionString,
+                    "config.json", Encoding.UTF8.GetBytes("{}"), configDocument?.Revision);
+            }
+            catch (InvalidOperationException) { staleWriteRejected = true; }
+            findings["stateDocumentCasVerified"] = configDocument is not null &&
+                reloadedConfig?.Revision == revisedHash &&
+                reloadedConfig.Content.SequenceEqual(revisedConfig) && staleWriteRejected;
             findings["passed"] = version.StartsWith("18.6", StringComparison.Ordinal) &&
                 findings["loopbackOnly"] is true && findings["credentialRoundTrip"] is true &&
-                findings["sampleImportVerified"] is true;
+                findings["sampleImportVerified"] is true && findings["stateDocumentCasVerified"] is true &&
+                findings["activeSessionImportBlocked"] is true;
         }
         catch (Exception ex)
         {

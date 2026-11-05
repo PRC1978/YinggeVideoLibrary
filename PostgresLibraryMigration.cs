@@ -32,7 +32,33 @@ internal static class PostgresLibraryMigration
         CREATE TABLE IF NOT EXISTS library_folder (
             path text PRIMARY KEY
         );
+        CREATE TABLE IF NOT EXISTS library_document (
+            name text PRIMARY KEY,
+            content bytea NOT NULL,
+            sha256 text NOT NULL
+        );
         """;
+
+    // These files are user state, not regenerated caches. Keep their exact bytes
+    // until each writer has a typed PostgreSQL implementation. The index and
+    // metadata have dedicated tables and must not be duplicated here.
+    private static readonly string[] DocumentNames =
+    [
+        "config.json", "personal-ratings.json", "review-history.jsonl",
+        "review-views.json", "graph-move-history.json",
+        "duplicate-metadata-history.json", "site-list-import.json",
+        "role-profiles.json", "ai-budget.json", "javinfo-usage.json",
+        "scrape-source-backoff.json", "scrape-queue.json",
+        "scrape-queue.state.json", "plugin-candidates.json",
+        "missing-cleanup.json"
+    ];
+
+    internal static bool IsDocumentName(string? name) => name is not null &&
+        (DocumentNames.Contains(name, StringComparer.Ordinal) ||
+         (name.StartsWith("scrape-queue.snapshot.", StringComparison.Ordinal) &&
+          name.EndsWith(".json", StringComparison.Ordinal) &&
+          name.Length == "scrape-queue.snapshot.00000000.json".Length &&
+          name.AsSpan("scrape-queue.snapshot.".Length, 8).ToArray().All(char.IsAsciiDigit)));
 
     internal sealed record Result(int VideoCount, int MetadataCount, int FolderCount,
         string IndexSha256, string MetadataSha256);
@@ -40,6 +66,11 @@ internal static class PostgresLibraryMigration
     internal static async Task<Result> ImportAsync(string directory, string connectionString,
         CancellationToken cancellationToken = default)
     {
+        // Take the same exclusive offline lease as backup/restore before
+        // reading any source bytes. A running app holds a shared lease for its
+        // whole session, so an import cannot observe a half-written library.
+        using var offlineLease = new FileStream(Path.Combine(directory, ".library-session.lock"),
+            FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         var indexPath = Path.Combine(directory, "library-index.json");
         var metadataPath = Path.Combine(directory, "metadata.json");
         var indexBytes = await File.ReadAllBytesAsync(indexPath, cancellationToken);
@@ -101,6 +132,27 @@ internal static class PostgresLibraryMigration
                 await writer.StartRowAsync(cancellationToken);
                 await writer.WriteAsync(id, NpgsqlDbType.Text, cancellationToken);
                 await writer.WriteAsync(document.GetRawText(), NpgsqlDbType.Jsonb, cancellationToken);
+            }
+            await writer.CompleteAsync(cancellationToken);
+        }
+        await using (var writer = await connection.BeginBinaryImportAsync(
+            "COPY library_document (name, content, sha256) FROM STDIN (FORMAT BINARY)", cancellationToken))
+        {
+            var names = DocumentNames.Concat(Directory.EnumerateFiles(directory,
+                    "scrape-queue.snapshot.*.json", SearchOption.TopDirectoryOnly)
+                .Select(path => Path.GetFileName(path)!)).Distinct(StringComparer.Ordinal);
+            foreach (var name in names)
+            {
+                var path = Path.Combine(directory, name);
+                if (!File.Exists(path)) continue;
+                if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                    throw new InvalidDataException("资料文件不能是文件链接：" + name);
+                var content = await File.ReadAllBytesAsync(path, cancellationToken);
+                await writer.StartRowAsync(cancellationToken);
+                await writer.WriteAsync(name, NpgsqlDbType.Text, cancellationToken);
+                await writer.WriteAsync(content, NpgsqlDbType.Bytea, cancellationToken);
+                await writer.WriteAsync(Convert.ToHexString(SHA256.HashData(content)),
+                    NpgsqlDbType.Text, cancellationToken);
             }
             await writer.CompleteAsync(cancellationToken);
         }
@@ -184,6 +236,23 @@ internal static class PostgresLibraryMigration
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
             while (await reader.ReadAsync(cancellationToken)) folders.Add(reader.GetString(0));
         if (!folders.SetEquals(sourceIndex.Folders)) return false;
+        var documentNames = DocumentNames.Concat(Directory.EnumerateFiles(directory,
+                "scrape-queue.snapshot.*.json", SearchOption.TopDirectoryOnly)
+            .Select(path => Path.GetFileName(path)!)).Where(name => File.Exists(Path.Combine(directory, name)))
+            .ToHashSet(StringComparer.Ordinal);
+        await using (var command = new NpgsqlCommand(
+            "SELECT name,content,sha256 FROM library_document", connection))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var name = reader.GetString(0);
+                if (!documentNames.Remove(name)) return false;
+                var actual = (byte[])reader[1];
+                if (reader.GetString(2) != Convert.ToHexString(SHA256.HashData(actual)) ||
+                    !actual.SequenceEqual(await File.ReadAllBytesAsync(
+                        Path.Combine(directory, name), cancellationToken))) return false;
+            }
+        if (documentNames.Count != 0) return false;
         var found = 0;
         await using (var command = new NpgsqlCommand("SELECT video_id, document::text FROM library_metadata", connection))
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken))

@@ -40,6 +40,7 @@ public partial class MainWindow
     bool updatingReviewSources;
     bool applyingReviewSavedView;
     bool reviewHistoryReady;
+    bool reviewSummaryStacked;
     int reviewHistoryReloadRequests;
     int reviewHistoryInvalidLines;
     int reviewHistoryMutationVersion;
@@ -57,6 +58,7 @@ public partial class MainWindow
     void InitializeReviewWorkflowUi()
     {
         if (ScrapePanel.Child is not StackPanel panel) return;
+        ReviewPanel.SizeChanged += (_, _) => ArrangeReviewSummaryActions();
         var bar = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
         reviewStatusFilter = MakeReviewFilter(["状态：全部", "待审核", "已否决", "已通过", "未找到"]);
         reviewSourceFilter = MakeReviewFilter(["来源：全部"]);
@@ -422,6 +424,34 @@ public partial class MainWindow
         queueScroll.Height = UiTheme.IsClassicMode ? 560 : double.NaN;
         queueScroll.VerticalScrollBarVisibility = UiTheme.IsClassicMode
             ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled;
+        ArrangeReviewSummaryActions();
+    }
+
+    void ArrangeReviewSummaryActions()
+    {
+        if (ReviewSummary.Parent is not DockPanel host ||
+            ReviewEvaluateButton.Parent is not StackPanel buttons ||
+            !ReferenceEquals(buttons.Parent, host)) return;
+        var stacked = !UiTheme.IsClassicMode && ReviewPanel.ActualWidth is > 0 and < 720;
+        if (stacked == reviewSummaryStacked) return;
+        reviewSummaryStacked = stacked;
+        host.Children.Remove(ReviewSummary);
+        host.Children.Remove(buttons);
+        if (stacked)
+        {
+            ReviewSummary.Margin = new Thickness(0, 0, 0, 7);
+            DockPanel.SetDock(ReviewSummary, Dock.Top);
+            DockPanel.SetDock(buttons, Dock.Top);
+            host.Children.Add(ReviewSummary);
+            host.Children.Add(buttons);
+        }
+        else
+        {
+            ReviewSummary.Margin = new Thickness();
+            DockPanel.SetDock(buttons, Dock.Right);
+            host.Children.Add(buttons);
+            host.Children.Add(ReviewSummary);
+        }
     }
 
     void ArrangeReviewSections()

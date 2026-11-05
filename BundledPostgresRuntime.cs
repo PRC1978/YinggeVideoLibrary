@@ -20,6 +20,7 @@ internal static class BundledPostgresRuntime
         var data = Path.Combine(probeRoot, "data");
         var passwordFile = Path.Combine(probeRoot, "init-password.txt");
         var credentialName = "PostgresProbe-" + Guid.NewGuid().ToString("N");
+        var privateLibrary = Path.Combine(probeRoot, "private-library");
         var ctl = Path.Combine(runtimeDirectory, "bin", "pg_ctl.exe");
         var initdb = Path.Combine(runtimeDirectory, "bin", "initdb.exe");
         var password = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
@@ -225,6 +226,24 @@ internal static class BundledPostgresRuntime
                 lateFailureRejected && configAfterLateFailure?.Content.SequenceEqual(reviewConfig) is true &&
                 metadataAfterLateFailure.Revision == reviewRevision &&
                 metadataAfterLateFailure.Records[videoId].Title == "review approved";
+            var duplicateOwnerBlocked = false;
+            await using (var privateCluster = await PostgresPrivateCluster.OpenAsync(
+                runtimeDirectory, privateLibrary))
+            {
+                await using var privateConnection = new NpgsqlConnection(privateCluster.ConnectionString);
+                await privateConnection.OpenAsync();
+                try { await using var duplicate = await PostgresPrivateCluster.OpenAsync(
+                    runtimeDirectory, privateLibrary); }
+                catch (IOException) { duplicateOwnerBlocked = true; }
+            }
+            await using (var restarted = await PostgresPrivateCluster.OpenAsync(
+                runtimeDirectory, privateLibrary))
+            {
+                await using var connectionAfterRestart = new NpgsqlConnection(restarted.ConnectionString);
+                await connectionAfterRestart.OpenAsync();
+                findings["privateClusterLifecycleVerified"] = duplicateOwnerBlocked &&
+                    connectionAfterRestart.State == System.Data.ConnectionState.Open;
+            }
             findings["passed"] = version.StartsWith("18.6", StringComparison.Ordinal) &&
                 findings["loopbackOnly"] is true && findings["credentialRoundTrip"] is true &&
                 findings["sampleImportVerified"] is true && findings["stateDocumentCasVerified"] is true &&
@@ -232,7 +251,8 @@ internal static class BundledPostgresRuntime
                 findings["rollbackExportVerified"] is true &&
                 findings["nestedDocumentPathsVerified"] is true &&
                 findings["legacyModeGuardVerified"] is true &&
-                findings["atomicReviewStateVerified"] is true;
+                findings["atomicReviewStateVerified"] is true &&
+                findings["privateClusterLifecycleVerified"] is true;
         }
         catch (Exception ex)
         {
@@ -253,6 +273,7 @@ internal static class BundledPostgresRuntime
             }
             if (File.Exists(passwordFile)) File.Delete(passwordFile);
             WindowsCredentialStore.Write(credentialName, "");
+            WindowsCredentialStore.Write(PostgresPrivateCluster.CredentialNameFor(privateLibrary), "");
         }
         findings["realLibraryRead"] = false;
         findings["probeDirectory"] = probeRoot;

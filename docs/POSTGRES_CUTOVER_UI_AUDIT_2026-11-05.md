@@ -63,6 +63,13 @@ to allowed after removal (`legacyModeGuardVerified=true`). A future cutover must
 write the marker while holding the exclusive offline lease and only after its
 database and rollback copy have been verified.
 
+A private PostgreSQL process owner has also been added as an isolated runtime
+component. It initializes a private cluster, stores its password in Windows
+Credential Manager, binds to 127.0.0.1, rejects a second owner, checks the
+cluster major version, stops on disposal, and can restart the same test cluster.
+The bundled-runtime probe passed `privateClusterLifecycleVerified=true` on a
+temporary library. This component is not connected to normal app startup.
+
 ## Isolated UI review
 
 Generated a synthetic 60-video, 40-category fixture with 10 posters under

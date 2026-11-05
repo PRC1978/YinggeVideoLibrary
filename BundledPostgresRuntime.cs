@@ -182,12 +182,30 @@ internal static class BundledPostgresRuntime
             }
             catch (InvalidOperationException) { staleReviewRejected = true; }
             var metadataAfterRejection = await PostgresLibraryMetadataStore.ReadAsync(builder.ConnectionString);
+            var lateFailureRejected = false;
+            try
+            {
+                await PostgresLibraryAtomicStateStore.CommitAsync(builder.ConnectionString,
+                    new Dictionary<string, MovieMetadata>(StringComparer.Ordinal)
+                        { [videoId] = new MovieMetadata { Title = "must also roll back" } }, reviewRevision,
+                    [new("config.json", Encoding.UTF8.GetBytes("{\"review\":\"wrong\"}"),
+                        configAfterReview?.Revision),
+                     new("review-history.jsonl", Encoding.UTF8.GetBytes("wrong"),
+                        historyBeforeReview?.Revision)]);
+            }
+            catch (InvalidOperationException) { lateFailureRejected = true; }
+            var configAfterLateFailure = await PostgresLibraryDocumentStore.ReadAsync(
+                builder.ConnectionString, "config.json");
+            var metadataAfterLateFailure = await PostgresLibraryMetadataStore.ReadAsync(builder.ConnectionString);
             findings["atomicReviewStateVerified"] = metadataAfterReview.Revision == reviewRevision &&
                 metadataAfterReview.Records[videoId].Title == "review approved" &&
                 configAfterReview?.Content.SequenceEqual(reviewConfig) is true &&
                 historyAfterReview?.Content.SequenceEqual(reviewHistory) is true &&
                 staleReviewRejected && metadataAfterRejection.Revision == reviewRevision &&
-                metadataAfterRejection.Records[videoId].Title == "review approved";
+                metadataAfterRejection.Records[videoId].Title == "review approved" &&
+                lateFailureRejected && configAfterLateFailure?.Content.SequenceEqual(reviewConfig) is true &&
+                metadataAfterLateFailure.Revision == reviewRevision &&
+                metadataAfterLateFailure.Records[videoId].Title == "review approved";
             findings["passed"] = version.StartsWith("18.6", StringComparison.Ordinal) &&
                 findings["loopbackOnly"] is true && findings["credentialRoundTrip"] is true &&
                 findings["sampleImportVerified"] is true && findings["stateDocumentCasVerified"] is true &&

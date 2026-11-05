@@ -227,3 +227,20 @@ eliminate the need to scroll through review cards on a short window.
   `passed=true`; Release build had zero warnings and errors.
 - Image inclusion is opt-in at the export call. Normal settings backup and
   startup restore have not been switched to database mode.
+
+## 30,000-item isolation check
+
+- An isolated file library with 30,000 index entries and no real media was
+  imported into a fresh private PostgreSQL cluster, exported, checked against
+  its SHA-256 manifest, and compared with the database. The import took 1,259
+  ms on this machine; `scaleFileRoundTripVerified=true` and the full probe
+  returned `passed=true`. The separate 30,000-row index write and delta checks
+  also passed.
+- The synthetic 30,000-video UI search diagnostic completed. Three queries
+  with about 5,000 matches measured layout P50 of 327.54, 324.18 and 296.97
+  ms; the longest UI gaps were 52.06, 40.2 and 48.67 ms. Search and card
+  rendering still miss a 16 ms frame budget. The fixture has no poster decode
+  or real disk I/O, so these numbers do not establish real-library performance.
+- The normal app still does not use PostgreSQL as its authoritative store.
+  Neither these tests nor the new backup API justify switching the storage
+  marker for an existing library.

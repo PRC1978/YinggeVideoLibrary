@@ -22,6 +22,7 @@ internal static class BundledPostgresRuntime
         var passwordFile = Path.Combine(probeRoot, "init-password.txt");
         var credentialName = "PostgresProbe-" + Guid.NewGuid().ToString("N");
         var privateLibrary = Path.Combine(probeRoot, "private-library");
+        var scaleLibrary = Path.Combine(probeRoot, "scale-library");
         var ctl = Path.Combine(runtimeDirectory, "bin", "pg_ctl.exe");
         var initdb = Path.Combine(runtimeDirectory, "bin", "initdb.exe");
         var password = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
@@ -306,6 +307,38 @@ internal static class BundledPostgresRuntime
                 ReviewTransactionStore.LastUndoable(reloadedHistory.Records) is null;
             if (scale)
             {
+                var scaleSource = Path.Combine(probeRoot, "scale-source");
+                Directory.CreateDirectory(scaleSource);
+                var scaleRoot = Path.Combine(probeRoot, "scale-import-media");
+                var scaleIndex = new LibraryIndex
+                {
+                    Folders = [scaleRoot],
+                    Entries = Enumerable.Range(0, 30_000).Select(number => new IndexEntry
+                    {
+                        Path = Path.Combine(scaleRoot, $"import-{number:D6}.mp4"),
+                        Size = 2048 + number, ModifiedTicks = DateTime.UtcNow.Ticks
+                    }).ToList()
+                };
+                await File.WriteAllTextAsync(Path.Combine(scaleSource, "library-index.json"),
+                    JsonSerializer.Serialize(scaleIndex));
+                await File.WriteAllTextAsync(Path.Combine(scaleSource, "metadata.json"), "{}");
+                await File.WriteAllTextAsync(Path.Combine(scaleSource, "config.json"), "{\"folders\":[]}");
+                await using (var scaleCluster = await PostgresPrivateCluster.OpenAsync(
+                    runtimeDirectory, scaleLibrary))
+                {
+                    var importWatch = Stopwatch.StartNew();
+                    var importedScale = await PostgresLibraryMigration.ImportAsync(
+                        scaleSource, scaleCluster.ConnectionString);
+                    findings["scaleFileImportMilliseconds"] = importWatch.ElapsedMilliseconds;
+                    var scaleExport = Path.Combine(probeRoot, "scale-export");
+                    var exportedScale = await PostgresLibraryExport.ExportAsync(
+                        scaleCluster.ConnectionString, scaleExport);
+                    findings["scaleFileRoundTripVerified"] = importedScale.VideoCount == 30_000 &&
+                        exportedScale.VideoCount == 30_000 &&
+                        await PostgresLibraryExport.VerifyOfflineAsync(scaleExport) &&
+                        await PostgresLibraryMigration.VerifyContentAsync(
+                            scaleExport, scaleCluster.ConnectionString);
+                }
                 var baseline = await PostgresLibraryIndexStore.ReadAsync(builder.ConnectionString);
                 var mediaRoot = Path.Combine(probeRoot, "scale-media");
                 var bulk = new LibraryIndex
@@ -415,7 +448,9 @@ internal static class BundledPostgresRuntime
                 findings["typedReviewUndoVerified"] is true &&
                 findings["freshDatabaseRestoreVerified"] is true &&
                 findings["privateClusterLifecycleVerified"] is true &&
-                (!scale || (findings["scaleVerified"] is true && findings["scaleDeltaVerified"] is true));
+                (!scale || (findings["scaleVerified"] is true &&
+                    findings["scaleDeltaVerified"] is true &&
+                    findings["scaleFileRoundTripVerified"] is true));
         }
         catch (Exception ex)
         {
@@ -437,6 +472,7 @@ internal static class BundledPostgresRuntime
             if (File.Exists(passwordFile)) File.Delete(passwordFile);
             WindowsCredentialStore.Write(credentialName, "");
             WindowsCredentialStore.Write(PostgresPrivateCluster.CredentialNameFor(privateLibrary), "");
+            WindowsCredentialStore.Write(PostgresPrivateCluster.CredentialNameFor(scaleLibrary), "");
         }
         findings["realLibraryRead"] = false;
         findings["probeDirectory"] = probeRoot;

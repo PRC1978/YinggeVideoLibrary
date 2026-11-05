@@ -208,3 +208,22 @@ eliminate the need to scroll through review cards on a short window.
   `passed=true`. Release build had zero warnings and errors.
 - The live queue still writes files. This closes a migration/rollback integrity
   gap; a database-backed queue writer and coordinated mode switch remain open.
+
+## Isolated interface and image-backup continuation
+
+- Re-ran the synthetic UI fixture (60 videos, 40 category leaves, 10 posters).
+  Nine themes at three window sizes produced 237 layout records and 238
+  screenshots. No card population timeout or disconnected category node was
+  reported; 24 review-layout records rendered rows. The 800x550 cinema review
+  and glass settings screenshots were inspected. This does not validate a
+  live PostgreSQL-backed UI or all interactive paths.
+- PostgreSQL export can now include posters and user custom thumbnails while
+  holding an exclusive offline library lease. The export manifest hashes those
+  files; unknown names and links are rejected. Recovery copies verified images
+  into a new directory without replacing existing assets.
+- The isolated probe exported both asset types, rejected a deliberately altered
+  poster, restored the images and database to new locations, then exported
+  again. `assetBackupVerified=true`, `freshDatabaseRestoreVerified=true`,
+  `passed=true`; Release build had zero warnings and errors.
+- Image inclusion is opt-in at the export call. Normal settings backup and
+  startup restore have not been switched to database mode.

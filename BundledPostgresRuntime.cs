@@ -113,6 +113,10 @@ internal static class BundledPostgresRuntime
             // The second task lives only in the post-checkpoint binary journal.
             ScrapeQueueStore.Add(sourceDirectory,
                 [new ScrapeQueueItem { VideoId = "queue-second-item", Code = "ABC-002" }]);
+            Directory.CreateDirectory(Path.Combine(sourceDirectory, "posters"));
+            Directory.CreateDirectory(Path.Combine(sourceDirectory, "thumbs"));
+            await File.WriteAllBytesAsync(Path.Combine(sourceDirectory, "posters", "sample.jpg"), [1, 2, 3, 4]);
+            await File.WriteAllBytesAsync(Path.Combine(sourceDirectory, "thumbs", "sample-custom.png"), [5, 6, 7]);
             Directory.CreateDirectory(Path.Combine(sourceDirectory, "title-candidates"));
             await File.WriteAllTextAsync(Path.Combine(sourceDirectory, "title-candidates",
                 new string('A', 64) + ".json"), "{\"candidate\":\"isolated\"}");
@@ -139,7 +143,7 @@ internal static class BundledPostgresRuntime
                 imported.MetadataCount == 1 && verified;
             var exportDirectory = Path.Combine(probeRoot, "exported-records");
             var exported = await PostgresLibraryExport.ExportAsync(
-                builder.ConnectionString, exportDirectory);
+                builder.ConnectionString, exportDirectory, assetDirectory: sourceDirectory);
             var exportVerified = await PostgresLibraryMigration.VerifyContentAsync(
                 exportDirectory, builder.ConnectionString);
             var offlineVerified = await PostgresLibraryExport.VerifyOfflineAsync(exportDirectory);
@@ -161,6 +165,17 @@ internal static class BundledPostgresRuntime
                 ScrapeQueueStore.Load(exportDirectory).Select(item => item.Code)
                     .SequenceEqual(["ABC-001", "ABC-002"]) &&
                 File.Exists(Path.Combine(exportDirectory, "scrape-queue.journal.00000001.bin"));
+            findings["assetBackupVerified"] =
+                (await File.ReadAllBytesAsync(Path.Combine(exportDirectory, "posters", "sample.jpg")))
+                    .SequenceEqual(new byte[] { 1, 2, 3, 4 }) &&
+                (await File.ReadAllBytesAsync(Path.Combine(exportDirectory, "thumbs", "sample-custom.png")))
+                    .SequenceEqual(new byte[] { 5, 6, 7 });
+            var exportedPosterPath = Path.Combine(exportDirectory, "posters", "sample.jpg");
+            await File.WriteAllBytesAsync(exportedPosterPath, [9, 9, 9]);
+            var alteredAssetRejected = !await PostgresLibraryExport.VerifyOfflineAsync(exportDirectory);
+            await File.WriteAllBytesAsync(exportedPosterPath, [1, 2, 3, 4]);
+            findings["assetBackupVerified"] = findings["assetBackupVerified"] is true &&
+                alteredAssetRejected && await PostgresLibraryExport.VerifyOfflineAsync(exportDirectory);
             findings["nestedDocumentPathsVerified"] =
                 PostgresLibraryMigration.IsDocumentName("title-candidates/" + new string('A', 64) + ".json") &&
                 PostgresLibraryMigration.IsDocumentName("ai-jobs/" + new string('b', 32) + ".json") &&
@@ -357,15 +372,21 @@ internal static class BundledPostgresRuntime
                     exportDirectory, privateCluster.ConnectionString); }
                 catch (InvalidOperationException) { secondRestoreBlocked = true; }
                 var restoredExportDirectory = Path.Combine(probeRoot, "restored-queue-export");
+                var restoredAssetsDirectory = Path.Combine(probeRoot, "restored-assets");
+                await PostgresLibraryRecovery.RestoreAssetsToNewDirectoryAsync(
+                    exportDirectory, restoredAssetsDirectory);
                 await PostgresLibraryExport.ExportAsync(
-                    privateCluster.ConnectionString, restoredExportDirectory);
+                    privateCluster.ConnectionString, restoredExportDirectory,
+                    assetDirectory: restoredAssetsDirectory);
                 findings["freshDatabaseRestoreVerified"] =
                     await PostgresLibraryMigration.VerifyContentAsync(
                         exportDirectory, privateCluster.ConnectionString) &&
                     restored.VideoCount == exported.VideoCount &&
                     restored.MetadataCount == exported.MetadataCount && secondRestoreBlocked &&
                     ScrapeQueueStore.Load(restoredExportDirectory).Select(item => item.Code)
-                        .SequenceEqual(["ABC-001", "ABC-002"]);
+                        .SequenceEqual(["ABC-001", "ABC-002"]) &&
+                    (await File.ReadAllBytesAsync(Path.Combine(restoredExportDirectory,
+                        "posters", "sample.jpg"))).SequenceEqual(new byte[] { 1, 2, 3, 4 });
                 try { await using var duplicate = await PostgresPrivateCluster.OpenAsync(
                     runtimeDirectory, privateLibrary); }
                 catch (IOException) { duplicateOwnerBlocked = true; }
@@ -387,6 +408,7 @@ internal static class BundledPostgresRuntime
                 findings["rollbackExportVerified"] is true &&
                 findings["nestedDocumentPathsVerified"] is true &&
                 findings["queueJournalMigrationVerified"] is true &&
+                findings["assetBackupVerified"] is true &&
                 findings["legacyModeGuardVerified"] is true &&
                 findings["atomicReviewStateVerified"] is true &&
                 findings["typedReviewRoundTripVerified"] is true &&

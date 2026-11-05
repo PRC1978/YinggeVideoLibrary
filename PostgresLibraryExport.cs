@@ -2,26 +2,37 @@ using System.Data;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Npgsql;
 
 namespace YinggeVideoLibrary;
 
 // Export an internally consistent database revision to a new, empty directory.
 // The old file-based app can read these records during a controlled rollback.
-// Posters and thumbnails are deliberately outside this record export.
+// Optional image inclusion requires an offline lease on the source library.
 internal static class PostgresLibraryExport
 {
     private const string ManifestName = "database-export-manifest.json";
+    private static readonly Regex PosterName = new(@"^[a-zA-Z0-9_-]+\.(?:jpg|jpeg|png|webp|bmp)$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex CustomThumbName = new(@"^[a-zA-Z0-9_-]+-custom\.(?:jpg|jpeg|png|webp|bmp)$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
     internal sealed record Result(int VideoCount, int MetadataCount, int DocumentCount);
     internal sealed record ExportedFile(long Length, string Sha256);
     internal sealed record Manifest(int SchemaVersion, Dictionary<string, ExportedFile> Files);
 
     internal static async Task<Result> ExportAsync(string connectionString, string destination,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, string? assetDirectory = null)
     {
         destination = Path.GetFullPath(destination);
+        assetDirectory = assetDirectory is null ? null : Path.GetFullPath(assetDirectory);
         if (Directory.Exists(destination) || File.Exists(destination))
             throw new IOException("导出目录已存在；拒绝覆盖已有数据。 ");
+        if (assetDirectory is not null && !Directory.Exists(assetDirectory))
+            throw new DirectoryNotFoundException("图片来源目录不存在。 ");
+        using var offlineLease = assetDirectory is null ? null : new FileStream(
+            Path.Combine(assetDirectory, ".library-session.lock"), FileMode.OpenOrCreate,
+            FileAccess.ReadWrite, FileShare.None);
         await using var source = NpgsqlDataSource.Create(connectionString);
         await using var connection = await source.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(
@@ -91,6 +102,11 @@ internal static class PostgresLibraryExport
                 documentCount++;
             }
         await transaction.CommitAsync(cancellationToken);
+        if (assetDirectory is not null)
+        {
+            CopyAssets(assetDirectory, staging, "posters", PosterName);
+            CopyAssets(assetDirectory, staging, "thumbs", CustomThumbName);
+        }
         var files = new Dictionary<string, ExportedFile>(StringComparer.Ordinal);
         foreach (var path in EnumerateExportFiles(staging))
         {
@@ -124,7 +140,7 @@ internal static class PostgresLibraryExport
             foreach (var (name, expected) in manifest.Files)
             {
                 if (name != "library-index.json" && name != "metadata.json" &&
-                    !PostgresLibraryMigration.IsDocumentName(name)) return false;
+                    !PostgresLibraryMigration.IsDocumentName(name) && !IsAssetName(name)) return false;
                 var path = Path.Combine(directory, name.Replace('/', Path.DirectorySeparatorChar));
                 if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0) return false;
                 var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
@@ -145,16 +161,54 @@ internal static class PostgresLibraryExport
         foreach (var path in Directory.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly))
             yield return path;
         foreach (var child in Directory.EnumerateDirectories(directory, "*", SearchOption.TopDirectoryOnly))
-            if (Path.GetFileName(child) is not ("title-candidates" or "ai-jobs"))
+            if (Path.GetFileName(child) is not ("title-candidates" or "ai-jobs" or "posters" or "thumbs"))
                 throw new InvalidDataException("导出目录包含未列入清单的子目录。 ");
-        foreach (var name in new[] { "title-candidates", "ai-jobs" })
+        foreach (var name in new[] { "title-candidates", "ai-jobs", "posters", "thumbs" })
         {
             var child = Path.Combine(directory, name);
             if (!Directory.Exists(child)) continue;
             if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) != 0)
                 throw new InvalidDataException("导出目录包含文件链接：" + name);
             foreach (var path in Directory.EnumerateFiles(child, "*", SearchOption.TopDirectoryOnly))
+            {
+                if (name is ("posters" or "thumbs") && !IsAssetName(
+                    name + "/" + Path.GetFileName(path)))
+                    throw new InvalidDataException("导出目录包含不允许的图片文件名。 ");
                 yield return path;
+            }
+        }
+    }
+
+    private static bool IsAssetName(string relative)
+    {
+        var slash = relative.IndexOf('/');
+        if (slash < 0 || relative.LastIndexOf('/') != slash) return false;
+        var folder = relative[..slash];
+        var name = relative[(slash + 1)..];
+        return folder switch
+        {
+            "posters" => PosterName.IsMatch(name),
+            "thumbs" => CustomThumbName.IsMatch(name),
+            _ => false
+        };
+    }
+
+    private static void CopyAssets(string sourceDirectory, string staging,
+        string folderName, Regex allowed)
+    {
+        var folder = Path.Combine(sourceDirectory, folderName);
+        if (!Directory.Exists(folder)) return;
+        if ((File.GetAttributes(folder) & FileAttributes.ReparsePoint) != 0)
+            throw new InvalidDataException("图片目录不能是文件链接：" + folderName);
+        foreach (var path in Directory.EnumerateFiles(folder, "*", SearchOption.TopDirectoryOnly))
+        {
+            var name = Path.GetFileName(path);
+            if (!allowed.IsMatch(name)) continue;
+            if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException("图片文件不能是文件链接：" + name);
+            var target = Path.Combine(staging, folderName, name);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(path, target);
         }
     }
 }

@@ -85,14 +85,16 @@ internal static class PostgresLibraryExport
                 var bytes = (byte[])reader[1];
                 if (reader.GetString(2) != Convert.ToHexString(SHA256.HashData(bytes)))
                     throw new InvalidDataException("数据库资料校验失败：" + name);
-                await File.WriteAllBytesAsync(Path.Combine(staging, name), bytes, cancellationToken);
+                var output = Path.Combine(staging, name.Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+                await File.WriteAllBytesAsync(output, bytes, cancellationToken);
                 documentCount++;
             }
         await transaction.CommitAsync(cancellationToken);
         var files = new Dictionary<string, ExportedFile>(StringComparer.Ordinal);
-        foreach (var path in Directory.EnumerateFiles(staging, "*", SearchOption.TopDirectoryOnly))
+        foreach (var path in EnumerateExportFiles(staging))
         {
-            var name = Path.GetFileName(path);
+            var name = Path.GetRelativePath(staging, path).Replace(Path.DirectorySeparatorChar, '/');
             var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
             files.Add(name, new ExportedFile(bytes.LongLength,
                 Convert.ToHexString(SHA256.HashData(bytes))));
@@ -115,14 +117,15 @@ internal static class PostgresLibraryExport
             if (manifest is null || manifest.SchemaVersion != 1 || manifest.Files is null ||
                 !manifest.Files.ContainsKey("library-index.json") ||
                 !manifest.Files.ContainsKey("metadata.json")) return false;
-            var actualNames = Directory.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly)
-                .Select(Path.GetFileName).Where(name => name != ManifestName).ToHashSet(StringComparer.Ordinal);
+            var actualNames = EnumerateExportFiles(directory)
+                .Select(path => Path.GetRelativePath(directory, path).Replace(Path.DirectorySeparatorChar, '/'))
+                .Where(name => name != ManifestName).ToHashSet(StringComparer.Ordinal);
             if (!actualNames.SetEquals(manifest.Files.Keys)) return false;
             foreach (var (name, expected) in manifest.Files)
             {
                 if (name != "library-index.json" && name != "metadata.json" &&
                     !PostgresLibraryMigration.IsDocumentName(name)) return false;
-                var path = Path.Combine(directory, name);
+                var path = Path.Combine(directory, name.Replace('/', Path.DirectorySeparatorChar));
                 if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0) return false;
                 var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
                 if (bytes.LongLength != expected.Length ||
@@ -134,6 +137,24 @@ internal static class PostgresLibraryExport
             ArgumentException or NullReferenceException)
         {
             return false;
+        }
+    }
+
+    private static IEnumerable<string> EnumerateExportFiles(string directory)
+    {
+        foreach (var path in Directory.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly))
+            yield return path;
+        foreach (var child in Directory.EnumerateDirectories(directory, "*", SearchOption.TopDirectoryOnly))
+            if (Path.GetFileName(child) is not ("title-candidates" or "ai-jobs"))
+                throw new InvalidDataException("导出目录包含未列入清单的子目录。 ");
+        foreach (var name in new[] { "title-candidates", "ai-jobs" })
+        {
+            var child = Path.Combine(directory, name);
+            if (!Directory.Exists(child)) continue;
+            if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException("导出目录包含文件链接：" + name);
+            foreach (var path in Directory.EnumerateFiles(child, "*", SearchOption.TopDirectoryOnly))
+                yield return path;
         }
     }
 }

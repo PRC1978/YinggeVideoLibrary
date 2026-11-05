@@ -108,6 +108,12 @@ internal static class BundledPostgresRuntime
                 "{\"id\":\"isolated-review\"}\n");
             await File.WriteAllTextAsync(Path.Combine(sourceDirectory,
                 "scrape-queue.snapshot.00000001.json"), "{\"items\":[]}");
+            Directory.CreateDirectory(Path.Combine(sourceDirectory, "title-candidates"));
+            await File.WriteAllTextAsync(Path.Combine(sourceDirectory, "title-candidates",
+                new string('A', 64) + ".json"), "{\"candidate\":\"isolated\"}");
+            Directory.CreateDirectory(Path.Combine(sourceDirectory, "ai-jobs"));
+            await File.WriteAllTextAsync(Path.Combine(sourceDirectory, "ai-jobs",
+                new string('b', 32) + ".json"), "{\"job\":\"isolated\"}");
             var legacyBeforeCutover = PostgresStorageModeGuard.LegacyFilesMayOpen(sourceDirectory);
             var modeMarker = Path.Combine(sourceDirectory, PostgresStorageModeGuard.MarkerName);
             await File.WriteAllTextAsync(modeMarker, "postgresql");
@@ -142,8 +148,15 @@ internal static class BundledPostgresRuntime
             try { await PostgresLibraryExport.ExportAsync(builder.ConnectionString, exportDirectory); }
             catch (IOException) { overwriteBlocked = true; }
             findings["rollbackExportVerified"] = exported.VideoCount == imported.VideoCount &&
-                exported.MetadataCount == imported.MetadataCount && exported.DocumentCount == 8 &&
+                exported.MetadataCount == imported.MetadataCount && exported.DocumentCount == 10 &&
                 exportVerified && offlineVerified && tamperRejected && overwriteBlocked;
+            findings["nestedDocumentPathsVerified"] =
+                PostgresLibraryMigration.IsDocumentName("title-candidates/" + new string('A', 64) + ".json") &&
+                PostgresLibraryMigration.IsDocumentName("ai-jobs/" + new string('b', 32) + ".json") &&
+                !PostgresLibraryMigration.IsDocumentName("ai-jobs/../config.json") &&
+                !PostgresLibraryMigration.IsDocumentName("title-candidates/" + new string('A', 63) + "Z.json") &&
+                File.Exists(Path.Combine(exportDirectory, "title-candidates", new string('A', 64) + ".json")) &&
+                File.Exists(Path.Combine(exportDirectory, "ai-jobs", new string('b', 32) + ".json"));
             var configDocument = await PostgresLibraryDocumentStore.ReadAsync(
                 builder.ConnectionString, "config.json");
             var revisedConfig = Encoding.UTF8.GetBytes("{\"folders\":[],\"categories\":[\"verified\"]}");
@@ -217,6 +230,7 @@ internal static class BundledPostgresRuntime
                 findings["sampleImportVerified"] is true && findings["stateDocumentCasVerified"] is true &&
                 findings["activeSessionImportBlocked"] is true &&
                 findings["rollbackExportVerified"] is true &&
+                findings["nestedDocumentPathsVerified"] is true &&
                 findings["legacyModeGuardVerified"] is true &&
                 findings["atomicReviewStateVerified"] is true;
         }

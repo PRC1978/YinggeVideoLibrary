@@ -58,7 +58,39 @@ internal static class PostgresLibraryMigration
          (name.StartsWith("scrape-queue.snapshot.", StringComparison.Ordinal) &&
           name.EndsWith(".json", StringComparison.Ordinal) &&
           name.Length == "scrape-queue.snapshot.00000000.json".Length &&
-          name.AsSpan("scrape-queue.snapshot.".Length, 8).ToArray().All(char.IsAsciiDigit)));
+          name.AsSpan("scrape-queue.snapshot.".Length, 8).ToArray().All(char.IsAsciiDigit)) ||
+         IsHashDocumentName(name, "title-candidates/", 64) ||
+         IsHashDocumentName(name, "ai-jobs/", 32));
+
+    private static bool IsHashDocumentName(string name, string prefix, int hexLength) =>
+        name.StartsWith(prefix, StringComparison.Ordinal) &&
+        name.EndsWith(".json", StringComparison.Ordinal) &&
+        name.Length == prefix.Length + hexLength + ".json".Length &&
+        name.AsSpan(prefix.Length, hexLength).ToArray().All(Uri.IsHexDigit);
+
+    internal static IEnumerable<string> EnumerateDocumentNames(string directory)
+    {
+        foreach (var name in DocumentNames)
+            if (File.Exists(Path.Combine(directory, name))) yield return name;
+        foreach (var path in Directory.EnumerateFiles(directory,
+                     "scrape-queue.snapshot.*.json", SearchOption.TopDirectoryOnly))
+        {
+            var name = Path.GetFileName(path);
+            if (IsDocumentName(name)) yield return name;
+        }
+        foreach (var subdir in new[] { "title-candidates", "ai-jobs" })
+        {
+            var path = Path.Combine(directory, subdir);
+            if (!Directory.Exists(path)) continue;
+            if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException("资料目录不能是链接：" + subdir);
+            foreach (var file in Directory.EnumerateFiles(path, "*.json", SearchOption.TopDirectoryOnly))
+            {
+                var name = subdir + "/" + Path.GetFileName(file);
+                if (IsDocumentName(name)) yield return name;
+            }
+        }
+    }
 
     internal sealed record Result(int VideoCount, int MetadataCount, int FolderCount,
         string IndexSha256, string MetadataSha256);
@@ -138,12 +170,10 @@ internal static class PostgresLibraryMigration
         await using (var writer = await connection.BeginBinaryImportAsync(
             "COPY library_document (name, content, sha256) FROM STDIN (FORMAT BINARY)", cancellationToken))
         {
-            var names = DocumentNames.Concat(Directory.EnumerateFiles(directory,
-                    "scrape-queue.snapshot.*.json", SearchOption.TopDirectoryOnly)
-                .Select(path => Path.GetFileName(path)!)).Distinct(StringComparer.Ordinal);
+            var names = EnumerateDocumentNames(directory).Distinct(StringComparer.Ordinal);
             foreach (var name in names)
             {
-                var path = Path.Combine(directory, name);
+                var path = Path.Combine(directory, name.Replace('/', Path.DirectorySeparatorChar));
                 if (!File.Exists(path)) continue;
                 if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
                     throw new InvalidDataException("资料文件不能是文件链接：" + name);
@@ -236,10 +266,7 @@ internal static class PostgresLibraryMigration
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
             while (await reader.ReadAsync(cancellationToken)) folders.Add(reader.GetString(0));
         if (!folders.SetEquals(sourceIndex.Folders)) return false;
-        var documentNames = DocumentNames.Concat(Directory.EnumerateFiles(directory,
-                "scrape-queue.snapshot.*.json", SearchOption.TopDirectoryOnly)
-            .Select(path => Path.GetFileName(path)!)).Where(name => File.Exists(Path.Combine(directory, name)))
-            .ToHashSet(StringComparer.Ordinal);
+        var documentNames = EnumerateDocumentNames(directory).ToHashSet(StringComparer.Ordinal);
         await using (var command = new NpgsqlCommand(
             "SELECT name,content,sha256 FROM library_document", connection))
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
@@ -250,7 +277,8 @@ internal static class PostgresLibraryMigration
                 var actual = (byte[])reader[1];
                 if (reader.GetString(2) != Convert.ToHexString(SHA256.HashData(actual)) ||
                     !actual.SequenceEqual(await File.ReadAllBytesAsync(
-                        Path.Combine(directory, name), cancellationToken))) return false;
+                        Path.Combine(directory, name.Replace('/', Path.DirectorySeparatorChar)),
+                        cancellationToken))) return false;
             }
         if (documentNames.Count != 0) return false;
         var found = 0;

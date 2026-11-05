@@ -26,6 +26,12 @@ created a verified backup, and compared their bytes in the package
 (`backupPreservesPluginAndCleanupState=true`). This does not yet test restore
 through the graphical settings flow.
 
+The migration and rollback export now include the managed `title-candidates`
+and `ai-jobs` snapshots. Only their documented fixed-length hexadecimal JSON
+names are accepted; the isolated probe round-tripped one of each and rejected
+a path traversal name (`nestedDocumentPathsVerified=true`). Poster and thumbnail
+assets remain file-backed and are not part of this database record export.
+
 Do not enable `BundlePostgres` for a normal release until every authoritative
 writer and restore path uses the same storage mode. Moving only the video index
 and metadata would allow review, queue, role, and configuration writes to diverge.

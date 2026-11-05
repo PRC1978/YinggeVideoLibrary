@@ -178,7 +178,7 @@ internal static class PostgresLibraryExport
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or
-            ArgumentException or NullReferenceException)
+            ArgumentException or NullReferenceException or InvalidDataException)
         {
             return false;
         }
@@ -197,6 +197,8 @@ internal static class PostgresLibraryExport
             if (!Directory.Exists(child)) continue;
             if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) != 0)
                 throw new InvalidDataException("导出目录包含文件链接：" + name);
+            if (Directory.EnumerateDirectories(child, "*", SearchOption.TopDirectoryOnly).Any())
+                throw new InvalidDataException("导出目录包含未列入清单的嵌套目录：" + name);
             foreach (var path in Directory.EnumerateFiles(child, "*", SearchOption.TopDirectoryOnly))
             {
                 if (name is ("posters" or "thumbs") && !IsAssetName(

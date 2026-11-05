@@ -242,6 +242,12 @@ internal static class BundledPostgresRuntime
             await File.WriteAllBytesAsync(exportedPosterPath, [1, 2, 3, 4]);
             findings["assetBackupVerified"] = findings["assetBackupVerified"] is true &&
                 alteredAssetRejected && await PostgresLibraryExport.VerifyOfflineAsync(exportDirectory);
+            var unexpectedChild = Path.Combine(exportDirectory, "title-candidates", "unlisted");
+            Directory.CreateDirectory(unexpectedChild);
+            var nestedDirectoryRejected = !await PostgresLibraryExport.VerifyOfflineAsync(exportDirectory);
+            Directory.Delete(unexpectedChild);
+            findings["unlistedNestedBackupDirectoryRejected"] = nestedDirectoryRejected &&
+                await PostgresLibraryExport.VerifyOfflineAsync(exportDirectory);
             var failedExportDirectory = Path.Combine(probeRoot, "failed-export");
             var lockedAssetRejected = false;
             using (var lockedPoster = new FileStream(Path.Combine(sourceDirectory,
@@ -528,6 +534,16 @@ internal static class BundledPostgresRuntime
                 var restoredAssetsDirectory = Path.Combine(probeRoot, "restored-assets");
                 await PostgresLibraryRecovery.RestoreAssetsToNewDirectoryAsync(
                     exportDirectory, restoredAssetsDirectory);
+                using var cancelledRestore = new CancellationTokenSource();
+                cancelledRestore.Cancel();
+                var cancelledAssets = Path.Combine(probeRoot, "cancelled-assets");
+                var cancelledRestoreRejected = false;
+                try { await PostgresLibraryRecovery.RestoreAssetsToNewDirectoryAsync(
+                    exportDirectory, cancelledAssets, cancelledRestore.Token); }
+                catch (OperationCanceledException) { cancelledRestoreRejected = true; }
+                findings["cancelledAssetRestoreLeavesNoTarget"] = cancelledRestoreRejected &&
+                    !Directory.Exists(cancelledAssets) &&
+                    !Directory.EnumerateDirectories(probeRoot, "cancelled-assets.partial-*").Any();
                 await PostgresLibraryExport.ExportAsync(
                     privateCluster.ConnectionString, restoredExportDirectory,
                     assetDirectory: restoredAssetsDirectory);
@@ -579,6 +595,8 @@ internal static class BundledPostgresRuntime
                 findings["sampleImportVerified"] is true && findings["stateDocumentCasVerified"] is true &&
                 findings["activeSessionImportBlocked"] is true &&
                 findings["rollbackExportVerified"] is true &&
+                findings["unlistedNestedBackupDirectoryRejected"] is true &&
+                findings["cancelledAssetRestoreLeavesNoTarget"] is true &&
                 findings["nestedDocumentPathsVerified"] is true &&
                 findings["queueJournalMigrationVerified"] is true &&
                 findings["queueMutationRollbackVerified"] is true &&

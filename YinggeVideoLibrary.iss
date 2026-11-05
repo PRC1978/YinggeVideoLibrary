@@ -8,6 +8,9 @@
 #ifndef PackageAppId
   #define PackageAppId "PRC1978.YinggeVideoLibrary"
 #endif
+#ifndef PackageDefaultDir
+  #define PackageDefaultDir "{localappdata}\Programs\YinggeVideoLibrary"
+#endif
 
 [Setup]
 AppId={#PackageAppId}
@@ -18,7 +21,7 @@ AppPublisherURL=https://github.com/PRC1978/YinggeVideoLibrary
 AppSupportURL=https://github.com/PRC1978/YinggeVideoLibrary/issues
 AppUpdatesURL=https://github.com/PRC1978/YinggeVideoLibrary/releases
 LicenseFile=LICENSE
-DefaultDirName={localappdata}\Programs\YinggeVideoLibrary
+DefaultDirName={#PackageDefaultDir}
 DefaultGroupName=映格视频库
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest

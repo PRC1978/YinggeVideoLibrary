@@ -124,6 +124,25 @@ internal static class CategoryGraphMoveHistoryStore
     sealed record HistoryFile(int Version, CategoryGraphHistoryEntry[] Entries);
     static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = false };
 
+    internal static IReadOnlyList<CategoryGraphHistoryEntry> ParseDatabaseDocument(byte[] bytes)
+    {
+        if (bytes.Length > 16 * 1024 * 1024) throw new InvalidDataException("图形分类历史超过允许大小。");
+        var saved = JsonSerializer.Deserialize<HistoryFile>(bytes, JsonOptions);
+        if (saved is null || saved.Version != FormatVersion || saved.Entries is null ||
+            saved.Entries.Any(entry => entry is null || entry.Id == Guid.Empty || entry.Changes is null))
+            throw new InvalidDataException("图形分类撤销历史格式不完整。");
+        return saved.Entries.Take(RetainedMoves).ToArray();
+    }
+
+    internal static byte[] SerializeDatabaseDocument(IEnumerable<CategoryGraphHistoryEntry> entries)
+    {
+        var chosen = entries.Take(RetainedMoves + 1).ToArray();
+        if (chosen.Length > RetainedMoves || chosen.Any(entry => entry is null ||
+            entry.Id == Guid.Empty || entry.Changes is null))
+            throw new InvalidDataException("图形分类撤销历史格式不完整。");
+        return JsonSerializer.SerializeToUtf8Bytes(new HistoryFile(FormatVersion, chosen), JsonOptions);
+    }
+
     public static IReadOnlyList<CategoryGraphHistoryEntry> Read(string path)
     {
         if (!File.Exists(path)) return [];

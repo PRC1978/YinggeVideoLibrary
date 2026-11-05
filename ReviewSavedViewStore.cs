@@ -31,6 +31,31 @@ internal static class ReviewSavedViewStore
         public List<ReviewSavedView> Views { get; set; } = [];
     }
 
+    internal static IReadOnlyList<ReviewSavedView> ParseDatabaseDocument(byte[] bytes)
+    {
+        if (bytes.Length > 64 * 1024) throw new InvalidDataException("审核视图超过允许大小。");
+        var document = JsonSerializer.Deserialize<Document>(bytes);
+        if (document?.Version != SchemaVersion || document.Views is null || document.Views.Count > MaxViews)
+            throw new InvalidDataException("审核视图格式无效。");
+        var seen = new HashSet<string>(StringComparer.CurrentCultureIgnoreCase);
+        return document.Views.Select(view =>
+        {
+            var clean = Validate(view);
+            if (!seen.Add(clean.Name)) throw new InvalidDataException("审核视图名称重复。");
+            return clean;
+        }).ToArray();
+    }
+
+    internal static byte[] SerializeDatabaseDocument(IEnumerable<ReviewSavedView> views)
+    {
+        var clean = views.Select(Validate).OrderBy(view => view.Name,
+            StringComparer.CurrentCultureIgnoreCase).ToList();
+        if (clean.Count > MaxViews || clean.Select(view => view.Name)
+            .Distinct(StringComparer.CurrentCultureIgnoreCase).Count() != clean.Count)
+            throw new InvalidDataException("审核视图过多或名称重复。");
+        return JsonSerializer.SerializeToUtf8Bytes(new Document { Views = clean }, JsonOptions);
+    }
+
     public static IReadOnlyList<ReviewSavedView> Load(string dataDir, out bool recovered)
     {
         var document = ReadDocument(dataDir, out recovered);

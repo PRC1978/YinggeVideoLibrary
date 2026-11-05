@@ -589,6 +589,43 @@ internal static class BundledPostgresRuntime
                     stalePersonRejected &&
                     (await File.ReadAllTextAsync(Path.Combine(sourceDirectory,
                         RoleProfileStore.FileName))).Contains("profiles", StringComparison.Ordinal);
+                var ratings = await PostgresUserStateStore.SetRatingAsync(
+                    restarted.ConnectionString, videoId, 8.5);
+                var ratingRoundTrip = await PostgresUserStateStore.LoadRatingsAsync(restarted.ConnectionString);
+                var viewsBefore = await PostgresUserStateStore.LoadReviewViewsAsync(restarted.ConnectionString);
+                var viewsAfter = await PostgresUserStateStore.SaveReviewViewsAsync(
+                    restarted.ConnectionString, viewsBefore,
+                    [new ReviewSavedView { Name = "待核对", Status = "pending" }]);
+                var staleViewRejected = false;
+                try
+                {
+                    await PostgresUserStateStore.SaveReviewViewsAsync(restarted.ConnectionString,
+                        viewsBefore, [new ReviewSavedView { Name = "过期视图" }]);
+                }
+                catch (InvalidOperationException) { staleViewRejected = true; }
+                var graphBefore = await PostgresUserStateStore.LoadGraphMovesAsync(restarted.ConnectionString);
+                var graphAfter = await PostgresUserStateStore.SaveGraphMovesAsync(
+                    restarted.ConnectionString, graphBefore, []);
+                var pluginBefore = await PostgresUserStateStore.LoadPluginStateAsync(restarted.ConnectionString);
+                var enabledPlugin = PluginStateStore.Clone(pluginBefore.Value);
+                enabledPlugin.Enabled.Add("isolated-plugin");
+                var pluginAfter = await PostgresUserStateStore.SavePluginStateAsync(
+                    restarted.ConnectionString, pluginBefore, enabledPlugin);
+                var stalePluginRejected = false;
+                try
+                {
+                    await PostgresUserStateStore.SavePluginStateAsync(restarted.ConnectionString,
+                        pluginBefore, pluginBefore.Value);
+                }
+                catch (InvalidOperationException) { stalePluginRejected = true; }
+                findings["typedUserStateCasVerified"] =
+                    ratings.Value[videoId].Score == 8.5 &&
+                    ratingRoundTrip.Value[videoId].Score == 8.5 &&
+                    viewsAfter.Value.Single().Name == "待核对" && staleViewRejected &&
+                    graphAfter.Value.Count == 0 && graphAfter.Revision is not null &&
+                    pluginAfter.Value.Enabled.Contains("isolated-plugin") && stalePluginRejected &&
+                    (await PostgresUserStateStore.LoadPluginStateAsync(restarted.ConnectionString))
+                        .Value.Enabled.Contains("isolated-plugin");
             }
             findings["passed"] = version.StartsWith("18.6", StringComparison.Ordinal) &&
                 findings["loopbackOnly"] is true && findings["credentialRoundTrip"] is true &&
@@ -609,6 +646,7 @@ internal static class BundledPostgresRuntime
                 findings["typedReviewUndoVerified"] is true &&
                 findings["typedConfigMergeVerified"] is true &&
                 findings["typedPersonStoreVerified"] is true &&
+                findings["typedUserStateCasVerified"] is true &&
                 findings["freshDatabaseRestoreVerified"] is true &&
                 findings["corruptRestoreStoppedBeforeDatabaseWrite"] is true &&
                 findings["privateClusterLifecycleVerified"] is true &&

@@ -117,6 +117,7 @@ void EndRestore(string dataDirectory);
 ## 5. 与并行任务的文件边界
 
 - 本分支拥有：`PostgresLibraryBackup.cs`、`PostgresLibraryRestore.cs`、`PostgresStorageModeActivation.cs`、`PostgresLibraryExport.cs`、`PostgresBackupAcceptance.cs`、`BundledPostgresRuntime.cs` 的验收段。
+- `PostgresLibraryBackupCoordinator.cs` 与探针中的 coordinated 断言来自并行分支 `codex/postgresql-backup-coordinator`（工作树 `2026-11-06-yingge-pg-backup-coordinator`）。本分支为自包含验证暂时保留；主线集成时**以该分支为准**，如已合并请删除本分支副本，只保留调用点。
 - 写入器收口（`Postgres*Store`、`LibraryBackupService`）由 `codex/postgresql-writer-audit` 负责；本分支只调用其现有 API，不改其语义。
 - `App.xaml.cs` / `MainWindow.xaml.cs` 由主线在集成时修改。
 

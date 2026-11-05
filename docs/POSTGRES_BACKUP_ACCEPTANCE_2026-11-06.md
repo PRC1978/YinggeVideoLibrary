@@ -120,6 +120,7 @@ cmd /c artifacts\installer-probe\run-scale.cmd
 7. 探针对上一轮遗留进程敏感：两次早期规模运行在收尾阶段异常退出（无结果 JSON），清理遗留
    `映格视频库.exe` 后重跑通过。复跑前应先确认没有遗留探针进程与临时集群。
 8. 恢复会丢弃队列二进制日志代次（`scrape-queue.journal.*.bin`），统一由 `scrape-queue.json` + 队列表表达；这是导出格式的既定语义，不是字节级全等恢复。
+9. `PostgresLibraryBackupCoordinator.cs` 与并行分支 `codex/postgresql-backup-coordinator` 重叠；主线集成时以该分支为准，删除本分支副本后只保留探针调用点。
 
 ## 8. 前端文案口径
 

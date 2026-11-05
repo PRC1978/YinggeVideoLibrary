@@ -553,6 +553,26 @@ internal static class BundledPostgresRuntime
                     connectionAfterRestart.State == System.Data.ConnectionState.Open &&
                     await PostgresLibraryMigration.VerifyContentAsync(
                         exportDirectory, restarted.ConnectionString);
+                var personBefore = await PostgresRoleProfileStore.LoadAsync(restarted.ConnectionString);
+                var editedPerson = RoleProfileStore.Parse(JsonSerializer.Serialize(personBefore.State));
+                editedPerson.Profiles.Add(new RoleProfileStore.Profile { Name = "Isolated Person" });
+                var savedPerson = await PostgresRoleProfileStore.SaveAsync(
+                    restarted.ConnectionString, personBefore, editedPerson);
+                var personAfter = await PostgresRoleProfileStore.LoadAsync(restarted.ConnectionString);
+                var stalePersonRejected = false;
+                try
+                {
+                    await PostgresRoleProfileStore.SaveAsync(restarted.ConnectionString,
+                        personBefore, RoleProfileStore.Parse(JsonSerializer.Serialize(personBefore.State)));
+                }
+                catch (InvalidOperationException) { stalePersonRejected = true; }
+                findings["typedPersonStoreVerified"] =
+                    personAfter.State.Profiles.Count == 1 &&
+                    personAfter.State.Profiles[0].Name == "Isolated Person" &&
+                    personAfter.DocumentRevision == savedPerson.DocumentRevision &&
+                    stalePersonRejected &&
+                    (await File.ReadAllTextAsync(Path.Combine(sourceDirectory,
+                        RoleProfileStore.FileName))).Contains("profiles", StringComparison.Ordinal);
             }
             findings["passed"] = version.StartsWith("18.6", StringComparison.Ordinal) &&
                 findings["loopbackOnly"] is true && findings["credentialRoundTrip"] is true &&
@@ -570,6 +590,7 @@ internal static class BundledPostgresRuntime
                 findings["typedReviewRoundTripVerified"] is true &&
                 findings["typedReviewUndoVerified"] is true &&
                 findings["typedConfigMergeVerified"] is true &&
+                findings["typedPersonStoreVerified"] is true &&
                 findings["freshDatabaseRestoreVerified"] is true &&
                 findings["corruptRestoreStoppedBeforeDatabaseWrite"] is true &&
                 findings["privateClusterLifecycleVerified"] is true &&

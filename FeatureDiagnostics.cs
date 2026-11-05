@@ -815,6 +815,10 @@ internal static class FeatureDiagnostics
             File.WriteAllText(Path.Combine(backupData, "ai-budget.json"), "{\"Day\":\"2026-10-25\",\"EstimatedUsd\":1}");
             File.WriteAllText(Path.Combine(backupData, "javinfo-usage.json"), "{\"UtcDay\":\"2026-10-25\",\"ReservedCalls\":1}");
             File.WriteAllText(Path.Combine(backupData, "scrape-source-backoff.json"), "{\"Version\":1,\"Sources\":{}}");
+            File.WriteAllText(Path.Combine(backupData, "plugins.json"),
+                "{\"schemaVersion\":1,\"enabled\":[\"sample\"],\"consents\":{},\"lastErrors\":{}}");
+            File.WriteAllText(Path.Combine(backupData, "plugin-candidates.json"), "{\"videos\":{}}");
+            File.WriteAllText(Path.Combine(backupData, "missing-cleanup.json"), "{\"records\":[]}");
             Directory.CreateDirectory(Path.Combine(backupData, "posters"));
             File.WriteAllBytes(Path.Combine(backupData, "posters", "abc.jpg"), [1, 2, 3]);
             Directory.CreateDirectory(Path.Combine(backupData, "thumbs"));
@@ -836,6 +840,13 @@ internal static class FeatureDiagnostics
                 && !backedConfig.Contains("secret-sentinel", StringComparison.Ordinal)
                 && !backedConfig.Contains("tmdb-secret", StringComparison.Ordinal)
                 && !backedConfig.Contains("paid-secret", StringComparison.Ordinal);
+            findings["backupPreservesPluginAndCleanupState"] = backupCheck.IsValid &&
+                File.ReadAllText(Path.Combine(backupPackage, "plugins.json")) ==
+                    File.ReadAllText(Path.Combine(backupData, "plugins.json")) &&
+                File.ReadAllText(Path.Combine(backupPackage, "plugin-candidates.json")) ==
+                    File.ReadAllText(Path.Combine(backupData, "plugin-candidates.json")) &&
+                File.ReadAllText(Path.Combine(backupPackage, "missing-cleanup.json")) ==
+                    File.ReadAllText(Path.Combine(backupData, "missing-cleanup.json"));
             var sourceBackoffPath = Path.Combine(backupData, "scrape-source-backoff.json");
             var validSourceBackoff = File.ReadAllText(sourceBackoffPath);
             File.WriteAllText(sourceBackoffPath + ".bak", validSourceBackoff);

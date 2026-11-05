@@ -50,7 +50,7 @@ internal static class PostgresLibraryMigration
         "role-profiles.json", "ai-budget.json", "javinfo-usage.json",
         "scrape-source-backoff.json", "scrape-queue.json",
         "scrape-queue.state.json", "plugin-candidates.json",
-        "missing-cleanup.json"
+        "missing-cleanup.json", "plugins.json"
     ];
 
     internal static bool IsDocumentName(string? name) => name is not null &&

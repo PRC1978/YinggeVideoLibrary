@@ -98,6 +98,12 @@ internal static class BundledPostgresRuntime
                 "{\"items\":[]}");
             await File.WriteAllTextAsync(Path.Combine(sourceDirectory, "role-profiles.json"),
                 "{\"profiles\":[]}");
+            await File.WriteAllTextAsync(Path.Combine(sourceDirectory, "plugins.json"),
+                "{\"schemaVersion\":1,\"enabled\":[],\"consents\":{},\"lastErrors\":{}}");
+            await File.WriteAllTextAsync(Path.Combine(sourceDirectory, "plugin-candidates.json"),
+                "{\"videos\":{}}");
+            await File.WriteAllTextAsync(Path.Combine(sourceDirectory, "missing-cleanup.json"),
+                "{\"records\":[]}");
             await File.WriteAllTextAsync(Path.Combine(sourceDirectory, "review-history.jsonl"),
                 "{\"id\":\"isolated-review\"}\n");
             await File.WriteAllTextAsync(Path.Combine(sourceDirectory,
@@ -136,7 +142,7 @@ internal static class BundledPostgresRuntime
             try { await PostgresLibraryExport.ExportAsync(builder.ConnectionString, exportDirectory); }
             catch (IOException) { overwriteBlocked = true; }
             findings["rollbackExportVerified"] = exported.VideoCount == imported.VideoCount &&
-                exported.MetadataCount == imported.MetadataCount && exported.DocumentCount == 5 &&
+                exported.MetadataCount == imported.MetadataCount && exported.DocumentCount == 8 &&
                 exportVerified && offlineVerified && tamperRejected && overwriteBlocked;
             var configDocument = await PostgresLibraryDocumentStore.ReadAsync(
                 builder.ConnectionString, "config.json");

@@ -18,6 +18,14 @@ replace, and delete them by hash. This is a migration bridge, not a final
 relational schema or an active runtime writer. The import now holds an exclusive
 offline library lease from the first source read through commit.
 
+The writer inventory found three user-state files absent from ordinary backups:
+plugin enablement/consent, saved plugin candidates, and missing-file cleanup
+history. These now join the backup allowlist, and the PostgreSQL migration also
+imports plugin enablement. An isolated feature diagnostic wrote all three,
+created a verified backup, and compared their bytes in the package
+(`backupPreservesPluginAndCleanupState=true`). This does not yet test restore
+through the graphical settings flow.
+
 Do not enable `BundlePostgres` for a normal release until every authoritative
 writer and restore path uses the same storage mode. Moving only the video index
 and metadata would allow review, queue, role, and configuration writes to diverge.

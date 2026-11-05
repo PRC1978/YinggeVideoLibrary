@@ -80,10 +80,19 @@ not a claim that these interactions have passed.
   --no-restore` passed 65/65.
 - The expanded bundled PostgreSQL probe passed: loopback only, credential
   roundtrip, active-session import blocked, synthetic index/metadata and
-  user-state document import verified, and stale compare-and-swap write rejected.
+  user-state document import verified, stale compare-and-swap write rejected,
+  and a consistent rollback export compared against the database. The export
+  uses a fresh staging directory and only renames it to the requested path
+  after the database snapshot is complete; it refuses to overwrite an existing
+  directory. A failed export can leave a `.partial-*` directory for diagnosis.
   `realLibraryRead=false`; server stopped after the probe.
 - After the UI correction, 237 layout records across nine themes and three
   window sizes passed the existing timeout/graph-link checks. The redirected
   diagnostic rendered four review rows in each non-classic mode.
+- Isolated motion diagnostic passed for smooth, balanced, and animated modes.
+  The 60-video search diagnostic returned identical synchronous/asynchronous
+  results and visible cards in all seven query cases. Its first title query
+  still recorded a 21.18 ms UI gap, so this fixture does not establish a
+  consistently sub-frame search experience.
 - Cloud production service remains inactive and public HTTP still returns an
   empty response. This is independent of the local library cutover.

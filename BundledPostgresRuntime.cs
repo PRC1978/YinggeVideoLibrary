@@ -113,6 +113,17 @@ internal static class BundledPostgresRuntime
             var verified = await PostgresLibraryMigration.VerifyContentAsync(sourceDirectory, builder.ConnectionString);
             findings["sampleImportVerified"] = imported.VideoCount == 1 &&
                 imported.MetadataCount == 1 && verified;
+            var exportDirectory = Path.Combine(probeRoot, "exported-records");
+            var exported = await PostgresLibraryExport.ExportAsync(
+                builder.ConnectionString, exportDirectory);
+            var exportVerified = await PostgresLibraryMigration.VerifyContentAsync(
+                exportDirectory, builder.ConnectionString);
+            var overwriteBlocked = false;
+            try { await PostgresLibraryExport.ExportAsync(builder.ConnectionString, exportDirectory); }
+            catch (IOException) { overwriteBlocked = true; }
+            findings["rollbackExportVerified"] = exported.VideoCount == imported.VideoCount &&
+                exported.MetadataCount == imported.MetadataCount && exported.DocumentCount == 5 &&
+                exportVerified && overwriteBlocked;
             var configDocument = await PostgresLibraryDocumentStore.ReadAsync(
                 builder.ConnectionString, "config.json");
             var revisedConfig = Encoding.UTF8.GetBytes("{\"folders\":[],\"categories\":[\"verified\"]}");
@@ -134,7 +145,8 @@ internal static class BundledPostgresRuntime
             findings["passed"] = version.StartsWith("18.6", StringComparison.Ordinal) &&
                 findings["loopbackOnly"] is true && findings["credentialRoundTrip"] is true &&
                 findings["sampleImportVerified"] is true && findings["stateDocumentCasVerified"] is true &&
-                findings["activeSessionImportBlocked"] is true;
+                findings["activeSessionImportBlocked"] is true &&
+                findings["rollbackExportVerified"] is true;
         }
         catch (Exception ex)
         {

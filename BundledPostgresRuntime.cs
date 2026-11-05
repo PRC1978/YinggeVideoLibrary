@@ -18,6 +18,15 @@ internal static class BundledPostgresRuntime
     {
         var findings = new Dictionary<string, object?>();
         var probeRoot = Path.Combine(Path.GetTempPath(), "YinggePgProbe-" + Guid.NewGuid().ToString("N"));
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            try
+            {
+                File.AppendAllText(Path.Combine(probeRoot, "probe-crash.log"),
+                    DateTimeOffset.Now.ToString("O") + " " + args.ExceptionObject + Environment.NewLine);
+            }
+            catch { }
+        };
         var data = Path.Combine(probeRoot, "data");
         var passwordFile = Path.Combine(probeRoot, "init-password.txt");
         var credentialName = "PostgresProbe-" + Guid.NewGuid().ToString("N");
@@ -663,6 +672,44 @@ internal static class BundledPostgresRuntime
                     (await PostgresUserStateStore.LoadPluginStateAsync(restarted.ConnectionString))
                         .Value.Enabled.Contains("isolated-plugin");
             }
+            var coordinatedLibrary = Path.Combine(probeRoot, "coordinated-library");
+            using var canceledCoordinator = new CancellationTokenSource();
+            canceledCoordinator.Cancel();
+            var canceledLibrary = Path.Combine(probeRoot, "canceled-coordinated-library");
+            var coordinatorCancellationRejected = false;
+            try { await PostgresLibraryBackupCoordinator.RestoreToFreshPrivateLibraryAsync(
+                runtimeDirectory, exportDirectory, canceledLibrary, canceledCoordinator.Token); }
+            catch (OperationCanceledException) { coordinatorCancellationRejected = true; }
+            findings["coordinatedCanceledRestoreLeavesNoLibrary"] = coordinatorCancellationRejected &&
+                !Directory.Exists(canceledLibrary) &&
+                !Directory.EnumerateDirectories(probeRoot, "canceled-coordinated-library.restore-*").Any();
+            var coordinatedRestore = await PostgresLibraryBackupCoordinator.RestoreToFreshPrivateLibraryAsync(
+                runtimeDirectory, exportDirectory, coordinatedLibrary);
+            var overwriteDenied = false;
+            try { await PostgresLibraryBackupCoordinator.RestoreToFreshPrivateLibraryAsync(
+                runtimeDirectory, exportDirectory, coordinatedLibrary); }
+            catch (IOException) { overwriteDenied = true; }
+            var coordinatedBackup = Path.Combine(probeRoot, "coordinated-backup");
+            await using (var reopened = await PostgresPrivateCluster.OpenAsync(
+                runtimeDirectory, coordinatedLibrary))
+            {
+                await PostgresLibraryBackupCoordinator.CreateOfflineSnapshotAsync(
+                    reopened.ConnectionString, coordinatedLibrary, coordinatedBackup);
+                findings["coordinatedRestoreAndBackupVerified"] =
+                    coordinatedRestore.VideoCount == exported.VideoCount && overwriteDenied &&
+                    File.Exists(Path.Combine(coordinatedLibrary,
+                        PostgresStorageModeGuard.MarkerName)) &&
+                    await PostgresLibraryMigration.VerifyContentAsync(
+                        exportDirectory, reopened.ConnectionString) &&
+                    await PostgresLibraryExport.VerifyOfflineAsync(coordinatedBackup) &&
+                    File.Exists(Path.Combine(coordinatedBackup, "posters", "sample.jpg"));
+            }
+            // Database-mode backup/restore acceptance: 1 / 3,000 / 30,000
+            // synthetic videos plus review, people, tags, queue, plugin, AI jobs,
+            // and the failure injections that must never leave a live marker.
+            var backupAcceptance = await PostgresBackupAcceptance.RunAsync(runtimeDirectory,
+                probeRoot, scale);
+            foreach (var pair in backupAcceptance) findings[pair.Key] = pair.Value;
             findings["passed"] = version.StartsWith("18.6", StringComparison.Ordinal) &&
                 findings["loopbackOnly"] is true && findings["credentialRoundTrip"] is true &&
                 findings["sampleImportVerified"] is true && findings["stateDocumentCasVerified"] is true &&
@@ -688,6 +735,10 @@ internal static class BundledPostgresRuntime
                 findings["freshDatabaseRestoreVerified"] is true &&
                 findings["corruptRestoreStoppedBeforeDatabaseWrite"] is true &&
                 findings["privateClusterLifecycleVerified"] is true &&
+                findings["coordinatedRestoreAndBackupVerified"] is true &&
+                findings["coordinatedCanceledRestoreLeavesNoLibrary"] is true &&
+                findings["backupMatrixVerified"] is true &&
+                findings["backupFailureInjectionVerified"] is true &&
                 (!scale || (findings["scaleVerified"] is true &&
                     findings["scaleDeltaVerified"] is true &&
                     findings["scaleFileRoundTripVerified"] is true));

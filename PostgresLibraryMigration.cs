@@ -11,7 +11,16 @@ namespace YinggeVideoLibrary;
 // to use its existing files until every writer has been moved to the database.
 internal static class PostgresLibraryMigration
 {
+    internal const int CurrentSchemaVersion = 1;
+    private static readonly System.Text.RegularExpressions.Regex SafeSchemaName =
+        new("^[a-z][a-z0-9_]{0,60}$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
     private const string Schema = """
+        CREATE TABLE IF NOT EXISTS library_schema (
+            id integer PRIMARY KEY CHECK (id = 1),
+            version integer NOT NULL,
+            updated_at timestamptz NOT NULL DEFAULT now()
+        );
         CREATE TABLE IF NOT EXISTS library_migration (
             id integer PRIMARY KEY CHECK (id = 1),
             index_sha256 text NOT NULL,
@@ -121,8 +130,10 @@ internal static class PostgresLibraryMigration
         string IndexSha256, string MetadataSha256);
 
     internal static async Task<Result> ImportAsync(string directory, string connectionString,
-        CancellationToken cancellationToken = default, string? sourceLeasePath = null)
+        CancellationToken cancellationToken = default, string? sourceLeasePath = null,
+        string schema = "public")
     {
+        schema = ValidateSchema(schema);
         // Take the same exclusive offline lease as backup/restore before
         // reading any source bytes. A running app holds a shared lease for its
         // whole session, so an import cannot observe a half-written library.
@@ -148,8 +159,25 @@ internal static class PostgresLibraryMigration
         // A single local library has one import owner. Hold the lock until commit.
         await using (var lockCommand = new NpgsqlCommand("SELECT pg_advisory_xact_lock(178942601)", connection, transaction))
             await lockCommand.ExecuteNonQueryAsync(cancellationToken);
+        if (schema != "public")
+        {
+            await using var createSchema = new NpgsqlCommand(
+                $"CREATE SCHEMA IF NOT EXISTS \"{schema}\"", connection, transaction);
+            await createSchema.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await using (var searchPath = new NpgsqlCommand(
+            $"SET LOCAL search_path TO \"{schema}\", public", connection, transaction))
+            await searchPath.ExecuteNonQueryAsync(cancellationToken);
         await using (var schemaCommand = new NpgsqlCommand(Schema, connection, transaction))
             await schemaCommand.ExecuteNonQueryAsync(cancellationToken);
+        await using (var schemaVersion = new NpgsqlCommand("""
+            INSERT INTO library_schema(id,version) VALUES (1,@v)
+            ON CONFLICT (id) DO UPDATE SET version=EXCLUDED.version, updated_at=now()
+            """, connection, transaction))
+        {
+            schemaVersion.Parameters.AddWithValue("v", CurrentSchemaVersion);
+            await schemaVersion.ExecuteNonQueryAsync(cancellationToken);
+        }
         await using (var present = new NpgsqlCommand("SELECT EXISTS(SELECT 1 FROM library_migration)", connection, transaction))
             if ((bool)(await present.ExecuteScalarAsync(cancellationToken) ?? false))
                 throw new InvalidOperationException("此数据库已有导入记录；未覆盖任何数据。 ");
@@ -267,10 +295,12 @@ internal static class PostgresLibraryMigration
 
     }
 
-    internal static async Task<Result> VerifyAsync(string connectionString, CancellationToken cancellationToken = default)
+    internal static async Task<Result> VerifyAsync(string connectionString, CancellationToken cancellationToken = default,
+        string schema = "public")
     {
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await SetSearchPathAsync(connection, schema, cancellationToken);
         await using var command = new NpgsqlCommand("""
             SELECT (SELECT count(*) FROM library_video),
                    (SELECT count(*) FROM library_metadata),
@@ -286,7 +316,7 @@ internal static class PostgresLibraryMigration
     }
 
     internal static async Task<bool> VerifyContentAsync(string directory, string connectionString,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, string schema = "public")
     {
         var sourceIndex = JsonSerializer.Deserialize<LibraryIndex>(
             await File.ReadAllBytesAsync(Path.Combine(directory, "library-index.json"), cancellationToken));
@@ -295,6 +325,7 @@ internal static class PostgresLibraryMigration
         if (sourceIndex is null || sourceMetadata is null) return false;
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await SetSearchPathAsync(connection, schema, cancellationToken);
         var videos = new Dictionary<string, IndexEntry>(StringComparer.Ordinal);
         await using (var command = new NpgsqlCommand(
             "SELECT video_id,path,size_bytes,modified_ticks,missing FROM library_video", connection))
@@ -364,6 +395,99 @@ internal static class PostgresLibraryMigration
                 found++;
             }
         return found == sourceMetadata.Count;
+    }
+
+    internal enum SchemaState
+    {
+        Empty,
+        Legacy,
+        Current,
+        Newer
+    }
+
+    internal sealed record SchemaInfo(SchemaState State, int Version);
+
+    internal static string ValidateSchema(string schema)
+    {
+        if (schema is null || !SafeSchemaName.IsMatch(schema))
+            throw new ArgumentException("数据库 schema 名称无效。 ", nameof(schema));
+        return schema;
+    }
+
+    private static async Task SetSearchPathAsync(NpgsqlConnection connection, string schema,
+        CancellationToken cancellationToken)
+    {
+        schema = ValidateSchema(schema);
+        if (schema == "public") return;
+        await using var command = new NpgsqlCommand(
+            $"SET search_path TO \"{schema}\", public", connection);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    internal static async Task<string> ReadServerVersionAsync(string connectionString,
+        CancellationToken cancellationToken = default)
+    {
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand("SELECT current_setting('server_version')", connection);
+        return (string)(await command.ExecuteScalarAsync(cancellationToken) ?? "");
+    }
+
+    // Distinguishes "no database yet" from a database written by an older build
+    // and from a database written by a newer build. Only the last one is a hard
+    // refusal; the legacy shape is upgraded in place by adding the version table.
+    internal static async Task<SchemaInfo> InspectSchemaAsync(string connectionString,
+        CancellationToken cancellationToken = default, string schema = "public")
+    {
+        schema = ValidateSchema(schema);
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        if (!await TableExistsAsync(connection, schema, "library_schema", cancellationToken))
+        {
+            var legacy = await TableExistsAsync(connection, schema, "library_migration",
+                cancellationToken);
+            return new(legacy ? SchemaState.Legacy : SchemaState.Empty, 0);
+        }
+        await using var command = new NpgsqlCommand(
+            $"SELECT version FROM \"{schema}\".library_schema WHERE id=1", connection);
+        var value = await command.ExecuteScalarAsync(cancellationToken);
+        var version = value is null ? 0 : Convert.ToInt32(value);
+        return new(version > CurrentSchemaVersion ? SchemaState.Newer :
+            version == CurrentSchemaVersion ? SchemaState.Current : SchemaState.Legacy, version);
+    }
+
+    internal static async Task UpgradeSchemaAsync(string connectionString,
+        CancellationToken cancellationToken = default, string schema = "public")
+    {
+        schema = ValidateSchema(schema);
+        var info = await InspectSchemaAsync(connectionString, cancellationToken, schema);
+        if (info.State == SchemaState.Newer)
+            throw new NotSupportedException(
+                $"数据库版本 {info.Version} 高于此程序支持的 {CurrentSchemaVersion}，拒绝打开以免损坏资料。");
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using (var create = new NpgsqlCommand($"""
+            CREATE TABLE IF NOT EXISTS "{schema}".library_schema (
+                id integer PRIMARY KEY CHECK (id = 1),
+                version integer NOT NULL,
+                updated_at timestamptz NOT NULL DEFAULT now()
+            )
+            """, connection))
+            await create.ExecuteNonQueryAsync(cancellationToken);
+        await using var write = new NpgsqlCommand($"""
+            INSERT INTO "{schema}".library_schema(id,version) VALUES (1,@v)
+            ON CONFLICT (id) DO UPDATE SET version=EXCLUDED.version, updated_at=now()
+            """, connection);
+        write.Parameters.AddWithValue("v", CurrentSchemaVersion);
+        await write.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task<bool> TableExistsAsync(NpgsqlConnection connection, string schema,
+        string table, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand("SELECT to_regclass(@name) IS NOT NULL", connection);
+        command.Parameters.AddWithValue("name", schema + "." + table);
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
     }
 
     private static string VideoId(string path) => Convert.ToHexString(

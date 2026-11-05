@@ -12,7 +12,7 @@ namespace YinggeVideoLibrary;
 // Optional image inclusion requires an offline lease on the source library.
 internal static class PostgresLibraryExport
 {
-    private const string ManifestName = "database-export-manifest.json";
+    internal const string ManifestName = "database-export-manifest.json";
     private static readonly Regex PosterName = new(@"^[a-zA-Z0-9_-]+\.(?:jpg|jpeg|png|webp|bmp)$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex CustomThumbName = new(@"^[a-zA-Z0-9_-]+-custom\.(?:jpg|jpeg|png|webp|bmp)$",
@@ -40,17 +40,45 @@ internal static class PostgresLibraryExport
         await using (var gate = new NpgsqlCommand(
             "SELECT pg_advisory_xact_lock(178942601)", connection, transaction))
             await gate.ExecuteNonQueryAsync(cancellationToken);
-        await using (var marker = new NpgsqlCommand(
-            "SELECT EXISTS(SELECT 1 FROM library_migration WHERE id=1)", connection, transaction))
-            if ((bool)(await marker.ExecuteScalarAsync(cancellationToken) ?? false) is false)
-                throw new InvalidDataException("数据库没有完整导入标记，拒绝导出。 ");
+        await EnsureImportedAsync(connection, transaction, cancellationToken);
+        return await ExportInTransactionAsync(connection, transaction, destination,
+            assetDirectory, cancellationToken);
+    }
 
-        // A failed export must never look like a complete rollback directory.
+    // Caller owns the transaction, the advisory lock and the offline lease.
+    // Assets are copied before the transaction commits so one snapshot covers
+    // both database rows and the images that belong to them.
+    internal static async Task<Result> ExportInTransactionAsync(NpgsqlConnection connection,
+        NpgsqlTransaction transaction, string destination, string? assetDirectory,
+        CancellationToken cancellationToken)
+    {
+        destination = Path.GetFullPath(destination);
+        if (Directory.Exists(destination) || File.Exists(destination))
+            throw new IOException("导出目录已存在；拒绝覆盖已有数据。 ");
         var staging = destination + ".partial-" + Guid.NewGuid().ToString("N");
-        Directory.CreateDirectory(staging);
         try
         {
+            await WriteSnapshotAsync(connection, transaction, staging, assetDirectory,
+                cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return await PublishAsync(staging, destination, cancellationToken);
+        }
+        finally
+        {
+            // A failed export must not leave a plausible backup behind. The
+            // final directory only appears after manifest verification.
+            DeleteStagingDirectory(staging, destination);
+        }
+    }
 
+    // Writes index, metadata, documents, queue and (optionally) images into a
+    // new staging directory. The caller keeps the database transaction open so
+    // the bytes belong to one consistent revision.
+    internal static async Task<Result> WriteSnapshotAsync(NpgsqlConnection connection,
+        NpgsqlTransaction transaction, string staging, string? assetDirectory,
+        CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(staging);
         var folders = new List<string>();
         await using (var command = new NpgsqlCommand(
             "SELECT path FROM library_folder ORDER BY path", connection, transaction))
@@ -119,12 +147,17 @@ internal static class PostgresLibraryExport
         await File.WriteAllBytesAsync(Path.Combine(staging, "scrape-queue.json"),
             JsonSerializer.SerializeToUtf8Bytes(queueItems), cancellationToken);
         documentCount++;
-        await transaction.CommitAsync(cancellationToken);
         if (assetDirectory is not null)
         {
-            CopyAssets(assetDirectory, staging, "posters", PosterName);
-            CopyAssets(assetDirectory, staging, "thumbs", CustomThumbName);
+            CopyAssets(assetDirectory, staging, "posters", PosterName, cancellationToken);
+            CopyAssets(assetDirectory, staging, "thumbs", CustomThumbName, cancellationToken);
         }
+        return new(entries.Count, metadata.Count, documentCount);
+    }
+
+    internal static async Task<Result> PublishAsync(string staging, string destination,
+        CancellationToken cancellationToken = default)
+    {
         var files = new Dictionary<string, ExportedFile>(StringComparer.Ordinal);
         foreach (var path in EnumerateExportFiles(staging))
         {
@@ -138,17 +171,77 @@ internal static class PostgresLibraryExport
         if (!await VerifyOfflineAsync(staging, cancellationToken))
             throw new InvalidDataException("数据库回退包离线校验失败，未完成导出。 ");
         Directory.Move(staging, destination);
-        return new(entries.Count, metadata.Count, documentCount);
-        }
-        finally
-        {
-            // A failed export must not leave a plausible backup behind. The
-            // final directory only appears after manifest verification.
-            if (Directory.Exists(staging) &&
-                Path.GetDirectoryName(staging) == Path.GetDirectoryName(destination) &&
-                (File.GetAttributes(staging) & FileAttributes.ReparsePoint) == 0)
-                Directory.Delete(staging, recursive: true);
-        }
+        return await CountSnapshotAsync(destination, cancellationToken);
+    }
+
+    private static async Task<Result> CountSnapshotAsync(string directory,
+        CancellationToken cancellationToken)
+    {
+        var index = JsonSerializer.Deserialize<LibraryIndex>(
+            await File.ReadAllBytesAsync(Path.Combine(directory, "library-index.json"),
+                cancellationToken)) ?? new LibraryIndex();
+        var metadata = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
+            await File.ReadAllBytesAsync(Path.Combine(directory, "metadata.json"),
+                cancellationToken)) ?? [];
+        var documents = PostgresLibraryMigration.EnumerateDocumentNames(directory)
+            .Count(name => !PostgresLibraryMigration.IsQueueDocumentName(name));
+        return new(index.Entries.Count, metadata.Count, documents + 1);
+    }
+
+    internal static void DeleteStagingDirectory(string staging, string destination)
+    {
+        if (!Directory.Exists(staging)) return;
+        if (Path.GetDirectoryName(staging) != Path.GetDirectoryName(Path.GetFullPath(destination)))
+            return;
+        if ((File.GetAttributes(staging) & FileAttributes.ReparsePoint) != 0) return;
+        try { Directory.Delete(staging, recursive: true); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
+    internal static async Task EnsureImportedAsync(NpgsqlConnection connection,
+        NpgsqlTransaction transaction, CancellationToken cancellationToken)
+    {
+        await using var marker = new NpgsqlCommand(
+            "SELECT EXISTS(SELECT 1 FROM library_migration WHERE id=1)", connection, transaction);
+        if ((bool)(await marker.ExecuteScalarAsync(cancellationToken) ?? false) is false)
+            throw new InvalidDataException("数据库没有完整导入标记，拒绝导出。 ");
+    }
+
+    // A snapshot is written into a staging directory next to its destination.
+    // Refuse before writing anything when the volume obviously cannot hold it;
+    // the caller still has to handle ENOSPC from the actual writes.
+    internal static void EnsureAvailableSpace(string destination, long requiredBytes)
+    {
+        var root = Path.GetPathRoot(Path.GetFullPath(destination));
+        if (string.IsNullOrEmpty(root)) return;
+        var available = new DriveInfo(root).AvailableFreeSpace;
+        if (available < requiredBytes)
+            throw new IOException($"磁盘可用空间不足：需要约 {requiredBytes / 1048576} MB，" +
+                $"可用 {available / 1048576} MB。未开始备份。");
+    }
+
+    internal static async Task<long> EstimateSnapshotBytesAsync(NpgsqlConnection connection,
+        NpgsqlTransaction transaction, string? assetDirectory, CancellationToken cancellationToken)
+    {
+        long bytes = 0;
+        await using (var command = new NpgsqlCommand("""
+            SELECT (SELECT coalesce(sum(length(content)),0) FROM library_document) +
+                   (SELECT coalesce(sum(pg_column_size(document)),0) FROM library_metadata) +
+                   (SELECT coalesce(sum(length(item::text)),0) FROM library_scrape_queue) +
+                   (SELECT coalesce(sum(length(path)),0) + count(*) * 96 FROM library_video)
+            """, connection, transaction))
+            bytes += Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken) ?? 0L);
+        if (assetDirectory is not null)
+            foreach (var name in new[] { "posters", "thumbs" })
+            {
+                var folder = Path.Combine(assetDirectory, name);
+                if (!Directory.Exists(folder)) continue;
+                foreach (var path in Directory.EnumerateFiles(folder, "*", SearchOption.TopDirectoryOnly))
+                    bytes += new FileInfo(path).Length;
+            }
+        // Fixed manifest/metadata overhead plus a 25% margin for JSON escaping.
+        return bytes + bytes / 4 + 8 * 1024 * 1024;
     }
 
     internal static async Task<bool> VerifyOfflineAsync(string directory,
@@ -224,7 +317,7 @@ internal static class PostgresLibraryExport
     }
 
     private static void CopyAssets(string sourceDirectory, string staging,
-        string folderName, Regex allowed)
+        string folderName, Regex allowed, CancellationToken cancellationToken)
     {
         var folder = Path.Combine(sourceDirectory, folderName);
         if (!Directory.Exists(folder)) return;
@@ -232,6 +325,7 @@ internal static class PostgresLibraryExport
             throw new InvalidDataException("图片目录不能是文件链接：" + folderName);
         foreach (var path in Directory.EnumerateFiles(folder, "*", SearchOption.TopDirectoryOnly))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var name = Path.GetFileName(path);
             if (!allowed.IsMatch(name)) continue;
             if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)

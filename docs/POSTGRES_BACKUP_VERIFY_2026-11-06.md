@@ -1,5 +1,7 @@
 # PostgreSQL 备份与恢复独立验证（2026-11-06）
 
+> 后续扩展与完整矩阵结论见 `docs/POSTGRES_BACKUP_ACCEPTANCE_2026-11-06.md`；本文保留为当日首轮加固记录。
+
 分支 `codex/postgresql-backup-acceptance` 从 `5d3384a` 分出。本轮只加固离线备份清单校验及取消恢复断言，不改变普通启动模式，也不写 `storage-postgresql.active`。
 
 ## 改动

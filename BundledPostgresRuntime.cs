@@ -177,6 +177,18 @@ internal static class BundledPostgresRuntime
             await File.WriteAllBytesAsync(exportedPosterPath, [1, 2, 3, 4]);
             findings["assetBackupVerified"] = findings["assetBackupVerified"] is true &&
                 alteredAssetRejected && await PostgresLibraryExport.VerifyOfflineAsync(exportDirectory);
+            var failedExportDirectory = Path.Combine(probeRoot, "failed-export");
+            var lockedAssetRejected = false;
+            using (var lockedPoster = new FileStream(Path.Combine(sourceDirectory,
+                "posters", "sample.jpg"), FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                try { await PostgresLibraryExport.ExportAsync(builder.ConnectionString,
+                    failedExportDirectory, assetDirectory: sourceDirectory); }
+                catch (IOException) { lockedAssetRejected = true; }
+            }
+            findings["failedExportLeavesNoPartialBackup"] = lockedAssetRejected &&
+                !Directory.Exists(failedExportDirectory) &&
+                !Directory.EnumerateDirectories(probeRoot, "failed-export.partial-*").Any();
             findings["nestedDocumentPathsVerified"] =
                 PostgresLibraryMigration.IsDocumentName("title-candidates/" + new string('A', 64) + ".json") &&
                 PostgresLibraryMigration.IsDocumentName("ai-jobs/" + new string('b', 32) + ".json") &&
@@ -485,6 +497,7 @@ internal static class BundledPostgresRuntime
                 findings["nestedDocumentPathsVerified"] is true &&
                 findings["queueJournalMigrationVerified"] is true &&
                 findings["assetBackupVerified"] is true &&
+                findings["failedExportLeavesNoPartialBackup"] is true &&
                 findings["legacyModeGuardVerified"] is true &&
                 findings["atomicReviewStateVerified"] is true &&
                 findings["typedReviewRoundTripVerified"] is true &&

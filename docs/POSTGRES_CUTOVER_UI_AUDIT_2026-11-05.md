@@ -268,6 +268,16 @@ eliminate the need to scroll through review cards on a short window.
   zero warnings and errors. The normal window still calls the file writer;
   no database mode has been enabled for an existing library.
 
+## Failed backup cleanup
+
+- Database export and image restore now remove their own staging directories
+  when an operation fails; a completed destination only appears after
+  verification. An isolated probe locked a poster to force the export's image
+  copy to fail and confirmed that neither the final backup nor a `.partial`
+  directory remained (`failedExportLeavesNoPartialBackup=true`, `passed=true`).
+  The image-restore failure cleanup path compiled but was not separately
+  fault-injected in this run.
+
 ## Damaged-snapshot recovery check
 
 - The isolated recovery probe copied a valid export, altered `metadata.json`,

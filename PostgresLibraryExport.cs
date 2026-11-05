@@ -48,6 +48,8 @@ internal static class PostgresLibraryExport
         // A failed export must never look like a complete rollback directory.
         var staging = destination + ".partial-" + Guid.NewGuid().ToString("N");
         Directory.CreateDirectory(staging);
+        try
+        {
 
         var folders = new List<string>();
         await using (var command = new NpgsqlCommand(
@@ -121,6 +123,16 @@ internal static class PostgresLibraryExport
             throw new InvalidDataException("数据库回退包离线校验失败，未完成导出。 ");
         Directory.Move(staging, destination);
         return new(entries.Count, metadata.Count, documentCount);
+        }
+        finally
+        {
+            // A failed export must not leave a plausible backup behind. The
+            // final directory only appears after manifest verification.
+            if (Directory.Exists(staging) &&
+                Path.GetDirectoryName(staging) == Path.GetDirectoryName(destination) &&
+                (File.GetAttributes(staging) & FileAttributes.ReparsePoint) == 0)
+                Directory.Delete(staging, recursive: true);
+        }
     }
 
     internal static async Task<bool> VerifyOfflineAsync(string directory,

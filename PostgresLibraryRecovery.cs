@@ -22,6 +22,8 @@ internal static class PostgresLibraryRecovery
             throw new InvalidDataException("数据库快照校验失败，图片未恢复。");
         var staging = destination + ".partial-" + Guid.NewGuid().ToString("N");
         Directory.CreateDirectory(staging);
+        try
+        {
         foreach (var folderName in new[] { "posters", "thumbs" })
         {
             var source = Path.Combine(snapshotDirectory, folderName);
@@ -42,6 +44,14 @@ internal static class PostgresLibraryRecovery
         if (!await PostgresLibraryExport.VerifyOfflineAsync(snapshotDirectory, cancellationToken))
             throw new InvalidDataException("图片复制期间快照发生变化，未完成恢复。");
         Directory.Move(staging, destination);
+        }
+        finally
+        {
+            if (Directory.Exists(staging) &&
+                Path.GetDirectoryName(staging) == Path.GetDirectoryName(destination) &&
+                (File.GetAttributes(staging) & FileAttributes.ReparsePoint) == 0)
+                Directory.Delete(staging, recursive: true);
+        }
     }
 
     internal static async Task<PostgresLibraryMigration.Result> RestoreIntoFreshDatabaseAsync(

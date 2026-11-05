@@ -305,6 +305,30 @@ internal static class BundledPostgresRuntime
                 reloadedHistory.Records.Any(entry => entry.Id == typedReview.Id) &&
                 reloadedHistory.Records.Any(entry => entry.Id == undoReview.Id) &&
                 ReviewTransactionStore.LastUndoable(reloadedHistory.Records) is null;
+            var configBeforeMerge = await PostgresLibraryDocumentStore.ReadAsync(
+                builder.ConnectionString, "config.json");
+            var configBaseline = JsonSerializer.Deserialize<LibraryConfig>(configBeforeMerge!.Content)!;
+            var localConfig = MainWindow.CloneLibraryConfig(configBaseline);
+            localConfig.Favorites.Add("local-favorite");
+            var concurrentConfig = MainWindow.CloneLibraryConfig(configBaseline);
+            concurrentConfig.Favorites.Add("other-favorite");
+            var concurrentDocument = JsonSerializer.SerializeToNode(concurrentConfig)!.AsObject();
+            concurrentDocument["futureSetting"] = "preserve-me";
+            await PostgresLibraryDocumentStore.SaveAsync(builder.ConnectionString,
+                "config.json", JsonSerializer.SerializeToUtf8Bytes(concurrentDocument),
+                configBeforeMerge.Revision);
+            await PostgresLibraryConfigStore.SaveAsync(builder.ConnectionString,
+                configBaseline, localConfig);
+            var configAfterMerge = await PostgresLibraryDocumentStore.ReadAsync(
+                builder.ConnectionString, "config.json");
+            var mergedConfig = JsonSerializer.Deserialize<LibraryConfig>(configAfterMerge!.Content)!;
+            findings["typedConfigMergeVerified"] =
+                mergedConfig.Favorites.Contains("local-favorite") &&
+                mergedConfig.Favorites.Contains("other-favorite") &&
+                mergedConfig.TmdbToken.Length == 0 && mergedConfig.AiKey.Length == 0 &&
+                mergedConfig.JavinfoKey.Length == 0 &&
+                JsonDocument.Parse(configAfterMerge.Content).RootElement
+                    .GetProperty("futureSetting").GetString() == "preserve-me";
             if (scale)
             {
                 var scaleSource = Path.Combine(probeRoot, "scale-source");
@@ -465,6 +489,7 @@ internal static class BundledPostgresRuntime
                 findings["atomicReviewStateVerified"] is true &&
                 findings["typedReviewRoundTripVerified"] is true &&
                 findings["typedReviewUndoVerified"] is true &&
+                findings["typedConfigMergeVerified"] is true &&
                 findings["freshDatabaseRestoreVerified"] is true &&
                 findings["corruptRestoreStoppedBeforeDatabaseWrite"] is true &&
                 findings["privateClusterLifecycleVerified"] is true &&

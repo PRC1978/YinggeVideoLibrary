@@ -6,7 +6,7 @@ public partial class MainWindow
 {
     // The baseline is a deep copy: UI actions mutate the lists and dictionaries
     // on config in place, so keeping a second reference would hide every edit.
-    static LibraryConfig CloneLibraryConfig(LibraryConfig source) => new()
+    internal static LibraryConfig CloneLibraryConfig(LibraryConfig source) => new()
     {
         SchemaVersion = source.SchemaVersion,
         Folders = [.. source.Folders],
@@ -124,7 +124,7 @@ public partial class MainWindow
         ReviewedAt = review.ReviewedAt
     };
 
-    static LibraryConfig MergeLibraryConfig(LibraryConfig baseline, LibraryConfig current, LibraryConfig latest,
+    internal static LibraryConfig MergeLibraryConfig(LibraryConfig baseline, LibraryConfig current, LibraryConfig latest,
         bool allowJournaledReviewTransition = false)
     {
         // A legacy or concurrent writer may replace the shared config with an

@@ -255,6 +255,19 @@ eliminate the need to scroll through review cards on a short window.
   observed disabled-state contrast; it does not resolve the search layout
   pauses or prove live interaction with a PostgreSQL-backed library.
 
+## Database configuration writer
+
+- Added an isolated PostgreSQL configuration writer that applies the existing
+  three-way merge rules, validates audit history, retries compare-and-swap
+  conflicts, preserves unknown fields, and excludes API credentials from the
+  persisted document. This avoids replacing concurrent edits with a stale UI
+  snapshot when the eventual runtime cutover occurs.
+- The isolated probe verified two separate favorite edits survived one merge,
+  an unknown future setting remained, and all three credential fields stayed
+  empty (`typedConfigMergeVerified=true`, `passed=true`). Release build had
+  zero warnings and errors. The normal window still calls the file writer;
+  no database mode has been enabled for an existing library.
+
 ## Damaged-snapshot recovery check
 
 - The isolated recovery probe copied a valid export, altered `metadata.json`,

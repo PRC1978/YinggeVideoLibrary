@@ -245,6 +245,16 @@ eliminate the need to scroll through review cards on a short window.
   Neither these tests nor the new backup API justify switching the storage
   marker for an existing library.
 
+## Front-end contrast correction
+
+- In the 800x550 cinema review screenshot, the disabled AI action used a dark
+  red surface with nearly black lettering. The shared primary-button style
+  now uses a neutral surface and secondary text while disabled. A fresh
+  nine-theme, three-size synthetic diagnostic completed (237 layout records),
+  and the cinema review screenshot was visually checked. This fixes the
+  observed disabled-state contrast; it does not resolve the search layout
+  pauses or prove live interaction with a PostgreSQL-backed library.
+
 ## Damaged-snapshot recovery check
 
 - The isolated recovery probe copied a valid export, altered `metadata.json`,

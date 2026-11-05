@@ -36,34 +36,6 @@ internal static class EncryptedErrorReportDiagnostics
         try { EncryptedErrorReport.Decrypt(encrypted, "offline-test-passphrase-123");
             result["errorReportRejectsTampering"] = false; }
         catch (CryptographicException) { result["errorReportRejectsTampering"] = true; }
-        result["errorReportUploadTargetRejectsInjection"] =
-            SshEncryptedReportUploader.ValidTarget("user@example.org") &&
-            SshEncryptedReportUploader.ValidPort("43602") &&
-            !SshEncryptedReportUploader.ValidPort("-1") &&
-            !SshEncryptedReportUploader.ValidTarget("user@example.org;echo bad") &&
-            !SshEncryptedReportUploader.ValidTarget("user@host:/tmp/file");
         return result;
-    }
-
-    internal static async Task<int> VerifyUploadAsync(string outputPath)
-    {
-        var settings = ErrorUploadSettings.Load();
-        var report = new EncryptedErrorReport.Snapshot(DateTimeOffset.UtcNow,
-            "synthetic-upload-test", ["synthetic error only; no library data"], []);
-        var encrypted = EncryptedErrorReport.Encrypt(report, "synthetic-only-upload-test-passphrase");
-        try
-        {
-            var remote = await SshEncryptedReportUploader.UploadAsync(encrypted,
-                settings.Target, settings.Port, settings.KeyPath);
-            await File.WriteAllTextAsync(outputPath, JsonSerializer.Serialize(new
-            { passed = true, remote, encryptedBytes = encrypted.Length }));
-            return 0;
-        }
-        catch (Exception ex)
-        {
-            await File.WriteAllTextAsync(outputPath, JsonSerializer.Serialize(new
-            { passed = false, errorType = ex.GetType().Name }));
-            return 1;
-        }
     }
 }

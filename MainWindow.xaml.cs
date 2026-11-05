@@ -1627,9 +1627,7 @@ public partial class MainWindow : Window
         SectionTitle.Text = target is "settings" or "scrape" or "review" or "roles" or "plugins" or "folders" or "recommendations"
             ? "" : current.Item3;
         BrandEyebrow.Visibility = UiTheme.IsClassicMode ? Visibility.Visible : Visibility.Collapsed;
-        HeaderArea.Margin = target == "online" ? new Thickness(28, 18, 28, 12)
-            : UiTheme.IsClassicMode ? new Thickness(48, 42, 48, 25)
-            : new Thickness(48, 26, 48, 16);
+        UpdateHeaderResponsive();
         foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav, LibraryNav, ReviewNav, RolesNav, PluginsNav })
         {
             button.Background = Brushes.Transparent;

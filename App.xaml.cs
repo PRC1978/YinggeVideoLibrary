@@ -71,11 +71,6 @@ public partial class App : System.Windows.Application
             Shutdown(await FeatureDiagnostics.RunAsync(e.Args[1]));
             return;
         }
-        if (e.Args.Length > 1 && e.Args[0] == "--self-test-error-upload")
-        {
-            Shutdown(await EncryptedErrorReportDiagnostics.VerifyUploadAsync(e.Args[1]));
-            return;
-        }
         if (e.Args.Length > 2 && e.Args[0] == "--self-test-ai-scrape-eval")
         {
             Shutdown(await Task.Run(() => AiScrapeEvaluation.RunToFile(e.Args[1], e.Args[2])));

@@ -26,6 +26,8 @@ internal static partial class LibraryBackupService
         "duplicate-metadata-history.json",
         "site-list-import.json",
         RoleProfileStore.FileName,
+        PluginStateStore.FileName, PluginCandidateStore.FileName,
+        MissingCleanupStore.FileName,
         "ai-budget.json", "javinfo-usage.json",
         "scrape-source-backoff.json"
     ];

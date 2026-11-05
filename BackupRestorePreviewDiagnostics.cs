@@ -26,6 +26,12 @@ internal static class BackupRestorePreviewDiagnostics
         File.WriteAllText(Path.Combine(data, "metadata.json"), "{\"sample\":{\"Title\":\"backup\"}}");
         var graphHistory = Path.Combine(data, "graph-move-history.json");
         File.WriteAllText(graphHistory, "{\"Version\":1,\"Entries\":[]}");
+        var pluginState = Path.Combine(data, PluginStateStore.FileName);
+        var pluginCandidates = Path.Combine(data, PluginCandidateStore.FileName);
+        var cleanupHistory = Path.Combine(data, MissingCleanupStore.FileName);
+        File.WriteAllText(pluginState, "{\"schemaVersion\":1,\"enabled\":[\"saved\"],\"consents\":{},\"lastErrors\":{}}");
+        File.WriteAllText(pluginCandidates, "{\"videos\":{\"saved\":[]}}");
+        File.WriteAllText(cleanupHistory, "{\"records\":[\"saved\"]}");
         const string aiRequest = "{\"messages\":[{\"role\":\"user\",\"content\":\"backup diagnostic\"}]}";
         var savedAiJob = AiJobStore.Create(data, "diagnostic", "https://example.test/v1", aiRequest);
         ScrapeQueueStore.Add(data, [new ScrapeQueueItem { VideoId = "sample", Code = "ABC-123" }]);
@@ -93,6 +99,9 @@ internal static class BackupRestorePreviewDiagnostics
         }
 
         File.WriteAllText(graphHistory, "{\"Version\":1,\"Entries\":[] ,\"CurrentOnly\":true}");
+        File.WriteAllText(pluginState, "{\"schemaVersion\":1,\"enabled\":[\"changed\"],\"consents\":{},\"lastErrors\":{}}");
+        File.WriteAllText(pluginCandidates, "{\"videos\":{\"changed\":[]}}");
+        File.WriteAllText(cleanupHistory, "{\"records\":[\"changed\"]}");
         var currentOnlyAiJob = AiJobStore.Create(data, "diagnostic", "https://example.test/v1", aiRequest);
         LibraryBackupService.StageRestore(data, package);
         var restored = LibraryBackupService.ApplyPendingAtStartup(data, out var restoreMessage, false);
@@ -103,6 +112,10 @@ internal static class BackupRestorePreviewDiagnostics
         result["restoreReplacesAiJobsAndCanDecrypt"] = restored
             && !File.Exists(AiJobStore.PathFor(data, currentOnlyAiJob.Id))
             && AiJobStore.ReadProtectedRequest(AiJobStore.Get(data, savedAiJob.Id)) == aiRequest;
+        result["restoreReplacesPluginAndCleanupState"] = restored &&
+            File.ReadAllText(pluginState) == File.ReadAllText(Path.Combine(package, PluginStateStore.FileName)) &&
+            File.ReadAllText(pluginCandidates) == File.ReadAllText(Path.Combine(package, PluginCandidateStore.FileName)) &&
+            File.ReadAllText(cleanupHistory) == File.ReadAllText(Path.Combine(package, MissingCleanupStore.FileName));
 
         File.WriteAllText(graphHistory, "{\"Version\":2,\"Entries\":[]}");
         try

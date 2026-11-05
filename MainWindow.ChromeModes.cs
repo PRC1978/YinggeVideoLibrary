@@ -78,6 +78,14 @@ public partial class MainWindow
     void UpdateHeaderResponsive()
     {
         ApplySidebarPresentation();
+        // Short windows need to show the first review or video row without
+        // spending most of the viewport on empty page chrome.
+        var shortWindow = !UiTheme.IsClassicMode && ActualHeight > 0 && ActualHeight < 650;
+        HeaderArea.Margin = view == "online" ? new Thickness(28, 18, 28, 12)
+            : UiTheme.IsClassicMode ? new Thickness(48, 42, 48, 25)
+            : shortWindow ? new Thickness(48, 12, 48, 8)
+            : new Thickness(48, 26, 48, 16);
+        ReviewPanel.Padding = shortWindow ? new Thickness(18) : new Thickness(24);
         var compact = ActualWidth < 1040;
         Grid.SetRow(Toolbar, compact ? 1 : 0);
         Grid.SetColumn(Toolbar, compact ? 0 : 1);

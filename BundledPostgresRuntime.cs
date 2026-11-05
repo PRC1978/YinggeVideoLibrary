@@ -231,6 +231,42 @@ internal static class BundledPostgresRuntime
                     item.NextAttemptAt >= delayUntil.AddTicks(-10)) &&
                 cancelled == 2 &&
                 (await PostgresScrapeQueueStore.LoadAsync(builder.ConnectionString)).Count == 0;
+            var firstSlot = await PostgresScrapeSourceBackoffStore.ReserveAsync(
+                builder.ConnectionString, "JavDB", TimeSpan.FromSeconds(3));
+            var secondSlot = await PostgresScrapeSourceBackoffStore.ReserveAsync(
+                builder.ConnectionString, "JavDB", TimeSpan.FromSeconds(3));
+            var sourceFailureUntil = await PostgresScrapeSourceBackoffStore.RecordFailureAsync(
+                builder.ConnectionString, "JavDB", "isolated 429", true,
+                TimeSpan.FromMinutes(2));
+            var cooldown = await PostgresScrapeSourceBackoffStore.GetCooldownAtAsync(
+                builder.ConnectionString, "javdb");
+            var beforeSuccess = await PostgresScrapeSourceBackoffStore.LoadAsync(builder.ConnectionString);
+            var clearedFailure = await PostgresScrapeSourceBackoffStore.ReportSuccessAsync(
+                builder.ConnectionString, "JavDB");
+            var afterSuccess = await PostgresScrapeSourceBackoffStore.LoadAsync(builder.ConnectionString);
+            findings["sourceBackoffLifecycleVerified"] = firstSlot == DateTimeOffset.MinValue &&
+                secondSlot > DateTimeOffset.UtcNow && sourceFailureUntil > DateTimeOffset.UtcNow.AddMinutes(1) &&
+                cooldown >= sourceFailureUntil.AddTicks(-10) &&
+                beforeSuccess.TryGetValue("JavDB", out var failedSource) && failedSource.Failures == 1 &&
+                clearedFailure && afterSuccess.TryGetValue("JavDB", out var recoveredSource) &&
+                recoveredSource.Failures == 0 && recoveredSource.NextRequestAt > DateTimeOffset.UtcNow;
+            var fairAdded = await PostgresScrapeQueueStore.AddAsync(builder.ConnectionString,
+            [
+                new ScrapeQueueItem { VideoId = "fair-code", Code = "ABC-111",
+                    NextAttemptAt = DateTimeOffset.UtcNow.AddSeconds(-1) },
+                new ScrapeQueueItem { VideoId = "fair-title", Kind = "title", SearchTitle = "isolated title",
+                    NextAttemptAt = DateTimeOffset.UtcNow.AddSeconds(-1) }
+            ]);
+            var fairCode = await PostgresScrapeQueueScheduler.PeekNextFairAsync(builder.ConnectionString,
+                sourceDirectory, ["TMDB"], ["TMDB"], false);
+            var fairTitle = await PostgresScrapeQueueScheduler.PeekNextFairAsync(builder.ConnectionString,
+                sourceDirectory, ["TMDB"], ["TMDB"], false);
+            var blocked = await PostgresScrapeQueueScheduler.PeekNextFairAsync(builder.ConnectionString,
+                sourceDirectory, [], [], false);
+            findings["queueFairSchedulingVerified"] = fairAdded == 2 &&
+                fairCode.Item?.VideoId == "fair-code" && fairTitle.Item?.VideoId == "fair-title" &&
+                fairCode.PendingCount == 2 && fairTitle.PendingCount == 2 &&
+                blocked.Item is null && blocked.HasBlocked && blocked.PendingCount == 2;
             findings["assetBackupVerified"] =
                 (await File.ReadAllBytesAsync(Path.Combine(exportDirectory, "posters", "sample.jpg")))
                     .SequenceEqual(new byte[] { 1, 2, 3, 4 }) &&
@@ -638,6 +674,8 @@ internal static class BundledPostgresRuntime
                 findings["queueJournalMigrationVerified"] is true &&
                 findings["queueMutationRollbackVerified"] is true &&
                 findings["queueLifecycleVerified"] is true &&
+                findings["sourceBackoffLifecycleVerified"] is true &&
+                findings["queueFairSchedulingVerified"] is true &&
                 findings["assetBackupVerified"] is true &&
                 findings["failedExportLeavesNoPartialBackup"] is true &&
                 findings["legacyModeGuardVerified"] is true &&

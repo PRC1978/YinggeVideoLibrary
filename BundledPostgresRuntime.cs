@@ -13,7 +13,8 @@ namespace YinggeVideoLibrary;
 // writers and backup/restore have been switched together.
 internal static class BundledPostgresRuntime
 {
-    internal static async Task<int> RunProbeToFileAsync(string runtimeDirectory, string resultPath)
+    internal static async Task<int> RunProbeToFileAsync(string runtimeDirectory, string resultPath,
+        bool scale = false)
     {
         var findings = new Dictionary<string, object?>();
         var probeRoot = Path.Combine(Path.GetTempPath(), "YinggePgProbe-" + Guid.NewGuid().ToString("N"));
@@ -226,6 +227,61 @@ internal static class BundledPostgresRuntime
                 lateFailureRejected && configAfterLateFailure?.Content.SequenceEqual(reviewConfig) is true &&
                 metadataAfterLateFailure.Revision == reviewRevision &&
                 metadataAfterLateFailure.Records[videoId].Title == "review approved";
+            if (scale)
+            {
+                var baseline = await PostgresLibraryIndexStore.ReadAsync(builder.ConnectionString);
+                var mediaRoot = Path.Combine(probeRoot, "scale-media");
+                var bulk = new LibraryIndex
+                {
+                    Folders = [mediaRoot],
+                    Entries = Enumerable.Range(0, 30_000).Select(number => new IndexEntry
+                    {
+                        Path = Path.Combine(mediaRoot, $"video-{number:D6}.mp4"),
+                        Size = 1024 + number, ModifiedTicks = DateTime.UtcNow.Ticks
+                    }).ToList()
+                };
+                var scaleWatch = Stopwatch.StartNew();
+                var revision = await PostgresLibraryIndexStore.SaveAsync(
+                    builder.ConnectionString, bulk, baseline.Revision);
+                var saveMilliseconds = scaleWatch.ElapsedMilliseconds;
+                scaleWatch.Restart();
+                var reloaded = await PostgresLibraryIndexStore.ReadAsync(builder.ConnectionString);
+                findings["scaleReadMilliseconds"] = scaleWatch.ElapsedMilliseconds;
+                findings["scaleSaveMilliseconds"] = saveMilliseconds;
+                findings["scaleVideoCount"] = reloaded.Index.Entries.Count;
+                findings["scaleVerified"] = reloaded.Revision == revision &&
+                    reloaded.Index.Entries.Count == 30_000 &&
+                    reloaded.Index.Entries[0].Path.EndsWith("video-000000.mp4", StringComparison.Ordinal) &&
+                    reloaded.Index.Entries[^1].Path.EndsWith("video-029999.mp4", StringComparison.Ordinal);
+                bulk.Entries[0].Missing = true;
+                scaleWatch.Restart();
+                var deltaRevision = await PostgresLibraryIndexStore.SaveDeltaAsync(
+                    builder.ConnectionString, bulk, revision);
+                findings["scaleOneRowDeltaMilliseconds"] = scaleWatch.ElapsedMilliseconds;
+                var afterDelta = await PostgresLibraryIndexStore.ReadAsync(builder.ConnectionString);
+                findings["scaleDeltaVerified"] = afterDelta.Revision == deltaRevision &&
+                    afterDelta.Index.Entries.Count == 30_000 && afterDelta.Index.Entries[0].Missing;
+                bulk.Entries.RemoveAt(1);
+                bulk.Entries.Add(new IndexEntry
+                {
+                    Path = Path.Combine(mediaRoot, "video-new.mp4"), Size = 2048,
+                    ModifiedTicks = DateTime.UtcNow.Ticks
+                });
+                var replacementRevision = await PostgresLibraryIndexStore.SaveDeltaAsync(
+                    builder.ConnectionString, bulk, deltaRevision);
+                var afterReplacement = await PostgresLibraryIndexStore.ReadAsync(builder.ConnectionString);
+                var staleDeltaRejected = false;
+                try { await PostgresLibraryIndexStore.SaveDeltaAsync(
+                    builder.ConnectionString, bulk, deltaRevision); }
+                catch (InvalidOperationException) { staleDeltaRejected = true; }
+                findings["scaleDeltaVerified"] = findings["scaleDeltaVerified"] is true &&
+                    afterReplacement.Revision == replacementRevision &&
+                    afterReplacement.Index.Entries.Count == 30_000 &&
+                    afterReplacement.Index.Entries.Any(entry => entry.Path.EndsWith("video-new.mp4",
+                        StringComparison.Ordinal)) &&
+                    !afterReplacement.Index.Entries.Any(entry => entry.Path.EndsWith("video-000001.mp4",
+                        StringComparison.Ordinal)) && staleDeltaRejected;
+            }
             var duplicateOwnerBlocked = false;
             await using (var privateCluster = await PostgresPrivateCluster.OpenAsync(
                 runtimeDirectory, privateLibrary))
@@ -252,7 +308,8 @@ internal static class BundledPostgresRuntime
                 findings["nestedDocumentPathsVerified"] is true &&
                 findings["legacyModeGuardVerified"] is true &&
                 findings["atomicReviewStateVerified"] is true &&
-                findings["privateClusterLifecycleVerified"] is true;
+                findings["privateClusterLifecycleVerified"] is true &&
+                (!scale || (findings["scaleVerified"] is true && findings["scaleDeltaVerified"] is true));
         }
         catch (Exception ex)
         {

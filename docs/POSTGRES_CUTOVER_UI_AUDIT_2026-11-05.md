@@ -70,6 +70,12 @@ cluster major version, stops on disposal, and can restart the same test cluster.
 The bundled-runtime probe passed `privateClusterLifecycleVerified=true` on a
 temporary library. This component is not connected to normal app startup.
 
+At 30,000 synthetic index rows, the isolated full save took 1,913 ms and read
+took 260 ms in the final run. A one-row missing-state change through the new
+incremental writer took 379 ms; a subsequent remove/add pair and stale revision
+rejection also passed (`scaleDeltaVerified=true`). These are storage calls, not
+UI-thread timings, and this path is not wired to normal scanning yet.
+
 ## Isolated UI review
 
 Generated a synthetic 60-video, 40-category fixture with 10 posters under

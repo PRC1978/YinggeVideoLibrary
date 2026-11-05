@@ -79,7 +79,8 @@ public partial class App : System.Windows.Application
         }
         if (e.Args.Length > 2 && e.Args[0] == "--self-test-bundled-postgres")
         {
-            Shutdown(await BundledPostgresRuntime.RunProbeToFileAsync(e.Args[1], e.Args[2]));
+            Shutdown(await BundledPostgresRuntime.RunProbeToFileAsync(e.Args[1], e.Args[2],
+                e.Args.Length > 3 && e.Args[3] == "--scale"));
             return;
         }
         if (e.Args.Length > 1 && e.Args[0] == "--self-test-error-upload")

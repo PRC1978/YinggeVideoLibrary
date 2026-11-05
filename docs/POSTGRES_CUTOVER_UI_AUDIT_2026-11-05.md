@@ -107,6 +107,14 @@ theme switching while a large list is loading; scroll and layout timings for
 30,000 synthetic videos. The current screenshot pass is visual and diagnostic,
 not a claim that these interactions have passed.
 
+The later short-window screenshot pass exposed a responsive-margin override:
+`ShowView` replaced the margin chosen by the resize handler. Both now use the
+same calculation. In the 800×550 cinema review capture, the queue card begins
+about 42 pixels higher while the filter, AI, and pager controls remain visible.
+The repeated theme diagnostic wrote its layout report with zero card-timeout
+or missing-graph-link flags. This improves first-screen visibility; it does not
+eliminate the need to scroll through review cards on a short window.
+
 ## Verification this turn
 
 - Desktop `dotnet build -c Release --no-restore`: zero warnings, zero errors.

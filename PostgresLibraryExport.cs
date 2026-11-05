@@ -11,7 +11,10 @@ namespace YinggeVideoLibrary;
 // Posters and thumbnails are deliberately outside this record export.
 internal static class PostgresLibraryExport
 {
+    private const string ManifestName = "database-export-manifest.json";
     internal sealed record Result(int VideoCount, int MetadataCount, int DocumentCount);
+    internal sealed record ExportedFile(long Length, string Sha256);
+    internal sealed record Manifest(int SchemaVersion, Dictionary<string, ExportedFile> Files);
 
     internal static async Task<Result> ExportAsync(string connectionString, string destination,
         CancellationToken cancellationToken = default)
@@ -86,7 +89,51 @@ internal static class PostgresLibraryExport
                 documentCount++;
             }
         await transaction.CommitAsync(cancellationToken);
+        var files = new Dictionary<string, ExportedFile>(StringComparer.Ordinal);
+        foreach (var path in Directory.EnumerateFiles(staging, "*", SearchOption.TopDirectoryOnly))
+        {
+            var name = Path.GetFileName(path);
+            var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
+            files.Add(name, new ExportedFile(bytes.LongLength,
+                Convert.ToHexString(SHA256.HashData(bytes))));
+        }
+        await File.WriteAllBytesAsync(Path.Combine(staging, ManifestName),
+            JsonSerializer.SerializeToUtf8Bytes(new Manifest(1, files)), cancellationToken);
+        if (!await VerifyOfflineAsync(staging, cancellationToken))
+            throw new InvalidDataException("数据库回退包离线校验失败，未完成导出。 ");
         Directory.Move(staging, destination);
         return new(entries.Count, metadata.Count, documentCount);
+    }
+
+    internal static async Task<bool> VerifyOfflineAsync(string directory,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var manifest = JsonSerializer.Deserialize<Manifest>(await File.ReadAllBytesAsync(
+                Path.Combine(directory, ManifestName), cancellationToken));
+            if (manifest is null || manifest.SchemaVersion != 1 || manifest.Files is null ||
+                !manifest.Files.ContainsKey("library-index.json") ||
+                !manifest.Files.ContainsKey("metadata.json")) return false;
+            var actualNames = Directory.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly)
+                .Select(Path.GetFileName).Where(name => name != ManifestName).ToHashSet(StringComparer.Ordinal);
+            if (!actualNames.SetEquals(manifest.Files.Keys)) return false;
+            foreach (var (name, expected) in manifest.Files)
+            {
+                if (name != "library-index.json" && name != "metadata.json" &&
+                    !PostgresLibraryMigration.IsDocumentName(name)) return false;
+                var path = Path.Combine(directory, name);
+                if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0) return false;
+                var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
+                if (bytes.LongLength != expected.Length ||
+                    Convert.ToHexString(SHA256.HashData(bytes)) != expected.Sha256) return false;
+            }
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or
+            ArgumentException or NullReferenceException)
+        {
+            return false;
+        }
     }
 }

@@ -125,12 +125,19 @@ internal static class BundledPostgresRuntime
                 builder.ConnectionString, exportDirectory);
             var exportVerified = await PostgresLibraryMigration.VerifyContentAsync(
                 exportDirectory, builder.ConnectionString);
+            var offlineVerified = await PostgresLibraryExport.VerifyOfflineAsync(exportDirectory);
+            var exportedIndexPath = Path.Combine(exportDirectory, "library-index.json");
+            var originalIndexBytes = await File.ReadAllBytesAsync(exportedIndexPath);
+            await File.WriteAllTextAsync(exportedIndexPath, "{}");
+            var tamperRejected = !await PostgresLibraryExport.VerifyOfflineAsync(exportDirectory);
+            await File.WriteAllBytesAsync(exportedIndexPath, originalIndexBytes);
+            offlineVerified &= await PostgresLibraryExport.VerifyOfflineAsync(exportDirectory);
             var overwriteBlocked = false;
             try { await PostgresLibraryExport.ExportAsync(builder.ConnectionString, exportDirectory); }
             catch (IOException) { overwriteBlocked = true; }
             findings["rollbackExportVerified"] = exported.VideoCount == imported.VideoCount &&
                 exported.MetadataCount == imported.MetadataCount && exported.DocumentCount == 5 &&
-                exportVerified && overwriteBlocked;
+                exportVerified && offlineVerified && tamperRejected && overwriteBlocked;
             var configDocument = await PostgresLibraryDocumentStore.ReadAsync(
                 builder.ConnectionString, "config.json");
             var revisedConfig = Encoding.UTF8.GetBytes("{\"folders\":[],\"categories\":[\"verified\"]}");

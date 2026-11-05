@@ -93,7 +93,10 @@ not a claim that these interactions have passed.
   and a consistent rollback export compared against the database. The export
   uses a fresh staging directory and only renames it to the requested path
   after the database snapshot is complete; it refuses to overwrite an existing
-  directory. A failed export can leave a `.partial-*` directory for diagnosis.
+  directory. The export writes a per-file SHA-256 manifest and verifies it
+  before rename; the probe also changed one exported file and confirmed offline
+  verification rejects it, then restored the bytes and passed again. A failed
+  export can leave a `.partial-*` directory for diagnosis.
   `realLibraryRead=false`; server stopped after the probe.
 - After the UI correction, 237 layout records across nine themes and three
   window sizes passed the existing timeout/graph-link checks. The redirected

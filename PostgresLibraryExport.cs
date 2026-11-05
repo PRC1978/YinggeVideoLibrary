@@ -95,6 +95,7 @@ internal static class PostgresLibraryExport
                 var name = reader.GetString(0);
                 if (!PostgresLibraryMigration.IsDocumentName(name))
                     throw new InvalidDataException("数据库含不允许导出的文件名。 ");
+                if (PostgresLibraryMigration.IsQueueDocumentName(name)) continue;
                 var bytes = (byte[])reader[1];
                 if (reader.GetString(2) != Convert.ToHexString(SHA256.HashData(bytes)))
                     throw new InvalidDataException("数据库资料校验失败：" + name);
@@ -103,6 +104,21 @@ internal static class PostgresLibraryExport
                 await File.WriteAllBytesAsync(output, bytes, cancellationToken);
                 documentCount++;
             }
+        var queueItems = new List<ScrapeQueueItem>();
+        await using (var command = new NpgsqlCommand(
+            "SELECT video_id,item::text FROM library_scrape_queue ORDER BY ordinal", connection, transaction))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var item = JsonSerializer.Deserialize<ScrapeQueueItem>(reader.GetString(1))
+                    ?? throw new InvalidDataException("数据库队列含无效任务。 ");
+                if (item.VideoId != reader.GetString(0))
+                    throw new InvalidDataException("数据库队列身份不一致。 ");
+                queueItems.Add(item);
+            }
+        await File.WriteAllBytesAsync(Path.Combine(staging, "scrape-queue.json"),
+            JsonSerializer.SerializeToUtf8Bytes(queueItems), cancellationToken);
+        documentCount++;
         await transaction.CommitAsync(cancellationToken);
         if (assetDirectory is not null)
         {

@@ -8,6 +8,15 @@ PostgreSQL runtime, `PostgresLibraryMigration`, `PostgresLibraryIndexStore`, and
 They are not a production cutover. An installer containing PostgreSQL has been
 installed and uninstalled under a separate test AppId, not released.
 
+The scrape queue now has an isolated relational table. Offline import replays
+the source checkpoint and binary journal under the library lease, and rollback
+export generates a fresh `scrape-queue.json` from the table instead of copying
+stale journal files. A private-cluster probe imported two tasks, removed one,
+added another, and verified that the database and verified rollback export
+both contained only the current two tasks (`queueMutationRollbackVerified=true`).
+This does not switch the normal scheduler, source backoff, or UI queue actions
+to PostgreSQL. Normal startup remains blocked from database mode.
+
 The current migration now imports a fixed allowlist of user-state documents
 (`config`, ratings, review history/views, graph move history, duplicate history,
 site import, role profiles, AI budget, Javinfo usage, source backoff, scrape

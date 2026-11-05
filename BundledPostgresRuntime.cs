@@ -157,15 +157,40 @@ internal static class BundledPostgresRuntime
             var overwriteBlocked = false;
             try { await PostgresLibraryExport.ExportAsync(builder.ConnectionString, exportDirectory); }
             catch (IOException) { overwriteBlocked = true; }
+            findings["rollbackExportDocumentCount"] = exported.DocumentCount;
+            findings["rollbackExportContentVerified"] = exportVerified;
+            findings["rollbackOfflineVerified"] = offlineVerified;
             findings["rollbackExportVerified"] = exported.VideoCount == imported.VideoCount &&
-                exported.MetadataCount == imported.MetadataCount && exported.DocumentCount >= 13 &&
+                exported.MetadataCount == imported.MetadataCount && exported.DocumentCount >= 9 &&
                 exportVerified && offlineVerified && tamperRejected && overwriteBlocked;
+            long queueRows;
+            await using var queueConnection = new NpgsqlConnection(builder.ConnectionString);
+            await queueConnection.OpenAsync();
+            await using (var queueCount = new NpgsqlCommand(
+                "SELECT count(*) FROM library_scrape_queue", queueConnection))
+                queueRows = (long)(await queueCount.ExecuteScalarAsync() ?? 0L);
             ScrapeQueueStore.ForgetCachedStateAfterOfflineRestore(sourceDirectory);
             findings["queueJournalMigrationVerified"] =
+                queueRows == 2 &&
                 ScrapeQueueStore.Load(sourceDirectory).Count == 2 &&
                 ScrapeQueueStore.Load(exportDirectory).Select(item => item.Code)
                     .SequenceEqual(["ABC-001", "ABC-002"]) &&
-                File.Exists(Path.Combine(exportDirectory, "scrape-queue.journal.00000001.bin"));
+                !File.Exists(Path.Combine(exportDirectory, "scrape-queue.journal.00000001.bin"));
+            var removedQueueItem = await PostgresScrapeQueueStore.RemoveAsync(
+                builder.ConnectionString, "queue-second-item");
+            var addedQueueItem = await PostgresScrapeQueueStore.AddAsync(
+                builder.ConnectionString,
+                [new ScrapeQueueItem { VideoId = "queue-third-item", Code = "ABC-003" }]);
+            var mutatedQueueExport = Path.Combine(probeRoot, "mutated-queue-export");
+            await PostgresLibraryExport.ExportAsync(builder.ConnectionString, mutatedQueueExport);
+            findings["queueMutationRollbackVerified"] = removedQueueItem && addedQueueItem == 1 &&
+                (await PostgresScrapeQueueStore.LoadAsync(builder.ConnectionString))
+                    .Select(item => item.Code).SequenceEqual(["ABC-001", "ABC-003"]) &&
+                ScrapeQueueStore.Load(mutatedQueueExport).Select(item => item.Code)
+                    .SequenceEqual(["ABC-001", "ABC-003"]) &&
+                await PostgresLibraryExport.VerifyOfflineAsync(mutatedQueueExport) &&
+                await PostgresLibraryMigration.VerifyContentAsync(
+                    mutatedQueueExport, builder.ConnectionString);
             findings["assetBackupVerified"] =
                 (await File.ReadAllBytesAsync(Path.Combine(exportDirectory, "posters", "sample.jpg")))
                     .SequenceEqual(new byte[] { 1, 2, 3, 4 }) &&
@@ -496,6 +521,7 @@ internal static class BundledPostgresRuntime
                 findings["rollbackExportVerified"] is true &&
                 findings["nestedDocumentPathsVerified"] is true &&
                 findings["queueJournalMigrationVerified"] is true &&
+                findings["queueMutationRollbackVerified"] is true &&
                 findings["assetBackupVerified"] is true &&
                 findings["failedExportLeavesNoPartialBackup"] is true &&
                 findings["legacyModeGuardVerified"] is true &&

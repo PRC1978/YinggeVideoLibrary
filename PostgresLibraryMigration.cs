@@ -37,6 +37,18 @@ internal static class PostgresLibraryMigration
             content bytea NOT NULL,
             sha256 text NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS library_scrape_queue (
+            video_id text PRIMARY KEY,
+            ordinal bigint NOT NULL UNIQUE,
+            kind text NOT NULL,
+            failed boolean NOT NULL,
+            next_attempt_at timestamptz NOT NULL,
+            item jsonb NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS library_scrape_queue_ready
+            ON library_scrape_queue (failed, next_attempt_at, ordinal);
+        CREATE UNIQUE INDEX IF NOT EXISTS library_scrape_queue_identity_ci
+            ON library_scrape_queue (lower(video_id));
         """;
 
     // These files are user state, not regenerated caches. Keep their exact bytes
@@ -61,6 +73,12 @@ internal static class PostgresLibraryMigration
          IsQueueGenerationName(name, "scrape-queue.journal.", ".bin") ||
          IsHashDocumentName(name, "title-candidates/", 64) ||
          IsHashDocumentName(name, "ai-jobs/", 32));
+
+    internal static bool IsQueueDocumentName(string name) =>
+        name is "scrape-queue.json" or "scrape-queue.json.bak" or
+            "scrape-queue.state.json" or "scrape-queue.state.json.bak" ||
+        IsQueueGenerationName(name, "scrape-queue.snapshot.", ".json") ||
+        IsQueueGenerationName(name, "scrape-queue.journal.", ".bin");
 
     private static bool IsQueueGenerationName(string name, string prefix, string suffix) =>
         name.StartsWith(prefix, StringComparison.Ordinal) &&
@@ -193,6 +211,29 @@ internal static class PostgresLibraryMigration
             }
             await writer.CompleteAsync(cancellationToken);
         }
+        // The queue's latest tasks may live only in the binary journal after
+        // its JSON checkpoint. Load the verified replay result, not the stale
+        // scrape-queue.json snapshot, while the offline source lease is held.
+        var queue = ScrapeQueueStore.Load(directory);
+        await using (var writer = await connection.BeginBinaryImportAsync(
+            "COPY library_scrape_queue (video_id, ordinal, kind, failed, next_attempt_at, item) FROM STDIN (FORMAT BINARY)",
+            cancellationToken))
+        {
+            for (var ordinal = 0; ordinal < queue.Count; ordinal++)
+            {
+                var item = queue[ordinal];
+                await writer.StartRowAsync(cancellationToken);
+                await writer.WriteAsync(item.VideoId, NpgsqlDbType.Text, cancellationToken);
+                await writer.WriteAsync((long)ordinal, NpgsqlDbType.Bigint, cancellationToken);
+                await writer.WriteAsync(item.Kind, NpgsqlDbType.Text, cancellationToken);
+                await writer.WriteAsync(item.Failed, NpgsqlDbType.Boolean, cancellationToken);
+                await writer.WriteAsync(item.NextAttemptAt.ToUniversalTime(),
+                    NpgsqlDbType.TimestampTz, cancellationToken);
+                await writer.WriteAsync(JsonSerializer.Serialize(item), NpgsqlDbType.Jsonb,
+                    cancellationToken);
+            }
+            await writer.CompleteAsync(cancellationToken);
+        }
         await using (var marker = new NpgsqlCommand(
             "INSERT INTO library_migration(id,index_sha256,metadata_sha256) VALUES (1,@i,@m)", connection, transaction))
         {
@@ -274,12 +315,19 @@ internal static class PostgresLibraryMigration
             while (await reader.ReadAsync(cancellationToken)) folders.Add(reader.GetString(0));
         if (!folders.SetEquals(sourceIndex.Folders)) return false;
         var documentNames = EnumerateDocumentNames(directory).ToHashSet(StringComparer.Ordinal);
+        var canonicalQueueExport = File.Exists(Path.Combine(directory,
+            "database-export-manifest.json"));
         await using (var command = new NpgsqlCommand(
             "SELECT name,content,sha256 FROM library_document", connection))
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
             while (await reader.ReadAsync(cancellationToken))
             {
                 var name = reader.GetString(0);
+                if (canonicalQueueExport && IsQueueDocumentName(name))
+                {
+                    documentNames.Remove(name);
+                    continue;
+                }
                 if (!documentNames.Remove(name)) return false;
                 var actual = (byte[])reader[1];
                 if (reader.GetString(2) != Convert.ToHexString(SHA256.HashData(actual)) ||
@@ -287,7 +335,24 @@ internal static class PostgresLibraryMigration
                         Path.Combine(directory, name.Replace('/', Path.DirectorySeparatorChar)),
                         cancellationToken))) return false;
             }
+        if (canonicalQueueExport) documentNames.Remove("scrape-queue.json");
         if (documentNames.Count != 0) return false;
+        var sourceQueue = ScrapeQueueStore.Load(directory);
+        var queueOrdinal = 0;
+        await using (var command = new NpgsqlCommand(
+            "SELECT video_id,ordinal,item::text FROM library_scrape_queue ORDER BY ordinal", connection))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (queueOrdinal >= sourceQueue.Count ||
+                    reader.GetInt64(1) != queueOrdinal ||
+                    reader.GetString(0) != sourceQueue[queueOrdinal].VideoId) return false;
+                using var saved = JsonDocument.Parse(reader.GetString(2));
+                using var expected = JsonDocument.Parse(JsonSerializer.Serialize(sourceQueue[queueOrdinal]));
+                if (!JsonElement.DeepEquals(saved.RootElement, expected.RootElement)) return false;
+                queueOrdinal++;
+            }
+        if (queueOrdinal != sourceQueue.Count) return false;
         var found = 0;
         await using (var command = new NpgsqlCommand("SELECT video_id, document::text FROM library_metadata", connection))
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken))

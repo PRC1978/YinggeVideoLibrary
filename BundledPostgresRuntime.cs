@@ -63,7 +63,7 @@ internal static class BundledPostgresRuntime
             {
                 Host = "127.0.0.1", Port = port, Username = "yingge_owner",
                 Password = WindowsCredentialStore.Read(credentialName), Database = "postgres",
-                Pooling = false, Timeout = 5, SslMode = SslMode.Disable
+                Pooling = false, Timeout = 30, SslMode = SslMode.Disable
             };
             await using var connection = new NpgsqlConnection(builder.ConnectionString);
             await connection.OpenAsync();
@@ -398,6 +398,25 @@ internal static class BundledPostgresRuntime
             {
                 await using var privateConnection = new NpgsqlConnection(privateCluster.ConnectionString);
                 await privateConnection.OpenAsync();
+                var corruptExportDirectory = Path.Combine(probeRoot, "corrupt-export");
+                Directory.CreateDirectory(corruptExportDirectory);
+                foreach (var path in Directory.EnumerateFiles(exportDirectory, "*", SearchOption.AllDirectories))
+                {
+                    var target = Path.Combine(corruptExportDirectory,
+                        Path.GetRelativePath(exportDirectory, path));
+                    Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                    File.Copy(path, target);
+                }
+                await File.AppendAllTextAsync(Path.Combine(corruptExportDirectory,
+                    "metadata.json"), "corrupt");
+                var corruptRestoreRejected = false;
+                try { await PostgresLibraryRecovery.RestoreIntoFreshDatabaseAsync(
+                    corruptExportDirectory, privateCluster.ConnectionString); }
+                catch (InvalidDataException) { corruptRestoreRejected = true; }
+                await using (var markerCheck = new NpgsqlCommand(
+                    "SELECT to_regclass('public.library_migration') IS NULL", privateConnection))
+                    findings["corruptRestoreStoppedBeforeDatabaseWrite"] =
+                        corruptRestoreRejected && await markerCheck.ExecuteScalarAsync() is true;
                 var restored = await PostgresLibraryRecovery.RestoreIntoFreshDatabaseAsync(
                     exportDirectory, privateCluster.ConnectionString);
                 var secondRestoreBlocked = false;
@@ -447,6 +466,7 @@ internal static class BundledPostgresRuntime
                 findings["typedReviewRoundTripVerified"] is true &&
                 findings["typedReviewUndoVerified"] is true &&
                 findings["freshDatabaseRestoreVerified"] is true &&
+                findings["corruptRestoreStoppedBeforeDatabaseWrite"] is true &&
                 findings["privateClusterLifecycleVerified"] is true &&
                 (!scale || (findings["scaleVerified"] is true &&
                     findings["scaleDeltaVerified"] is true &&

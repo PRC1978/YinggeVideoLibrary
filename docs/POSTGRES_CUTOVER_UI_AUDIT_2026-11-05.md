@@ -244,3 +244,15 @@ eliminate the need to scroll through review cards on a short window.
 - The normal app still does not use PostgreSQL as its authoritative store.
   Neither these tests nor the new backup API justify switching the storage
   marker for an existing library.
+
+## Damaged-snapshot recovery check
+
+- The isolated recovery probe copied a valid export, altered `metadata.json`,
+  and attempted to restore it into a fresh private database. Restore rejected
+  the altered snapshot before creating the migration table. The unaltered
+  export then restored successfully to that same database. The final probe
+  reported `corruptRestoreStoppedBeforeDatabaseWrite=true` and `passed=true`.
+- A cold startup produced one transient connection timeout with the probe's
+  five-second connection budget. The isolated probe now allows 30 seconds;
+  Release build completed with zero warnings and errors, and the full probe
+  passed on rerun. This does not establish production startup reliability.

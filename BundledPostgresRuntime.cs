@@ -227,6 +227,54 @@ internal static class BundledPostgresRuntime
                 lateFailureRejected && configAfterLateFailure?.Content.SequenceEqual(reviewConfig) is true &&
                 metadataAfterLateFailure.Revision == reviewRevision &&
                 metadataAfterLateFailure.Records[videoId].Title == "review approved";
+            // Exercise the typed review writer, including reload and stale-preview rejection.
+            var typedConfigNode = JsonSerializer.SerializeToNode(new LibraryConfig())!.AsObject();
+            typedConfigNode["futureSetting"] = "preserve-me";
+            var typedConfig = JsonSerializer.SerializeToUtf8Bytes(typedConfigNode);
+            await PostgresLibraryDocumentStore.SaveAsync(builder.ConnectionString,
+                "config.json", typedConfig, configAfterReview?.Revision);
+            var beforeState = new ReviewItemSnapshot
+            {
+                Metadata = metadataAfterLateFailure.Records[videoId].Clone()
+            };
+            var afterState = beforeState.Clone();
+            afterState.Review = new AiReviewRecord { Status = "approved" };
+            afterState.Tags = ["verified"];
+            var typedReview = ReviewTransactionStore.Create("field-approve",
+                new Dictionary<string, ReviewItemSnapshot> { [videoId] = beforeState },
+                new Dictionary<string, ReviewItemSnapshot> { [videoId] = afterState });
+            await PostgresReviewTransactionStore.CommitAsync(builder.ConnectionString, typedReview);
+            var typedConfigAfter = await PostgresLibraryDocumentStore.ReadAsync(
+                builder.ConnectionString, "config.json");
+            var typedHistoryAfter = await PostgresLibraryDocumentStore.ReadAsync(
+                builder.ConnectionString, "review-history.jsonl");
+            var loadedReviewConfig = JsonSerializer.Deserialize<LibraryConfig>(typedConfigAfter!.Content)!;
+            var staleTypedReviewRejected = false;
+            try { await PostgresReviewTransactionStore.CommitAsync(builder.ConnectionString, typedReview); }
+            catch (InvalidOperationException) { staleTypedReviewRejected = true; }
+            findings["typedReviewRoundTripVerified"] =
+                loadedReviewConfig.AiReviews.TryGetValue(videoId, out var savedReview) &&
+                savedReview.Status == "approved" &&
+                loadedReviewConfig.Tags.TryGetValue(videoId, out var savedTags) &&
+                savedTags.SequenceEqual(["verified"]) &&
+                JsonDocument.Parse(typedConfigAfter.Content).RootElement
+                    .GetProperty("futureSetting").GetString() == "preserve-me" &&
+                Encoding.UTF8.GetString(typedHistoryAfter!.Content).Contains(typedReview.Id, StringComparison.Ordinal) &&
+                staleTypedReviewRejected;
+            var undoReview = ReviewTransactionStore.Create("undo",
+                new Dictionary<string, ReviewItemSnapshot> { [videoId] = afterState },
+                new Dictionary<string, ReviewItemSnapshot> { [videoId] = beforeState },
+                undoesTransactionId: typedReview.Id);
+            await PostgresReviewTransactionStore.CommitAsync(builder.ConnectionString, undoReview);
+            var undoConfigDocument = await PostgresLibraryDocumentStore.ReadAsync(
+                builder.ConnectionString, "config.json");
+            var undoHistoryDocument = await PostgresLibraryDocumentStore.ReadAsync(
+                builder.ConnectionString, "review-history.jsonl");
+            var undoneConfig = JsonSerializer.Deserialize<LibraryConfig>(undoConfigDocument!.Content)!;
+            findings["typedReviewUndoVerified"] =
+                !undoneConfig.AiReviews.ContainsKey(videoId) &&
+                !undoneConfig.Tags.ContainsKey(videoId) &&
+                Encoding.UTF8.GetString(undoHistoryDocument!.Content).Contains(undoReview.Id, StringComparison.Ordinal);
             if (scale)
             {
                 var baseline = await PostgresLibraryIndexStore.ReadAsync(builder.ConnectionString);
@@ -308,6 +356,8 @@ internal static class BundledPostgresRuntime
                 findings["nestedDocumentPathsVerified"] is true &&
                 findings["legacyModeGuardVerified"] is true &&
                 findings["atomicReviewStateVerified"] is true &&
+                findings["typedReviewRoundTripVerified"] is true &&
+                findings["typedReviewUndoVerified"] is true &&
                 findings["privateClusterLifecycleVerified"] is true &&
                 (!scale || (findings["scaleVerified"] is true && findings["scaleDeltaVerified"] is true));
         }

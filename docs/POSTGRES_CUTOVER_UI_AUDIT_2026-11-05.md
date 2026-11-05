@@ -151,3 +151,20 @@ eliminate the need to scroll through review cards on a short window.
   consistently sub-frame search experience.
 - Cloud production service remains inactive and public HTTP still returns an
   empty response. This is independent of the local library cutover.
+
+## 2026-11-05 review transaction continuation
+
+- Added a typed PostgreSQL review transaction writer. It checks each before
+  snapshot, changes reviews, tags, automatic-tag state and metadata, then
+  commits config, metadata and history in one database transaction. Review
+  history is appended to the existing JSONL document. Config fields unknown
+  to this client are preserved.
+- Isolated probe passed approval, restart-style document reload, stale-preview
+  rejection and undo (`typedReviewRoundTripVerified=true`,
+  `typedReviewUndoVerified=true`, `passed=true`). Release build: zero warnings
+  and errors. The probe uses a temporary library and temporary PostgreSQL
+  cluster and reports no real-library read.
+- This is not a live cutover. The normal review screen still uses the existing
+  file journal. Startup, background queue writers, backup/restore and all
+  remaining authoritative writes must use one storage mode before enabling
+  PostgreSQL for a real library.

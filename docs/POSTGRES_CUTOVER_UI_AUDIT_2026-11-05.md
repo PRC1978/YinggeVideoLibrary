@@ -194,3 +194,17 @@ eliminate the need to scroll through review cards on a short window.
   both IDs were present and that no action remained undoable after undo.
   Release build remained at zero warnings and errors; full bundled database
   probe returned `passed=true`.
+
+## Queue migration integrity
+
+- Found a migration data-loss gap: the queue manifest and JSON snapshot were
+  imported, but post-snapshot events in `scrape-queue.journal.*.bin` were not.
+  Added the exact eight-digit journal filenames and recovery sidecars to the
+  database document allowlist. The import/export retains their original bytes.
+- The isolated probe created two tasks, with the second written after the
+  checkpoint into the binary journal. It verified both tasks after database
+  import, export, restore to a fresh private database and a second export.
+  `queueJournalMigrationVerified=true`, `freshDatabaseRestoreVerified=true`,
+  `passed=true`. Release build had zero warnings and errors.
+- The live queue still writes files. This closes a migration/rollback integrity
+  gap; a database-backed queue writer and coordinated mode switch remain open.

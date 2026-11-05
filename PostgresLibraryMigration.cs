@@ -50,17 +50,23 @@ internal static class PostgresLibraryMigration
         "role-profiles.json", "ai-budget.json", "javinfo-usage.json",
         "scrape-source-backoff.json", "scrape-queue.json",
         "scrape-queue.state.json", "plugin-candidates.json",
-        "missing-cleanup.json", "plugins.json"
+        "missing-cleanup.json", "plugins.json",
+        "scrape-queue.state.json.bak", "scrape-queue.json.bak",
+        "scrape-source-backoff.json.bak"
     ];
 
     internal static bool IsDocumentName(string? name) => name is not null &&
         (DocumentNames.Contains(name, StringComparer.Ordinal) ||
-         (name.StartsWith("scrape-queue.snapshot.", StringComparison.Ordinal) &&
-          name.EndsWith(".json", StringComparison.Ordinal) &&
-          name.Length == "scrape-queue.snapshot.00000000.json".Length &&
-          name.AsSpan("scrape-queue.snapshot.".Length, 8).ToArray().All(char.IsAsciiDigit)) ||
+         IsQueueGenerationName(name, "scrape-queue.snapshot.", ".json") ||
+         IsQueueGenerationName(name, "scrape-queue.journal.", ".bin") ||
          IsHashDocumentName(name, "title-candidates/", 64) ||
          IsHashDocumentName(name, "ai-jobs/", 32));
+
+    private static bool IsQueueGenerationName(string name, string prefix, string suffix) =>
+        name.StartsWith(prefix, StringComparison.Ordinal) &&
+        name.EndsWith(suffix, StringComparison.Ordinal) &&
+        name.Length == prefix.Length + 8 + suffix.Length &&
+        name.AsSpan(prefix.Length, 8).ToArray().All(char.IsAsciiDigit);
 
     private static bool IsHashDocumentName(string name, string prefix, int hexLength) =>
         name.StartsWith(prefix, StringComparison.Ordinal) &&
@@ -72,8 +78,9 @@ internal static class PostgresLibraryMigration
     {
         foreach (var name in DocumentNames)
             if (File.Exists(Path.Combine(directory, name))) yield return name;
+        foreach (var pattern in new[] { "scrape-queue.snapshot.*.json", "scrape-queue.journal.*.bin" })
         foreach (var path in Directory.EnumerateFiles(directory,
-                     "scrape-queue.snapshot.*.json", SearchOption.TopDirectoryOnly))
+                     pattern, SearchOption.TopDirectoryOnly))
         {
             var name = Path.GetFileName(path);
             if (IsDocumentName(name)) yield return name;

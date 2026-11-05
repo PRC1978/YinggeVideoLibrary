@@ -97,7 +97,7 @@ internal static class BundledPostgresRuntime
             await File.WriteAllTextAsync(Path.Combine(sourceDirectory, "config.json"),
                 "{\"folders\":[],\"categories\":[\"isolated\"]}");
             await File.WriteAllTextAsync(Path.Combine(sourceDirectory, "scrape-queue.json"),
-                "{\"items\":[]}");
+                "[]");
             await File.WriteAllTextAsync(Path.Combine(sourceDirectory, "role-profiles.json"),
                 "{\"profiles\":[]}");
             await File.WriteAllTextAsync(Path.Combine(sourceDirectory, "plugins.json"),
@@ -108,8 +108,11 @@ internal static class BundledPostgresRuntime
                 "{\"records\":[]}");
             await File.WriteAllTextAsync(Path.Combine(sourceDirectory, "review-history.jsonl"),
                 "{\"id\":\"isolated-review\"}\n");
-            await File.WriteAllTextAsync(Path.Combine(sourceDirectory,
-                "scrape-queue.snapshot.00000001.json"), "{\"items\":[]}");
+            ScrapeQueueStore.Add(sourceDirectory,
+                [new ScrapeQueueItem { VideoId = videoId, Code = "ABC-001" }]);
+            // The second task lives only in the post-checkpoint binary journal.
+            ScrapeQueueStore.Add(sourceDirectory,
+                [new ScrapeQueueItem { VideoId = "queue-second-item", Code = "ABC-002" }]);
             Directory.CreateDirectory(Path.Combine(sourceDirectory, "title-candidates"));
             await File.WriteAllTextAsync(Path.Combine(sourceDirectory, "title-candidates",
                 new string('A', 64) + ".json"), "{\"candidate\":\"isolated\"}");
@@ -150,8 +153,14 @@ internal static class BundledPostgresRuntime
             try { await PostgresLibraryExport.ExportAsync(builder.ConnectionString, exportDirectory); }
             catch (IOException) { overwriteBlocked = true; }
             findings["rollbackExportVerified"] = exported.VideoCount == imported.VideoCount &&
-                exported.MetadataCount == imported.MetadataCount && exported.DocumentCount == 10 &&
+                exported.MetadataCount == imported.MetadataCount && exported.DocumentCount >= 13 &&
                 exportVerified && offlineVerified && tamperRejected && overwriteBlocked;
+            ScrapeQueueStore.ForgetCachedStateAfterOfflineRestore(sourceDirectory);
+            findings["queueJournalMigrationVerified"] =
+                ScrapeQueueStore.Load(sourceDirectory).Count == 2 &&
+                ScrapeQueueStore.Load(exportDirectory).Select(item => item.Code)
+                    .SequenceEqual(["ABC-001", "ABC-002"]) &&
+                File.Exists(Path.Combine(exportDirectory, "scrape-queue.journal.00000001.bin"));
             findings["nestedDocumentPathsVerified"] =
                 PostgresLibraryMigration.IsDocumentName("title-candidates/" + new string('A', 64) + ".json") &&
                 PostgresLibraryMigration.IsDocumentName("ai-jobs/" + new string('b', 32) + ".json") &&
@@ -347,11 +356,16 @@ internal static class BundledPostgresRuntime
                 try { await PostgresLibraryRecovery.RestoreIntoFreshDatabaseAsync(
                     exportDirectory, privateCluster.ConnectionString); }
                 catch (InvalidOperationException) { secondRestoreBlocked = true; }
+                var restoredExportDirectory = Path.Combine(probeRoot, "restored-queue-export");
+                await PostgresLibraryExport.ExportAsync(
+                    privateCluster.ConnectionString, restoredExportDirectory);
                 findings["freshDatabaseRestoreVerified"] =
                     await PostgresLibraryMigration.VerifyContentAsync(
                         exportDirectory, privateCluster.ConnectionString) &&
                     restored.VideoCount == exported.VideoCount &&
-                    restored.MetadataCount == exported.MetadataCount && secondRestoreBlocked;
+                    restored.MetadataCount == exported.MetadataCount && secondRestoreBlocked &&
+                    ScrapeQueueStore.Load(restoredExportDirectory).Select(item => item.Code)
+                        .SequenceEqual(["ABC-001", "ABC-002"]);
                 try { await using var duplicate = await PostgresPrivateCluster.OpenAsync(
                     runtimeDirectory, privateLibrary); }
                 catch (IOException) { duplicateOwnerBlocked = true; }
@@ -372,6 +386,7 @@ internal static class BundledPostgresRuntime
                 findings["activeSessionImportBlocked"] is true &&
                 findings["rollbackExportVerified"] is true &&
                 findings["nestedDocumentPathsVerified"] is true &&
+                findings["queueJournalMigrationVerified"] is true &&
                 findings["legacyModeGuardVerified"] is true &&
                 findings["atomicReviewStateVerified"] is true &&
                 findings["typedReviewRoundTripVerified"] is true &&

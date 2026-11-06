@@ -12,7 +12,7 @@
 - 真实窗口 UIA：`artifacts/ui-full-acceptance/uia-names.json`，11 个导航按钮及搜索、排序控件共 13/13 名称非空。
 - 私有 PostgreSQL 回归：`artifacts/ui-full-acceptance/postgres-probe.json`，`passed=true`、`stopped=true`、`privateClusterLifecycleVerified=true`；其中包括重复打开同一隔离库被拒绝的断言。启动过的多余隔离探针和它的 PostgreSQL 进程已按专属目录停止，未触碰用户进程。
 - 隔离库：`artifacts/ui-full-acceptance/fixture30/`，30 条索引、30 个生成的可播放 AVI、10 张生成海报；不含私人媒体。另用 600 条隔离库跑离屏主题诊断。
-- 真实窗口：`scripts/capture-ui-full-acceptance.ps1` 启动独立进程，固定窗口 1240×780，以 Windows UI Automation 切页并回读 `PageTitle`，用 `PrintWindow(PW_RENDERFULLCONTENT)` 存入 `artifacts/ui-full-acceptance/printwindow30/`。15 张图均由真实窗口 API 保存；**其中 Classic 的 `roles` 图片仍是分类页，不能算人物页证据**。其余 14 张标题正确。原版人物窗口由 UIA 触发后未被可靠捕获，仍需手动交互复核。
+- 真实窗口：`scripts/capture-ui-full-acceptance.ps1` 启动独立进程，固定窗口 1240×780，以 Windows UI Automation 切页并回读 `PageTitle`，用 `PrintWindow(PW_RENDERFULLCONTENT)` 存入 `artifacts/ui-full-acceptance/printwindow30/`。15 张图均由真实窗口 API 保存；**其中 Classic 的 `roles` 图片仍是分类页，不能算人物页证据**。其余 14 张标题正确。单独重放 Classic 人物入口时，UIA Invoke 后 10 秒内没有出现人物窗口或错误弹窗；这仍不能区分自动化调用未生效与产品问题，需真实鼠标交互复核。脚本使用带 BOM 的 UTF-8，兼容 Windows PowerShell 5.1。
 - 离屏主题诊断：`artifacts/ui-full-acceptance/theme/`，285 张图、`theme-layout.json`、`contrast-raw.json`（300 个原始比值）、`theme-switch.json`（20 次切换）；它不能代替上条真实窗口截图。
 - 动画诊断：`artifacts/ui-full-acceptance/motion.json`，smooth / balanced / animated 及中途切换无残留，均通过。
 - 对比度：五个主主题的 300 个语义组合中，295 个 ≥4.5:1；Classic 原色有五个低于该值（3.05、3.24、3.08、4.30、3.43）。完整逐行数值在 `contrast-raw.json`。Classic 的逐像素锁定目标与此处的对比度目标存在真实冲突，不能同时记为通过。

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory=$true)][string]$Executable,
     [Parameter(Mandatory=$true)][string]$DataDirectory,
     [Parameter(Mandatory=$true)][string]$OutputPath

@@ -131,6 +131,61 @@ internal sealed class PostgresLibraryRuntimeSession : IAsyncDisposable
         finally { writeGate.Release(); }
     }
 
+    internal async Task<bool> RemoveQueueAsync(string videoId,
+        CancellationToken cancellationToken = default)
+    {
+        await writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            var removed = await PostgresScrapeQueueStore.RemoveAsync(ConnectionString,
+                videoId, cancellationToken);
+            Queue = await PostgresScrapeQueueStore.LoadAsync(ConnectionString, cancellationToken);
+            return removed;
+        }
+        finally { writeGate.Release(); }
+    }
+
+    internal async Task<int> ClearPendingQueueAsync(CancellationToken cancellationToken = default)
+    {
+        await writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            var removed = await PostgresScrapeQueueStore.ClearPendingAsync(ConnectionString,
+                cancellationToken);
+            Queue = await PostgresScrapeQueueStore.LoadAsync(ConnectionString, cancellationToken);
+            return removed;
+        }
+        finally { writeGate.Release(); }
+    }
+
+    internal async Task<bool> RescheduleQueueAsync(ScrapeQueueItem item,
+        CancellationToken cancellationToken = default)
+    {
+        await writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            var changed = await PostgresScrapeQueueStore.RescheduleAsync(ConnectionString,
+                item, cancellationToken);
+            Queue = await PostgresScrapeQueueStore.LoadAsync(ConnectionString, cancellationToken);
+            return changed;
+        }
+        finally { writeGate.Release(); }
+    }
+
+    internal async Task<bool> MarkQueueFailedAsync(string videoId, string error,
+        CancellationToken cancellationToken = default)
+    {
+        await writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            var changed = await PostgresScrapeQueueStore.MarkFailedAsync(ConnectionString,
+                videoId, error, cancellationToken);
+            Queue = await PostgresScrapeQueueStore.LoadAsync(ConnectionString, cancellationToken);
+            return changed;
+        }
+        finally { writeGate.Release(); }
+    }
+
     internal async Task SaveRolesAsync(RoleProfileStore.State edited,
         CancellationToken cancellationToken = default)
     {

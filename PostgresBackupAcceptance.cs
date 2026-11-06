@@ -234,6 +234,19 @@ internal static class PostgresBackupAcceptance
 
         var added = await session.AddQueueAsync([new ScrapeQueueItem
             { VideoId = "runtime-queue-test", Code = "RUNTIME-001" }]);
+        var queued = session.Queue.Single(item => item.VideoId == "runtime-queue-test");
+        var retry = new ScrapeQueueItem
+        {
+            VideoId = queued.VideoId, Code = queued.Code, Attempts = 2,
+            NextAttemptAt = DateTimeOffset.UtcNow.AddMinutes(2), LastError = "temporary"
+        };
+        var rescheduled = await session.RescheduleQueueAsync(retry);
+        var retryPersisted = session.Queue.Single(item => item.VideoId == retry.VideoId)
+            .Attempts == 2;
+        var markedFailed = await session.MarkQueueFailedAsync(retry.VideoId, "failure");
+        var failedPersisted = session.Queue.Single(item => item.VideoId == retry.VideoId)
+            .Failed;
+        var removedQueueItem = await session.RemoveQueueAsync(retry.VideoId);
         var roles = RoleProfileStore.Parse(JsonSerializer.Serialize(session.Roles.State));
         roles.Profiles[0].Name = "人物甲·会话写入";
         await session.SaveRolesAsync(roles);
@@ -265,7 +278,8 @@ internal static class PostgresBackupAcceptance
             JsonSerializer.Deserialize<LibraryConfig>(savedConfig!.Content)?.ShowAll != originalShowAll &&
             session.Index.Index.Entries[0].Size == index.Entries[0].Size &&
             session.Metadata.Records[fixture.VideoId].Title == "数据库会话写入测试" &&
-            added == 1 && session.Queue.Count == 3 &&
+            added == 1 && rescheduled && retryPersisted && markedFailed &&
+            failedPersisted && removedQueueItem && session.Queue.Count == 2 &&
             session.Roles.State.Profiles[0].Name == "人物甲·会话写入" &&
             candidateAfter?.Revision == candidateRevision &&
             candidateAfter.Content.SequenceEqual(candidateBytes) &&

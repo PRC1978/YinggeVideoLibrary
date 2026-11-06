@@ -100,7 +100,7 @@ public partial class MainWindow
         }
         if (review.DecisionSource == "plugin")
             choices.AddRange(PluginCandidates.Get(video.Id).Select(item => item.Metadata.Clone()));
-        var snapshot = ScrapeCandidateCache.LoadTitleCandidates(DataDir, video.Id);
+        var snapshot = LoadSavedTitleCandidates(video.Id);
         if (snapshot is not null)
             choices.AddRange(snapshot.Candidates.Where(item => item.DetailStatus == "verified" &&
                     item.DetailMetadata?.DetailIdentityVerified == true)

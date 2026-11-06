@@ -186,7 +186,7 @@ public partial class MainWindow
                 var selected = selectedId is null ? null : videos.FirstOrDefault(video => video.Id == selectedId);
                 selected ??= ChooseVideoForTitleScrape("选择要比较候选的视频", "查看候选");
                 if (selected is null) return;
-                var snapshot = await Task.Run(() => ScrapeCandidateCache.LoadTitleCandidates(DataDir, selected.Id));
+                var snapshot = await Task.Run(() => LoadSavedTitleCandidates(selected.Id));
                 if (snapshot is null)
                 {
                     MessageBox.Show(this, "这个视频尚无已保存的标题候选。先在搜刮页按标题搜索，或等待标题队列处理。", "候选比较");
@@ -307,7 +307,7 @@ public partial class MainWindow
                     loadCover.IsEnabled = false;
                     await AdditionalScrapers.DownloadPosterAsync(posterRecord, video.Id, DataDir);
                     if (!string.IsNullOrWhiteSpace(posterRecord.Poster))
-                        ScrapeCandidateCache.SaveTitleCandidates(DataDir, snapshot);
+                        SaveTitleCandidates(snapshot);
                     RenderComparison();
                 };
                 detail.Children.Add(loadCover);
@@ -373,7 +373,7 @@ public partial class MainWindow
     {
         var snapshot = BuildTitleCandidateSnapshot(video, "手动标题查询（原输入未记录）",
             candidates.Select(item => item.candidate));
-        var previous = ScrapeCandidateCache.LoadTitleCandidates(DataDir, video.Id);
+        var previous = LoadSavedTitleCandidates(video.Id);
         if (previous is not null)
             foreach (var row in snapshot.Candidates)
             {
@@ -389,7 +389,7 @@ public partial class MainWindow
                     row.DetailFetchedUtc = prior.DetailFetchedUtc;
                 }
             }
-        ScrapeCandidateCache.SaveTitleCandidates(DataDir, snapshot);
+        SaveTitleCandidates(snapshot);
         var dialog = new Window { Title = "选择搜刮候选", Owner = this, Width = 700, Height = 480, MinWidth = 530,
             MinHeight = 320, WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Background = UiTheme.SurfaceBrush, Foreground = UiTheme.TextPrimaryBrush };

@@ -124,7 +124,7 @@ public partial class MainWindow
         var snapshot = BuildTitleCandidateSnapshot(video, title, queueCandidates);
         // This write precedes network detail calls. A cancellation, timeout or
         // source error must not turn several real candidates into "no result".
-        ScrapeCandidateCache.SaveTitleCandidates(DataDir, snapshot);
+        SaveTitleCandidates(snapshot);
 
         var attemptedSources = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var detailFailures = new List<(string Name, Exception Error)>();
@@ -235,7 +235,7 @@ public partial class MainWindow
             else if (related.Any(row => row.DetailStatus is "source-unavailable" or "detail-error" or "identity-unverified"))
                 record.DetailNote += "；另一个同番号来源的详情本次未能核验，可稍后重试补全";
         }
-        ScrapeCandidateCache.SaveTitleCandidates(DataDir, snapshot);
+        SaveTitleCandidates(snapshot);
         if (record is null && detailFailures.Count > 0)
             throw BuildBulkSourceFailure(detailFailures, "候选详情");
         if (record is null)

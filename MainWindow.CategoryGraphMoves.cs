@@ -84,7 +84,9 @@ public partial class MainWindow
     {
         try
         {
-            var saved = await Task.Run(() => CategoryGraphMoveHistoryStore.Read(GraphMoveHistoryPath));
+            var saved = postgresSession is null
+                ? await Task.Run(() => CategoryGraphMoveHistoryStore.Read(GraphMoveHistoryPath))
+                : (await PostgresUserStateStore.LoadGraphMovesAsync(postgresSession.ConnectionString)).Value;
             if (request != graphMoveHistoryLoadRequest || !ReferenceEquals(source, videos) || isClosing || graphMoveInProgress) return;
             graphMoveHistory = saved.ToList();
             await RebindGraphMoveHistoryAsync(request, source);
@@ -158,7 +160,10 @@ public partial class MainWindow
         lastGraphMoveUndo = new(entry, plan);
         try
         {
-            graphMoveHistory = (await Task.Run(() => CategoryGraphMoveHistoryStore.Add(GraphMoveHistoryPath, entry))).ToList();
+            graphMoveHistory = (postgresSession is null
+                ? await Task.Run(() => CategoryGraphMoveHistoryStore.Add(GraphMoveHistoryPath, entry))
+                : await ChangeGraphMoveHistoryAsync(history =>
+                    history.Where(saved => saved.Id != entry.Id).Prepend(entry).Take(3))).ToList();
             graphMoveHistoryIssue = "";
         }
         catch (Exception error)
@@ -303,13 +308,39 @@ public partial class MainWindow
         return dialog.ShowDialog() == true ? selected : null;
     }
 
-    async Task<bool> GraphMoveDiskMatchesAsync(CategoryGraphMovePlan plan, bool after) =>
-        await Task.Run(() =>
+    async Task<bool> GraphMoveDiskMatchesAsync(CategoryGraphMovePlan plan, bool after)
+    {
+        if (postgresSession is not null)
+        {
+            var saved = await PostgresLibraryDocumentStore.ReadAsync(postgresSession.ConnectionString, "config.json");
+            var latest = saved is null ? null : System.Text.Json.JsonSerializer.Deserialize<LibraryConfig>(saved.Content);
+            return latest is not null && plan.MatchesSaved(latest, after);
+        }
+        return await Task.Run(() =>
         {
             if (!File.Exists(ConfigPath)) return !after;
             return TryReadJson(ConfigPath, out LibraryConfig? latest) && latest is not null &&
                    plan.MatchesSaved(latest, after);
         });
+    }
+
+    async Task<IReadOnlyList<CategoryGraphHistoryEntry>> ChangeGraphMoveHistoryAsync(
+        Func<IReadOnlyList<CategoryGraphHistoryEntry>, IEnumerable<CategoryGraphHistoryEntry>> change)
+    {
+        if (postgresSession is null) throw new InvalidOperationException("文件模式图形历史应使用原有写入路径。");
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var baseline = await PostgresUserStateStore.LoadGraphMovesAsync(postgresSession.ConnectionString);
+            try
+            {
+                var saved = await PostgresUserStateStore.SaveGraphMovesAsync(postgresSession.ConnectionString,
+                    baseline, change(baseline.Value));
+                return saved.Value;
+            }
+            catch (InvalidOperationException) when (attempt < 2) { }
+        }
+        throw new InvalidOperationException("图形分类历史已由另一窗口更改，请重试。");
+    }
 
     async Task ApplyGraphMoveAsync(CategoryGraphMovePlan plan)
     {
@@ -404,8 +435,10 @@ public partial class MainWindow
             ++graphMoveHistoryLoadRequest;
             try
             {
-                graphMoveHistory = (await Task.Run(() => CategoryGraphMoveHistoryStore.Remove(
-                    GraphMoveHistoryPath, undo.Entry.Id))).ToList();
+                graphMoveHistory = (postgresSession is null
+                    ? await Task.Run(() => CategoryGraphMoveHistoryStore.Remove(GraphMoveHistoryPath, undo.Entry.Id))
+                    : await ChangeGraphMoveHistoryAsync(history => history.Where(entry => entry.Id != undo.Entry.Id)))
+                    .ToList();
                 await RebindGraphMoveHistoryAsync(graphMoveHistoryLoadRequest, videos);
             }
             catch (Exception error)

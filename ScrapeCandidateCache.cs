@@ -62,8 +62,36 @@ internal static class ScrapeCandidateCache
 
     static string TitleSnapshotPath(string dataDir, string videoId)
     {
+        return System.IO.Path.Combine(dataDir, TitleSnapshotDocumentName(videoId).Replace('/', System.IO.Path.DirectorySeparatorChar));
+    }
+
+    internal static string TitleSnapshotDocumentName(string videoId)
+    {
+        if (string.IsNullOrWhiteSpace(videoId)) throw new ArgumentException("视频标识不能为空。", nameof(videoId));
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(videoId.Trim().ToUpperInvariant())));
-        return System.IO.Path.Combine(dataDir, "title-candidates", key + ".json");
+        return "title-candidates/" + key + ".json";
+    }
+
+    internal static TitleCandidateSnapshot? ParseTitleSnapshot(byte[] bytes, string videoId)
+    {
+        if (bytes.Length > MaxProbeEntryBytes) throw new InvalidDataException("候选快照超过 4 MB。");
+        var snapshot = JsonSerializer.Deserialize<TitleCandidateSnapshot>(bytes);
+        return snapshot is { SchemaVersion: TitleSnapshotSchemaVersion, Candidates: { Count: > 0 and <= 12 } }
+            && string.Equals(snapshot.VideoId, videoId, StringComparison.OrdinalIgnoreCase)
+            && snapshot.Candidates.All(candidate => candidate.SearchMetadata is not null)
+                ? snapshot : null;
+    }
+
+    internal static byte[] SerializeTitleSnapshot(TitleCandidateSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (string.IsNullOrWhiteSpace(snapshot.VideoId) || snapshot.Candidates.Count is < 1 or > 12)
+            throw new ArgumentException("标题候选快照必须包含视频标识与 1–12 个真实候选。", nameof(snapshot));
+        snapshot.SchemaVersion = TitleSnapshotSchemaVersion;
+        snapshot.Candidates = OrderTitleCandidates(snapshot.Candidates);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(snapshot);
+        if (bytes.Length > MaxProbeEntryBytes) throw new InvalidDataException("候选快照超过 4 MB，未覆盖上次记录。");
+        return bytes;
     }
 
     // The snapshot is deliberately not an expiring cache entry: stale evidence
@@ -75,11 +103,7 @@ internal static class ScrapeCandidateCache
         {
             var file = new FileInfo(TitleSnapshotPath(dataDir, videoId));
             if (!file.Exists || file.Length > MaxProbeEntryBytes) return null;
-            var snapshot = JsonSerializer.Deserialize<TitleCandidateSnapshot>(File.ReadAllText(file.FullName));
-            return snapshot is { SchemaVersion: TitleSnapshotSchemaVersion, Candidates: { Count: > 0 and <= 12 } }
-                && string.Equals(snapshot.VideoId, videoId, StringComparison.OrdinalIgnoreCase)
-                && snapshot.Candidates.All(candidate => candidate.SearchMetadata is not null)
-                    ? snapshot : null;
+            return ParseTitleSnapshot(File.ReadAllBytes(file.FullName), videoId);
         }
         catch { return null; }
     }
@@ -126,19 +150,13 @@ internal static class ScrapeCandidateCache
 
     internal static void SaveTitleCandidates(string dataDir, TitleCandidateSnapshot snapshot)
     {
-        ArgumentNullException.ThrowIfNull(snapshot);
-        if (string.IsNullOrWhiteSpace(snapshot.VideoId) || snapshot.Candidates.Count is < 1 or > 12)
-            throw new ArgumentException("标题候选快照必须包含视频标识与 1–12 个真实候选。", nameof(snapshot));
+        var bytes = SerializeTitleSnapshot(snapshot);
         var path = TitleSnapshotPath(dataDir, snapshot.VideoId);
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
             Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
-            snapshot.SchemaVersion = TitleSnapshotSchemaVersion;
-            snapshot.Candidates = OrderTitleCandidates(snapshot.Candidates);
-            File.WriteAllText(temporary, JsonSerializer.Serialize(snapshot));
-            if (new FileInfo(temporary).Length > MaxProbeEntryBytes)
-                throw new InvalidDataException("候选快照超过 4 MB，未覆盖上次记录。");
+            File.WriteAllBytes(temporary, bytes);
             File.Move(temporary, path, true);
         }
         finally { try { File.Delete(temporary); } catch { } }

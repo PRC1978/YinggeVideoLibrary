@@ -207,7 +207,14 @@ public partial class MainWindow
         var scrubJavinfo = javinfoCredentialReady;
         var result = await Task.Run(() =>
         {
-            var merged = WriteConfigSnapshot(savedBaseline, savedCurrent, ConfigPath, scrubCredentials, scrubJavinfo);
+            LibraryConfig merged;
+            if (postgresSession is null)
+                merged = WriteConfigSnapshot(savedBaseline, savedCurrent, ConfigPath, scrubCredentials, scrubJavinfo);
+            else
+            {
+                postgresSession.SaveConfigAsync(savedCurrent).GetAwaiter().GetResult();
+                merged = CloneLibraryConfig(postgresSession.Config);
+            }
             return (Merged: merged, Baseline: CloneLibraryConfig(merged),
                 GraphChanged: !GraphRelevantConfigEquals(savedBaseline, merged));
         });
@@ -233,8 +240,13 @@ public partial class MainWindow
                 var current = CloneLibraryConfig(config);
                 var updated = await Task.Run(() =>
                 {
-                    if (!TryReadJson(ConfigPath, out LibraryConfig? latest) || latest is null)
-                        throw new InvalidDataException("批量保存后无法读取共享配置");
+                    LibraryConfig? latest;
+                    if (postgresSession is null)
+                    {
+                        if (!TryReadJson(ConfigPath, out latest) || latest is null)
+                            throw new InvalidDataException("批量保存后无法读取共享配置");
+                    }
+                    else latest = CloneLibraryConfig(postgresSession.Config);
                     var reconciled = MergeLibraryConfig(savedCurrent, current, latest);
                     reconciled.TmdbToken = current.TmdbToken;
                     reconciled.AiKey = current.AiKey;
@@ -252,7 +264,7 @@ public partial class MainWindow
                 break;
             }
         }
-        configSource = "config.json";
+        configSource = postgresSession is null ? "config.json" : "PostgreSQL";
     }
 
     async Task ExecuteBatchOperationAsync(IReadOnlyList<VideoItem> selected, BatchChangeKind kind, string label,

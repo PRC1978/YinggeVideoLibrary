@@ -476,6 +476,21 @@ internal static class PostgresBackupAcceptance
         var ratingVerified = rated.Value[fixture.VideoId].Score == 8.5 &&
             (await PostgresUserStateStore.LoadRatingsAsync(session.ConnectionString))
                 .Value[fixture.VideoId].Score == 8.5;
+        var titleSnapshot = new ScrapeCandidateCache.TitleCandidateSnapshot
+        {
+            VideoId = fixture.VideoId, Query = "隔离标题",
+            Candidates = [new ScrapeCandidateCache.RankedTitleCandidate
+            {
+                Score = 85,
+                SearchMetadata = new MovieMetadata { Title = "数据库候选", Source = "测试来源" }
+            }]
+        };
+        await PostgresTitleCandidateStore.SaveAsync(session.ConnectionString, titleSnapshot);
+        var titleFromDatabase = await PostgresTitleCandidateStore.LoadAsync(session.ConnectionString,
+            fixture.VideoId);
+        var titleCandidatesVerified = titleFromDatabase?.Query == "隔离标题" &&
+            titleFromDatabase.Candidates.Single().SearchMetadata.Title == "数据库候选" &&
+            !Directory.Exists(Path.Combine(fixture.MediaRoot, "title-candidates"));
 
         var savedConfig = await PostgresLibraryDocumentStore.ReadAsync(session.ConnectionString,
             "config.json");
@@ -490,7 +505,7 @@ internal static class PostgresBackupAcceptance
             candidateAfter?.Revision == candidateRevision &&
             candidateAfter.Content.SequenceEqual(candidateBytes) &&
             candidateBridgeVerified && pluginStateSaved && aiBudgetVerified && aiJobsVerified &&
-            ratingVerified &&
+            ratingVerified && titleCandidatesVerified &&
             staleWriteRejected && dedicatedWriterRequired && emptyScanProtected &&
             exclusiveWorker && sourcePacingVerified && reviewCommitted &&
             reviewViewsPersisted;

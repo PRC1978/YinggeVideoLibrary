@@ -160,13 +160,17 @@ internal static class PostgresBackupAcceptance
             var entities = await VerifyEntitiesAsync(cluster.ConnectionString, videos);
             await cluster.DisposeAsync();
 
-            var reopened = await PostgresPrivateCluster.OpenAsync(runtimeDirectory, library);
+            var reopened = await PostgresLibraryRuntimeSession.OpenAsync(runtimeDirectory, library);
             bool restartVerified;
             try
             {
                 restartVerified = PostgresStorageModeGuard.PostgresMayOpen(library) &&
                     await PostgresLibraryMigration.VerifyContentAsync(backup,
                         reopened.ConnectionString) &&
+                    reopened.Index.Index.Entries.Count == count &&
+                    reopened.Metadata.Records.Count == count &&
+                    reopened.Config.Folders.Count == 1 &&
+                    reopened.Queue.Count == 2 &&
                     await VerifyEntitiesAsync(reopened.ConnectionString, videos);
             }
             finally { await reopened.DisposeAsync(); }
@@ -228,8 +232,8 @@ internal static class PostgresBackupAcceptance
             JsonSerializer.SerializeToUtf8Bytes(config));
         File.WriteAllText(Path.Combine(source, "role-profiles.json"), """
             {"Version":1,"Revision":"1","Profiles":[
-              {"Id":"person-1","Name":"人物甲","Aliases":["别名甲"],"Role":"演员","PersonKind":"演员"},
-              {"Id":"person-2","Name":"人物乙","Aliases":[],"Role":"导演","PersonKind":"导演"}]}
+              {"Id":"11111111111111111111111111111111","Name":"人物甲","Aliases":["别名甲"],"Role":"演员","PersonKind":"female-actor"},
+              {"Id":"22222222222222222222222222222222","Name":"人物乙","Aliases":[],"Role":"导演","PersonKind":"director"}]}
             """);
         File.WriteAllText(Path.Combine(source, "plugins.json"), """
             {"schemaVersion":1,"enabled":["sample-plugin"],

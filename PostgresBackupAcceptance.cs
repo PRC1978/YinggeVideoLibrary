@@ -36,7 +36,8 @@ internal static class PostgresBackupAcceptance
         bool CorruptPackageRejected, bool OldPackageRejected, bool OldDatabaseUpgraded,
         bool NewerDatabaseRefused, bool InterruptedRestoreKeptOldData, bool InterruptedRestoreCleaned,
         bool FailedActivationLeftNoMarker, bool FailedRestoreReverted, bool SentinelBlocksBothModes,
-        bool FailedAfterMarkerRestoredOriginal, bool PartialAssetSwapReverted);
+        bool FailedAfterMarkerRestoredOriginal, bool PartialAssetSwapReverted,
+        bool MissingStagingTableRejected);
 
     internal static async Task<Dictionary<string, object?>> RunAsync(string runtimeDirectory,
         string probeRoot, bool includeLarge = true)
@@ -69,7 +70,8 @@ internal static class PostgresBackupAcceptance
                 failures.NewerDatabaseRefused && failures.InterruptedRestoreKeptOldData &&
                 failures.InterruptedRestoreCleaned && failures.FailedActivationLeftNoMarker &&
                 failures.FailedRestoreReverted && failures.SentinelBlocksBothModes &&
-                failures.FailedAfterMarkerRestoredOriginal && failures.PartialAssetSwapReverted;
+                failures.FailedAfterMarkerRestoredOriginal && failures.PartialAssetSwapReverted &&
+                failures.MissingStagingTableRejected;
         }
         catch (Exception ex)
         {
@@ -608,9 +610,28 @@ internal static class PostgresBackupAcceptance
                     PostgresStorageModeGuard.PostgresMayOpen(library);
             }
 
+            Log(probeRoot, "failure 12");
+            await ExecuteAsync(cluster.ConnectionString, "CREATE SCHEMA yingge_restore_missing_table");
+            var missingTableRejected = false;
+            try
+            {
+                missingTableRejected = !await PostgresLibraryMigration.VerifyContentAsync(
+                    backup, cluster.ConnectionString, default, "yingge_restore_missing_table");
+            }
+            catch (PostgresException ex) when (ex.SqlState == "42P01")
+            {
+                missingTableRejected = true;
+            }
+            finally
+            {
+                await ExecuteAsync(cluster.ConnectionString,
+                    "DROP SCHEMA yingge_restore_missing_table CASCADE");
+            }
+
             return new(interruptedClean, spaceRejected, corruptRejected, oldPackageRejected,
                 oldUpgraded, newerRefused, interruptedRestore, cleanedOk, markerlessRejected,
-                reverted, sentinelBlocks, markerReverted, assetSwapReverted);
+                reverted, sentinelBlocks, markerReverted, assetSwapReverted,
+                missingTableRejected);
         }
         finally
         {

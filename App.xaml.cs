@@ -379,6 +379,25 @@ public partial class App : System.Windows.Application
         _ = Task.Run(() => UpdateBackupJanitor.TryRun(System.IO.Path.GetDirectoryName(Environment.ProcessPath)));
         var dataDir = AppPaths.DataDirectory;
         var postgresRuntimeDirectory = System.IO.Path.Combine(AppContext.BaseDirectory, "postgres");
+        if (!AppPaths.IsRedirected &&
+            (!System.IO.Directory.Exists(dataDir) ||
+             !System.IO.Directory.EnumerateFileSystemEntries(dataDir).Any()))
+        {
+            try
+            {
+                var legacyCache = global::YinggeVideoLibrary.MainWindow.TryMigrateLegacyCaches(dataDir);
+                if (legacyCache.Contains("稍后重试", StringComparison.Ordinal) ||
+                    legacyCache.StartsWith("缓存迁移未完成", StringComparison.Ordinal))
+                    throw new InvalidOperationException(legacyCache);
+            }
+            catch (Exception error)
+            {
+                System.Windows.MessageBox.Show("旧版缓存迁移未完成，尚未创建空数据库。\n" + error.Message,
+                    "映格视频库 · 旧库迁移", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Shutdown(1);
+                return;
+            }
+        }
         if (System.IO.File.Exists(System.IO.Path.Combine(dataDir,
                 PostgresLibraryCutover.NewLibraryPendingName)) ||
             !System.IO.Directory.Exists(dataDir) ||
@@ -549,7 +568,8 @@ public partial class App : System.Windows.Application
             try
             {
                 var cacheMigration = global::YinggeVideoLibrary.MainWindow.TryMigrateLegacyCaches(dataDir);
-                if (cacheMigration.Contains("稍后重试", StringComparison.Ordinal))
+                if (cacheMigration.Contains("稍后重试", StringComparison.Ordinal) ||
+                    cacheMigration.StartsWith("缓存迁移未完成", StringComparison.Ordinal))
                     throw new InvalidOperationException(cacheMigration);
                 await PostgresLibraryCutover.ConvertAsync(postgresRuntimeDirectory, dataDir);
                 var executable = Environment.ProcessPath ??

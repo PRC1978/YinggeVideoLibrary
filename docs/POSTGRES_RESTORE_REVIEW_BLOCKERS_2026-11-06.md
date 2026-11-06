@@ -4,6 +4,8 @@
 
 三项恢复缺口已在主集成分支修复：`48f47aa` 将图片随 schema 一起切换并在异常时回退、禁止暂存 schema 查询落到 `public`、恢复失败时还原原始标记；`c1d98d2` 增加标记改写后故障注入；`7c00d13` 修复图片目录切换到一半时的回退；`8da4b80` 验证缺表暂存库必被拒绝。独立隔离验收 `--self-test-postgres-backup` 的 1 部和 3,000 部恢复、图片字节回退、标记回退、部分图片切换回退及缺表拒绝均通过，`realLibraryRead=false`。30,000 部合成库沿用 WorkBuddy 原始验收结果，本轮未复跑。
 
+`c619786` 又将中断恢复的清理限定到本次暂存 schema：成功恢复留下的旧回退 schema 不再影响“切换前中断”的判断；不确定时保留阻断标记。独立验收的 `InterruptedRestoreCleaned=true`、`backupFailureInjectionVerified=true`。
+
 **仍未达到发布条件：**正常应用启动仍拒绝 PostgreSQL 标记；主窗口、扫描、审核、队列等日常读写尚未统一切换至数据库。不得据此将数据库模式标成已上线。
 
 本轮查看的是 `C:\Users\yunwu\WorkBuddy\2026-11-06-yingge-pg-backup` 中另一会话尚未提交的恢复代码。尚未运行该代码的端到端测试；以下是代码审查发现，须由该工作树作者修复并以故障注入验证后再集成。

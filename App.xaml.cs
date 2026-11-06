@@ -11,6 +11,20 @@ public partial class App : System.Windows.Application
 {
     System.IO.FileStream? librarySessionLease;
     PostgresLibraryRuntimeSession? postgresRuntimeSession;
+    internal bool SystemSessionEnding { get; private set; }
+    internal bool RecoveryShutdownRequested { get; private set; }
+
+    internal void ShutdownForRecovery(int exitCode)
+    {
+        RecoveryShutdownRequested = true;
+        Shutdown(exitCode);
+    }
+
+    protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
+    {
+        SystemSessionEnding = true;
+        base.OnSessionEnding(e);
+    }
 
     static bool IsLibraryLeaseConflict(Exception error)
     {
@@ -18,6 +32,31 @@ public partial class App : System.Windows.Application
             if (current is System.IO.IOException io && (io.HResult & 0xFFFF) is 32 or 33)
                 return true;
         return false;
+    }
+
+    async Task<PostgresLibraryRuntimeSession?> OpenDatabaseOrActivateAsync(
+        string runtimeDirectory, string dataDirectory)
+    {
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        while (true)
+        {
+            try
+            {
+                return await PostgresLibraryRuntimeSession.OpenAsync(runtimeDirectory,
+                    dataDirectory);
+            }
+            catch (Exception error) when (IsLibraryLeaseConflict(error) &&
+                                          elapsed.Elapsed < TimeSpan.FromSeconds(10))
+            {
+                // If the old window still exists, wake it. If it is already
+                // closing, wait for its PostgreSQL owner lease to be released
+                // and continue opening this process instead of showing an
+                // incorrect "database unavailable" dialog.
+                if (SingleInstanceActivation.TryActivateExisting(dataDirectory, 250))
+                    return null;
+                await Task.Delay(200);
+            }
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -31,8 +70,15 @@ public partial class App : System.Windows.Application
                 // queued there leaves a windowless process holding the library lock.
                 var session = postgresRuntimeSession;
                 postgresRuntimeSession = null;
-                Task.Run(async () => await session.DisposeAsync().ConfigureAwait(false))
-                    .GetAwaiter().GetResult();
+                try
+                {
+                    Task.Run(async () => await session.DisposeAsync().ConfigureAwait(false))
+                        .GetAwaiter().GetResult();
+                }
+                catch (Exception error)
+                {
+                    System.Diagnostics.Trace.WriteLine("PostgreSQL stop on exit failed: " + error);
+                }
             }
         }
         finally
@@ -106,6 +152,12 @@ public partial class App : System.Windows.Application
         {
             Shutdown(await BundledPostgresRuntime.RunProbeToFileAsync(e.Args[1], e.Args[2],
                 e.Args.Length > 3 && e.Args[3] == "--scale"));
+            return;
+        }
+        if (e.Args.Length > 2 && e.Args[0] == "--self-test-postgres-orphan")
+        {
+            Shutdown(await BundledPostgresRuntime.RunOrphanRecoveryToFileAsync(
+                e.Args[1], e.Args[2]));
             return;
         }
         if (e.Args.Length > 1 && e.Args[0] == "--self-test-postgres-exit")
@@ -456,6 +508,13 @@ public partial class App : System.Windows.Application
             }
             catch (Exception error)
             {
+                if (IsLibraryLeaseConflict(error) &&
+                    await SingleInstanceActivation.WaitForExistingAsync(dataDir,
+                        TimeSpan.FromSeconds(10)))
+                {
+                    Shutdown();
+                    return;
+                }
                 YinggeVideoLibrary.ThemeMessageBox.Show("新视频库的 PostgreSQL 初始化未完成。为避免写入两种存储，本次不载入视频库。\n" +
                     error.Message, "映格视频库 · 数据库初始化", MessageBoxButton.OK, MessageBoxImage.Warning);
                 Shutdown(1);
@@ -471,6 +530,13 @@ public partial class App : System.Windows.Application
             }
             catch (Exception error)
             {
+                if (IsLibraryLeaseConflict(error) &&
+                    await SingleInstanceActivation.WaitForExistingAsync(dataDir,
+                        TimeSpan.FromSeconds(10)))
+                {
+                    Shutdown();
+                    return;
+                }
                 var noDatabaseWasCreated =
                     PostgresStorageModeGuard.Current(dataDir) ==
                         PostgresStorageModeGuard.StorageMode.LegacyFiles &&
@@ -507,8 +573,15 @@ public partial class App : System.Windows.Application
                 string importWarning = "";
                 librarySessionLease = LibraryBackupService.AcquireSessionLease(dataDir);
                 var runtimeDirectory = System.IO.Path.Combine(AppContext.BaseDirectory, "postgres");
-                postgresRuntimeSession = await PostgresLibraryRuntimeSession.OpenAsync(
-                    runtimeDirectory, dataDir);
+                postgresRuntimeSession = await OpenDatabaseOrActivateAsync(runtimeDirectory,
+                    dataDir);
+                if (postgresRuntimeSession is null)
+                {
+                    librarySessionLease.Dispose();
+                    librarySessionLease = null;
+                    Shutdown();
+                    return;
+                }
                 if (await PostgresSelectiveImport.HasPendingAsync(
                         postgresRuntimeSession.ConnectionString))
                 {
@@ -528,8 +601,15 @@ public partial class App : System.Windows.Application
                         importWarning = "数据库选择性导入未完成，待办仍可取消或重新预览：" + error.Message;
                     }
                     librarySessionLease = LibraryBackupService.AcquireSessionLease(dataDir);
-                    postgresRuntimeSession = await PostgresLibraryRuntimeSession.OpenAsync(
-                        runtimeDirectory, dataDir);
+                    postgresRuntimeSession = await OpenDatabaseOrActivateAsync(runtimeDirectory,
+                        dataDir);
+                    if (postgresRuntimeSession is null)
+                    {
+                        librarySessionLease.Dispose();
+                        librarySessionLease = null;
+                        Shutdown();
+                        return;
+                    }
                 }
                 string backupWarning = importWarning;
                 try
@@ -561,7 +641,8 @@ public partial class App : System.Windows.Application
                 librarySessionLease?.Dispose();
                 librarySessionLease = null;
                 if (IsLibraryLeaseConflict(error) &&
-                    SingleInstanceActivation.TryActivateExisting(dataDir, 1500))
+                    await SingleInstanceActivation.WaitForExistingAsync(dataDir,
+                        TimeSpan.FromSeconds(10)))
                 {
                     Shutdown();
                     return;
@@ -639,7 +720,8 @@ public partial class App : System.Windows.Application
             catch (Exception error)
             {
                 if (IsLibraryLeaseConflict(error) &&
-                    SingleInstanceActivation.TryActivateExisting(dataDir))
+                    await SingleInstanceActivation.WaitForExistingAsync(dataDir,
+                        TimeSpan.FromSeconds(10)))
                 {
                     Shutdown();
                     return;

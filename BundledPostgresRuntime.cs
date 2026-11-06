@@ -674,6 +674,37 @@ internal static class BundledPostgresRuntime
                     (await PostgresUserStateStore.LoadPluginStateAsync(restarted.ConnectionString))
                         .Value.Enabled.Contains("isolated-plugin");
             }
+            // Model a desktop crash without killing a user process: start the
+            // isolated cluster outside the app's owner lease, then reopen it.
+            // OpenAsync must stop that orphan and succeed on its first call.
+            var orphanListener = new TcpListener(IPAddress.Loopback, 0);
+            orphanListener.Start();
+            var orphanPort = ((IPEndPoint)orphanListener.LocalEndpoint).Port;
+            orphanListener.Stop();
+            var orphanData = Path.Combine(privateLibrary, "postgres-data");
+            var orphanStarted = await RunAsync(ctl,
+                ["-D", orphanData, "-l", Path.Combine(privateLibrary, "orphan-probe.log"),
+                 "-o", $"-h 127.0.0.1 -p {orphanPort}", "-w", "start"],
+                runtimeDirectory, captureOutput: false);
+            try
+            {
+                if (orphanStarted.ExitCode == 0)
+                {
+                    await using var recovered = await PostgresPrivateCluster.OpenAsync(
+                        runtimeDirectory, privateLibrary);
+                    await using var recoveredConnection = new NpgsqlConnection(recovered.ConnectionString);
+                    await recoveredConnection.OpenAsync();
+                    findings["orphanPostgresRecoveredOnFirstLaunch"] =
+                        recoveredConnection.State == System.Data.ConnectionState.Open;
+                }
+                else findings["orphanPostgresRecoveredOnFirstLaunch"] = false;
+            }
+            finally
+            {
+                if (orphanStarted.ExitCode == 0)
+                    _ = await RunAsync(ctl, ["-D", orphanData, "-m", "fast", "-w", "stop"],
+                        runtimeDirectory, captureOutput: false);
+            }
             var coordinatedLibrary = Path.Combine(probeRoot, "coordinated-library");
             using var canceledCoordinator = new CancellationTokenSource();
             canceledCoordinator.Cancel();
@@ -770,6 +801,60 @@ internal static class BundledPostgresRuntime
         findings["realLibraryRead"] = false;
         findings["probeDirectory"] = probeRoot;
         findings["passed"] = findings["passed"] is true && findings.GetValueOrDefault("stopped") is true;
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(resultPath))!);
+        await File.WriteAllTextAsync(resultPath, JsonSerializer.Serialize(findings,
+            new JsonSerializerOptions { WriteIndented = true }));
+        return findings["passed"] is true ? 0 : 1;
+    }
+
+    internal static async Task<int> RunOrphanRecoveryToFileAsync(string runtimeDirectory,
+        string resultPath)
+    {
+        var library = Path.Combine(Path.GetTempPath(), "YinggeOrphanProbe-" +
+            Guid.NewGuid().ToString("N"));
+        var ctl = Path.Combine(runtimeDirectory, "bin", "pg_ctl.exe");
+        var data = Path.Combine(library, "postgres-data");
+        var findings = new Dictionary<string, object?>
+        {
+            ["realLibraryRead"] = false,
+            ["probeDirectory"] = library
+        };
+        try
+        {
+            await using (var initial = await PostgresPrivateCluster.OpenAsync(runtimeDirectory,
+                             library)) { }
+            var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            listener.Stop();
+            var orphan = await RunAsync(ctl,
+                ["-D", data, "-l", Path.Combine(library, "orphan.log"),
+                 "-o", $"-h 127.0.0.1 -p {port}", "-w", "start"],
+                runtimeDirectory, captureOutput: false);
+            if (orphan.ExitCode != 0) throw new IOException("无法启动隔离孤儿数据库探针");
+            await using (var recovered = await PostgresPrivateCluster.OpenAsync(
+                             runtimeDirectory, library))
+            await using (var connection = new NpgsqlConnection(recovered.ConnectionString))
+            {
+                await connection.OpenAsync();
+                findings["firstRelaunchRecoveredOrphan"] =
+                    connection.State == System.Data.ConnectionState.Open;
+            }
+            findings["passed"] = findings["firstRelaunchRecoveredOrphan"] is true;
+        }
+        catch (Exception error)
+        {
+            findings["passed"] = false;
+            findings["error"] = error.GetType().Name + ": " + error.Message;
+        }
+        finally
+        {
+            if (File.Exists(Path.Combine(data, "postmaster.pid")))
+                try { _ = await RunAsync(ctl,
+                    ["-D", data, "-m", "fast", "-w", "stop"], runtimeDirectory,
+                    captureOutput: false); } catch { }
+            WindowsCredentialStore.Write(PostgresPrivateCluster.CredentialNameFor(library), "");
+        }
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(resultPath))!);
         await File.WriteAllTextAsync(resultPath, JsonSerializer.Serialize(findings,
             new JsonSerializerOptions { WriteIndented = true }));

@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.IO.Pipes;
 using System.Windows;
 using Forms = System.Windows.Forms;
 
@@ -64,6 +65,27 @@ internal static class StartupUpdateGateDiagnostics
                 && StartupRegistration.ParseExecutable("invalid command") is null;
             findings["ownedDesktopShortcutIconRefreshIsScoped"] =
                 CheckIsolatedShortcutRefresh(directory, newExecutable, anotherExecutable);
+
+            var delayedPipeDirectory = Path.Combine(directory, "delayed-activation");
+            var delayedServer = Task.Run(async () =>
+            {
+                await Task.Delay(750);
+                await using var pipe = new NamedPipeServerStream(
+                    SingleInstanceActivation.PipeNameFor(delayedPipeDirectory),
+                    PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
+                    PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await pipe.WaitForConnectionAsync(timeout.Token);
+                var request = new byte[1];
+                if (await pipe.ReadAsync(request, timeout.Token) != 1 || request[0] != 1)
+                    return false;
+                await pipe.WriteAsync(new byte[] { 1 }, timeout.Token);
+                return true;
+            });
+            findings["delayedActivationPipeIsWaitedFor"] =
+                SingleInstanceActivation.WaitForExistingAsync(delayedPipeDirectory,
+                    TimeSpan.FromSeconds(4)).GetAwaiter().GetResult() &&
+                delayedServer.GetAwaiter().GetResult();
 
             var pages = new[] { "all", "recent", "favorites", "recommendations", "categories",
                 "folders", "status", "scrape", "online", "settings" };

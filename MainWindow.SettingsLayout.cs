@@ -172,7 +172,6 @@ public partial class MainWindow
         if (key == "data")
         {
             body.Children.Add(BuildErrorReportSettingsEntry());
-            body.Children.Add(BuildCloudAccountSettingsEntry());
             body.Children.Add(BuildLibraryRelocationSettingsEntry());
             body.Children.Add(BuildLicenseSettingsEntry());
             body.Children.Add(BuildCreditsSettingsEntry());

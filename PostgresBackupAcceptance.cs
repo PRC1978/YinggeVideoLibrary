@@ -902,7 +902,8 @@ internal static class PostgresBackupAcceptance
                 PostgresStorageModeGuard.PostgresMayOpen(library);
 
             Log(probeRoot, "failure 7");
-            // 7. Failed activation leaves no marker at all.
+            // 7. Failed activation leaves no marker. The initialized cluster
+            // still blocks the old file writer until recovery is resolved.
             var markerlessLibrary = Path.Combine(probeRoot, "failure-markerless");
             var markerlessCluster = await PostgresPrivateCluster.OpenAsync(runtimeDirectory,
                 markerlessLibrary);
@@ -921,7 +922,7 @@ internal static class PostgresBackupAcceptance
                 markerlessRejected = !File.Exists(Path.Combine(markerlessLibrary,
                     PostgresStorageModeGuard.MarkerName)) &&
                     PostgresStorageModeGuard.Current(markerlessLibrary) ==
-                        PostgresStorageModeGuard.StorageMode.LegacyFiles;
+                        PostgresStorageModeGuard.StorageMode.Blocked;
             }
             finally { await markerlessCluster.DisposeAsync(); }
 

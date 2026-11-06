@@ -60,6 +60,18 @@ internal static class FeatureDiagnostics
             WindowsCredentialStore.Write(credentialName, "");
             findings["windowsCredentialDelete"] = WindowsCredentialStore.Read(credentialName) is null;
             Directory.CreateDirectory(directory);
+            var missingMarkerLibrary = Path.Combine(directory, "missing-pg-marker");
+            Directory.CreateDirectory(Path.Combine(missingMarkerLibrary, "postgres-data"));
+            File.WriteAllText(Path.Combine(missingMarkerLibrary, "postgres-data", "PG_VERSION"), "18");
+            findings["missingPostgresMarkerBlocksLegacyFiles"] =
+                PostgresStorageModeGuard.Current(missingMarkerLibrary) ==
+                    PostgresStorageModeGuard.StorageMode.Blocked &&
+                !PostgresStorageModeGuard.LegacyFilesMayOpen(missingMarkerLibrary);
+            File.Delete(Path.Combine(missingMarkerLibrary, "postgres-data", "PG_VERSION"));
+            File.WriteAllText(Path.Combine(missingMarkerLibrary, "postgres-data", "unreadable-file"), "x");
+            findings["incompletePostgresDirectoryBlocksLegacyFiles"] =
+                PostgresStorageModeGuard.Current(missingMarkerLibrary) ==
+                    PostgresStorageModeGuard.StorageMode.Blocked;
             findings["redirectedLibraryDoesNotImportLegacyCache"] =
                 MainWindow.VerifyRedirectedCacheDoesNotImportForDiagnostics(Path.Combine(directory, "redirected-migration"));
             findings["noncommercialLicenseReplacesOnlyLegacySidecar"] =

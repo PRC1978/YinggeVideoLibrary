@@ -24,7 +24,7 @@ internal sealed class SingleInstanceActivation : IDisposable
         server = Task.Run(ListenAsync);
     }
 
-    static string PipeNameFor(string libraryDirectory)
+    internal static string PipeNameFor(string libraryDirectory)
     {
         var normalized = Path.GetFullPath(libraryDirectory).TrimEnd(Path.DirectorySeparatorChar)
             .ToUpperInvariant();
@@ -85,6 +85,19 @@ internal sealed class SingleInstanceActivation : IDisposable
         catch (IOException) { return false; }
         catch (UnauthorizedAccessException) { return false; }
         catch (InvalidOperationException) { return false; }
+    }
+
+    internal static async Task<bool> WaitForExistingAsync(string libraryDirectory,
+        TimeSpan timeout, CancellationToken cancellationToken = default)
+    {
+        var deadline = System.Diagnostics.Stopwatch.StartNew();
+        do
+        {
+            if (TryActivateExisting(libraryDirectory, 250)) return true;
+            if (deadline.Elapsed >= timeout) break;
+            await Task.Delay(200, cancellationToken).ConfigureAwait(false);
+        } while (true);
+        return false;
     }
 
     public void Dispose()

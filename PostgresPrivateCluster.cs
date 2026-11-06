@@ -99,14 +99,39 @@ internal sealed class PostgresPrivateCluster : IAsyncDisposable
                 if (process.ExitCode != 0 || !output.Contains(" " + clusterVersion + ".", StringComparison.Ordinal))
                     throw new InvalidDataException($"数据库文件版本 {clusterVersion} 与随程序提供的 PostgreSQL 不匹配。现有资料未被改动；请先用原版本导出并校验备份，再按升级说明迁移，勿删除数据库目录。");
             }
+            if (File.Exists(Path.Combine(data, "postmaster.pid")) &&
+                await RunAsync(controlBinary, ["-D", data, "status"], runtimeDirectory,
+                    cancellationToken) == 0)
+            {
+                // An earlier desktop process may have died while its child
+                // PostgreSQL stayed alive. pg_ctl start can report success for
+                // that old server even though it is not on our new port.
+                // The exclusive owner lease makes it safe to stop this exact
+                // data directory before starting our own listener.
+                if (await RunAsync(controlBinary,
+                        ["-D", data, "-m", "fast", "-w", "stop"], runtimeDirectory,
+                        cancellationToken, TimeSpan.FromSeconds(15)) != 0)
+                    throw new IOException("发现遗留数据库进程，但未能安全停止；现有资料未改动。 ");
+            }
             var listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();
             var port = ((IPEndPoint)listener.LocalEndpoint).Port;
             listener.Stop();
-            var started = await RunAsync(controlBinary,
+            async Task<int> StartClusterAsync() => await RunAsync(controlBinary,
                 ["-D", data, "-l", Path.Combine(libraryDirectory, "postgres.log"),
                  "-o", $"-h 127.0.0.1 -p {port}", "-w", "start"],
                 runtimeDirectory, cancellationToken);
+            var started = await StartClusterAsync();
+            if (started != 0 && File.Exists(Path.Combine(data, "postmaster.pid")))
+            {
+                // The desktop process may have crashed while its PostgreSQL
+                // child remained alive. We hold the exclusive cluster-owner
+                // lease, so stop only this data directory, then retry once.
+                var stoppedOrphan = await RunAsync(controlBinary,
+                    ["-D", data, "-m", "fast", "-w", "stop"],
+                    runtimeDirectory, cancellationToken);
+                if (stoppedOrphan == 0) started = await StartClusterAsync();
+            }
             if (started != 0)
             {
                 // pg_ctl may time out after postgres has actually launched.
@@ -156,21 +181,21 @@ internal sealed class PostgresPrivateCluster : IAsyncDisposable
         {
             var exitCode = await RunAsync(controlBinary,
                 ["-D", dataDirectory, "-m", "fast", "-w", "stop"],
-                runtimeDirectory, CancellationToken.None);
+                runtimeDirectory, CancellationToken.None, TimeSpan.FromSeconds(15));
             if (exitCode != 0) throw new IOException("私有数据库未能正常停止。 ");
         }
         finally { ownerLease.Dispose(); }
     }
 
     private static async Task<int> RunAsync(string executable, IEnumerable<string> arguments,
-        string workingDirectory, CancellationToken cancellationToken)
+        string workingDirectory, CancellationToken cancellationToken, TimeSpan? timeoutLimit = null)
     {
         using var process = new Process { StartInfo = new ProcessStartInfo(executable)
             { WorkingDirectory = workingDirectory, UseShellExecute = false, CreateNoWindow = true } };
         foreach (var argument in arguments) process.StartInfo.ArgumentList.Add(argument);
         process.Start();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromMinutes(2));
+        timeout.CancelAfter(timeoutLimit ?? TimeSpan.FromMinutes(2));
         try { await process.WaitForExitAsync(timeout.Token); }
         catch (OperationCanceledException)
         {

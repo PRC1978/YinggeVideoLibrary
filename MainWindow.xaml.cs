@@ -570,6 +570,10 @@ public partial class MainWindow : Window
         sphereGraphTimer.Tick += (_, _) => RotateSphereGraph();
         Closing += (_, e) =>
         {
+            // A Windows sign-out/shutdown must close the window and release
+            // the private database, regardless of the tray preference.
+            if (System.Windows.Application.Current is App app &&
+                (app.SystemSessionEnding || app.RecoveryShutdownRequested)) return;
             if (!TryConfirmEmbeddedRolesClose()) { e.Cancel = true; return; }
             if (batchOperationInProgress)
             {

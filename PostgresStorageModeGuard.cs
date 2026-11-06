@@ -32,7 +32,16 @@ internal static class PostgresStorageModeGuard
             Directory.Exists(Path.Combine(dataDirectory, RestoreSentinelName)))
             return StorageMode.Blocked;
         var marker = Path.Combine(dataDirectory, MarkerName);
-        if (!File.Exists(marker) && !Directory.Exists(marker)) return StorageMode.LegacyFiles;
+        if (!File.Exists(marker) && !Directory.Exists(marker))
+        {
+            // A missing marker beside an initialized cluster must not reopen
+            // the stale JSON snapshot and fork the library's history.
+            var clusterDirectory = Path.Combine(dataDirectory, "postgres-data");
+            if (Directory.Exists(clusterDirectory) &&
+                Directory.EnumerateFileSystemEntries(clusterDirectory).Any())
+                return StorageMode.Blocked;
+            return StorageMode.LegacyFiles;
+        }
         if (PostgresStorageModeActivation.TryRead(dataDirectory) is not null)
             return StorageMode.PostgreSql;
         // An isolated restore publishes a directory that was never a file-mode

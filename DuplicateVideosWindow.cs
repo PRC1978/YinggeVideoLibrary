@@ -376,7 +376,8 @@ internal sealed class DuplicateVideosWindow : Window
             WpfMessageBox.Show(this,
                 "资料写入已中断，恢复记录已保留。软件将关闭；重新启动时会先恢复或提示冲突。\n" + error.Message,
                 "重复资料合并待恢复", MessageBoxButton.OK, MessageBoxImage.Warning);
-            System.Windows.Application.Current.Shutdown(1);
+            if (System.Windows.Application.Current is App app) app.ShutdownForRecovery(1);
+            else System.Windows.Application.Current.Shutdown(1);
             return;
         }
         status.Text = "未写入资料：" + error.Message;

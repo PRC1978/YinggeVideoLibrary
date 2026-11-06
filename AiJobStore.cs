@@ -198,7 +198,7 @@ internal static partial class AiJobStore
         }
     }
 
-    static void Validate(Job job, string jobId)
+    internal static void Validate(Job job, string jobId)
     {
         if (job.Id != jobId || job.AttemptCount < 0 ||
             job.RequestSha256?.Length != 64 ||
@@ -237,13 +237,19 @@ internal static partial class AiJobStore
             ProtectedRequest = ProtectRequest(requestJson),
             CreatedUtc = now, UpdatedUtc = now
         };
+        if (AiStorageRoutes.ConnectionStringFor(dataDir) is { } database)
+            return PostgresAiJobStore.Create(database, job);
         return Locked(() => { Write(dataDir, job, false); return job; });
     }
 
-    internal static Job Get(string dataDir, string jobId) => Locked(() => Read(dataDir, jobId));
+    internal static Job Get(string dataDir, string jobId) =>
+        AiStorageRoutes.ConnectionStringFor(dataDir) is { } database
+            ? PostgresAiJobStore.Get(database, jobId) : Locked(() => Read(dataDir, jobId));
 
     internal static IReadOnlyList<Job> List(string dataDir)
     {
+        if (AiStorageRoutes.ConnectionStringFor(dataDir) is { } database)
+            return PostgresAiJobStore.List(database);
         return Locked(() =>
         {
             var directory = DirectoryPath(dataDir);
@@ -254,7 +260,7 @@ internal static partial class AiJobStore
         });
     }
 
-    static bool OwnerIsAlive(Job job)
+    internal static bool OwnerIsAlive(Job job)
     {
         if (job.OwnerProcessId <= 0 || job.OwnerProcessStartedUtc == default) return false;
         try
@@ -271,6 +277,8 @@ internal static partial class AiJobStore
 
     internal static int RecoverInterrupted(string dataDir)
     {
+        if (AiStorageRoutes.ConnectionStringFor(dataDir) is { } database)
+            return PostgresAiJobStore.RecoverInterrupted(database);
         return Locked(() =>
         {
             var directory = DirectoryPath(dataDir);
@@ -300,6 +308,8 @@ internal static partial class AiJobStore
 
     internal static Job Begin(string dataDir, string jobId, string endpoint, string requestJson)
     {
+        if (AiStorageRoutes.ConnectionStringFor(dataDir) is { } database)
+            return PostgresAiJobStore.Begin(database, jobId, endpoint, requestJson);
         return Locked(() =>
         {
             var job = Read(dataDir, jobId);
@@ -324,6 +334,8 @@ internal static partial class AiJobStore
 
     internal static Job PrepareRetry(string dataDir, string jobId, string endpoint, string requestJson)
     {
+        if (AiStorageRoutes.ConnectionStringFor(dataDir) is { } database)
+            return PostgresAiJobStore.PrepareRetry(database, jobId, endpoint, requestJson);
         return Locked(() =>
         {
             var job = Read(dataDir, jobId);
@@ -340,6 +352,8 @@ internal static partial class AiJobStore
 
     internal static bool TryCancelPending(string dataDir, string jobId)
     {
+        if (AiStorageRoutes.ConnectionStringFor(dataDir) is { } database)
+            return PostgresAiJobStore.TryCancelPending(database, jobId);
         return Locked(() =>
         {
             var job = Read(dataDir, jobId);
@@ -355,6 +369,11 @@ internal static partial class AiJobStore
     internal static void Finish(string dataDir, string jobId, string attemptId,
         string status, string errorCode = "", string? resultJson = null)
     {
+        if (AiStorageRoutes.ConnectionStringFor(dataDir) is { } database)
+        {
+            PostgresAiJobStore.Finish(database, jobId, attemptId, status, errorCode, resultJson);
+            return;
+        }
         if (status is not (Completed or Failed or Canceled))
             throw new ArgumentException("AI 作业终态无效。", nameof(status));
         Locked(() =>

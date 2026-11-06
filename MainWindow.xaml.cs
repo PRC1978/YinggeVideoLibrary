@@ -490,6 +490,8 @@ public partial class MainWindow : Window
     internal MainWindow(PostgresLibraryRuntimeSession? storageSession)
     {
         postgresSession = storageSession;
+        if (storageSession is not null)
+            AiStorageRoutes.Register(DataDir, storageSession.ConnectionString);
         queueBridge = new ScrapeQueueBridge(DataDir, storageSession);
         InitializeComponent();
         SizeChanged += (_, _) => UpdateHeaderResponsive();

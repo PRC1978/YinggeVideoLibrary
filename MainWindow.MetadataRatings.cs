@@ -43,7 +43,11 @@ public partial class MainWindow
             ownRow.Children.Add(new TextBlock { Text = "我的评分  ", VerticalAlignment = VerticalAlignment.Center,
                 FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextTertiaryBrush });
             var scoreBox = new System.Windows.Controls.ComboBox { Width = 108, Height = 32, VerticalAlignment = VerticalAlignment.Center };
-            var existing = PersonalRatingStore.Get(DataDir, video.Id);
+            var existing = postgresSession is null
+                ? PersonalRatingStore.Get(DataDir, video.Id)
+                : Task.Run(() => PostgresUserStateStore.LoadRatingsAsync(
+                    postgresSession.ConnectionString)).GetAwaiter().GetResult().Value
+                    .GetValueOrDefault(video.Id)?.Score;
             foreach (var halfStep in Enumerable.Range(0, 21).Select(index => index / 2.0))
                 scoreBox.Items.Add(new ComboBoxItem { Content = halfStep.ToString("0.#", CultureInfo.InvariantCulture) + " / 10", Tag = halfStep });
             if (existing is double ownScore)
@@ -68,7 +72,10 @@ public partial class MainWindow
                 save.IsEnabled = false; clear.IsEnabled = false;
                 try
                 {
-                    await Task.Run(() => PersonalRatingStore.Set(DataDir, video.Id, score));
+                    if (postgresSession is null)
+                        await Task.Run(() => PersonalRatingStore.Set(DataDir, video.Id, score));
+                    else await PostgresUserStateStore.SetRatingAsync(
+                        postgresSession.ConnectionString, video.Id, score);
                     clear.IsEnabled = true;
                 }
                 catch (Exception ex) { MessageBox.Show(dialog, "个人评分保存失败：" + ex.Message, "作品评分", MessageBoxButton.OK, MessageBoxImage.Warning); }
@@ -77,7 +84,14 @@ public partial class MainWindow
             clear.Click += async (_, _) =>
             {
                 save.IsEnabled = false; clear.IsEnabled = false;
-                try { await Task.Run(() => PersonalRatingStore.Set(DataDir, video.Id, null)); scoreBox.SelectedIndex = 0; }
+                try
+                {
+                    if (postgresSession is null)
+                        await Task.Run(() => PersonalRatingStore.Set(DataDir, video.Id, null));
+                    else await PostgresUserStateStore.SetRatingAsync(
+                        postgresSession.ConnectionString, video.Id, null);
+                    scoreBox.SelectedIndex = 0;
+                }
                 catch (Exception ex)
                 {
                     clear.IsEnabled = true;

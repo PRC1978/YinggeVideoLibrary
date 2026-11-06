@@ -6,6 +6,7 @@ using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using Npgsql;
 
 namespace YinggeVideoLibrary;
 
@@ -83,11 +84,25 @@ internal static class AiRequestQueue
 
     internal static BudgetLedger LoadBudgetLedger(string dataDir)
     {
+        if (AiStorageRoutes.ConnectionStringFor(dataDir) is { } connectionString)
+        {
+            var document = Task.Run(() => PostgresLibraryDocumentStore.ReadAsync(
+                connectionString, "ai-budget.json")).GetAwaiter().GetResult();
+            return document is null ? new BudgetLedger() :
+                ParseBudgetLedger(document.Content);
+        }
         var ledgerPath = Path.Combine(dataDir, "ai-budget.json");
         if (!File.Exists(ledgerPath)) return new BudgetLedger();
+        return ParseBudgetLedger(File.ReadAllBytes(ledgerPath));
+    }
+
+    private static BudgetLedger ParseBudgetLedger(byte[] content)
+    {
         try
         {
-            using var json = JsonDocument.Parse(File.ReadAllText(ledgerPath));
+            if (content.Length > 1024 * 1024)
+                throw new InvalidDataException("AI 用量记录过大。");
+            using var json = JsonDocument.Parse(content);
             if (json.RootElement.ValueKind != JsonValueKind.Object ||
                 !json.RootElement.TryGetProperty(nameof(BudgetLedger.Day), out var dayValue) ||
                 dayValue.ValueKind != JsonValueKind.String ||
@@ -117,6 +132,18 @@ internal static class AiRequestQueue
 
     static void SaveBudgetLedger(string dataDir, BudgetLedger ledger)
     {
+        if (AiStorageRoutes.ConnectionStringFor(dataDir) is { } connectionString)
+        {
+            Task.Run(async () =>
+            {
+                var prior = await PostgresLibraryDocumentStore.ReadAsync(
+                    connectionString, "ai-budget.json");
+                await PostgresLibraryDocumentStore.SaveAsync(connectionString,
+                    "ai-budget.json", JsonSerializer.SerializeToUtf8Bytes(ledger),
+                    prior?.Revision);
+            }).GetAwaiter().GetResult();
+            return;
+        }
         Directory.CreateDirectory(dataDir);
         var path = Path.Combine(dataDir, "ai-budget.json");
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
@@ -350,16 +377,39 @@ internal static class AiRequestQueue
         }
     }
 
-    static Task<T> WithBudgetGateAsync<T>(Func<T> action, CancellationToken cancellationToken) => Task.Run(() =>
+    static Task<T> WithBudgetGateAsync<T>(string dataDir, Func<T> action,
+        CancellationToken cancellationToken) => Task.Run(() =>
     {
         var owns = false;
+        NpgsqlConnection? databaseGate = null;
         try
         {
             AcquireBudgetGate(cancellationToken);
             owns = true;
+            if (AiStorageRoutes.ConnectionStringFor(dataDir) is { } connectionString)
+            {
+                databaseGate = new NpgsqlConnection(connectionString);
+                databaseGate.Open();
+                using var acquire = new NpgsqlCommand("SELECT pg_advisory_lock(178942699)",
+                    databaseGate);
+                acquire.ExecuteNonQuery();
+            }
             return action();
         }
-        finally { if (owns) BudgetGate.ReleaseMutex(); }
+        finally
+        {
+            if (databaseGate is not null)
+            {
+                try
+                {
+                    using var release = new NpgsqlCommand(
+                        "SELECT pg_advisory_unlock(178942699)", databaseGate);
+                    release.ExecuteNonQuery();
+                }
+                finally { databaseGate.Dispose(); }
+            }
+            if (owns) BudgetGate.ReleaseMutex();
+        }
     }, cancellationToken);
 
     static async Task<JsonDocument> SendCoreAsync(LibraryConfig config, string endpoint,
@@ -461,7 +511,7 @@ internal static class AiRequestQueue
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var decision = await WithBudgetGateAsync(() =>
+            var decision = await WithBudgetGateAsync(dataDir, () =>
             {
                 var ledger = LoadBudgetLedger(dataDir);
                 var today = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -493,7 +543,7 @@ internal static class AiRequestQueue
         double reportedCost, long inputTokens, long outputTokens)
     {
         // Cancellation after an HTTP response must not interrupt accounting.
-        await WithBudgetGateAsync(() =>
+        await WithBudgetGateAsync(dataDir, () =>
         {
             var ledger = LoadBudgetLedger(dataDir);
             if (ledger.Day != reservation.Day) return 0;

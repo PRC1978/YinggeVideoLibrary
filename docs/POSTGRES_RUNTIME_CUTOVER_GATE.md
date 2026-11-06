@@ -11,7 +11,7 @@
 | 搜刮资料 | `MetadataStore.Load/Save` 与审核事务 | `PostgresLibraryMetadataStore`、`PostgresReviewTransactionStore` | 所有资料写入、审核历史和撤销同事务 |
 | 搜刮队列与来源冷却 | `MainWindow.ScrapeQueue` / `TitleScrapeQueue` | `ScrapeQueueBridge`、`PostgresScrapeQueueStore`、`PostgresScrapeSourceBackoffStore`、`PostgresScrapeWorkerLease` | 主窗口队列的加入、取消、重试、轮询和来源冷却已通过模式入口；仍需数据库模式的真实窗口操作、重启恢复与故障注入验收。诊断探针保持文件模式 |
 | 人物与关系 | `RoleProfileStore` 文件 | `PostgresRoleProfileStore` | 人物窗口的手工读写与自动发现已接数据库会话；已用隔离库验证 TMDB 人物抓取、建档、作品关联和资料版本冲突拒绝，仍需真实窗口与大库验收 |
-| 插件、候选、AI 作业与用户状态 | 多个独立 JSON 文件 | `PostgresLibraryDocumentStore`、`PostgresUserStateStore` | 插件启停、权限、错误状态和多候选已通过模式桥接到数据库，并经隔离库验证；AI 作业、预算及其余用户状态仍需迁移。诊断日志可留文件，但不得作为权威状态 |
+| 插件、候选、AI 作业与用户状态 | 多个独立 JSON 文件 | `PostgresLibraryDocumentStore`、`PostgresUserStateStore` | 插件启停、权限、错误状态、多候选、AI 作业、费用账本和个人评分已通过模式路由接到数据库；费用预留另用跨进程数据库锁。隔离库已验证作业完成/过期结果拒绝、账本写入和评分重读。其余用户状态仍需迁移，诊断日志可留文件但不得作为权威状态 |
 | 备份和恢复 | 设置页 `LibraryBackupService` | `PostgresLibraryBackup` / `PostgresLibraryRestore` | 数据库模式的预览、进度、离线恢复入口与回退副本保留策略 |
 
 ## 激活顺序

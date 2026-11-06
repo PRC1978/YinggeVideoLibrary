@@ -445,6 +445,37 @@ internal static class PostgresBackupAcceptance
         var erroredPlugins = stateBridge.ChangeError("sample-plugin", "isolated error");
         pluginStateSaved &= erroredPlugins.LastErrors["sample-plugin"].Message == "isolated error" &&
             !stateBridge.ChangeError("sample-plugin", null).LastErrors.ContainsKey("sample-plugin");
+        AiStorageRoutes.Register(fixture.MediaRoot, session.ConnectionString);
+        var aiBudgetVerified = await AiRequestQueue.VerifyOldDayReconcileForDiagnosticsAsync(
+            fixture.MediaRoot) &&
+            !File.Exists(Path.Combine(fixture.MediaRoot, "ai-budget.json")) &&
+            AiRequestQueue.LoadBudgetLedger(fixture.MediaRoot).AttemptCount == 1;
+        const string testEndpoint = "https://example.org/v1/chat/completions";
+        const string testRequest = "{\"model\":\"offline\",\"messages\":[]}";
+        var aiJob = AiJobStore.Create(fixture.MediaRoot, "offline-probe", testEndpoint,
+            testRequest);
+        var savedJob = AiJobStore.Get(fixture.MediaRoot, aiJob.Id);
+        var startedJob = AiJobStore.Begin(fixture.MediaRoot, aiJob.Id, testEndpoint,
+            testRequest);
+        AiJobStore.Finish(fixture.MediaRoot, aiJob.Id, startedJob.AttemptId,
+            AiJobStore.Completed, resultJson: "{\"ok\":true}");
+        var completedJob = AiJobStore.Get(fixture.MediaRoot, aiJob.Id);
+        var staleJobRejected = false;
+        try { AiJobStore.Finish(fixture.MediaRoot, aiJob.Id, startedJob.AttemptId,
+            AiJobStore.Completed, resultJson: "{\"stale\":true}"); }
+        catch (InvalidOperationException) { staleJobRejected = true; }
+        var corruptLegacyJobRejected = false;
+        try { _ = AiJobStore.List(fixture.MediaRoot); }
+        catch (InvalidDataException) { corruptLegacyJobRejected = true; }
+        var aiJobsVerified = AiJobStore.ReadProtectedRequest(savedJob) == testRequest &&
+            completedJob.Status == AiJobStore.Completed && staleJobRejected &&
+            corruptLegacyJobRejected &&
+            !File.Exists(AiJobStore.PathFor(fixture.MediaRoot, aiJob.Id));
+        var rated = await PostgresUserStateStore.SetRatingAsync(
+            session.ConnectionString, fixture.VideoId, 8.5);
+        var ratingVerified = rated.Value[fixture.VideoId].Score == 8.5 &&
+            (await PostgresUserStateStore.LoadRatingsAsync(session.ConnectionString))
+                .Value[fixture.VideoId].Score == 8.5;
 
         var savedConfig = await PostgresLibraryDocumentStore.ReadAsync(session.ConnectionString,
             "config.json");
@@ -458,7 +489,8 @@ internal static class PostgresBackupAcceptance
             session.Roles.State.Profiles[0].Name == "人物甲·会话写入" &&
             candidateAfter?.Revision == candidateRevision &&
             candidateAfter.Content.SequenceEqual(candidateBytes) &&
-            candidateBridgeVerified && pluginStateSaved &&
+            candidateBridgeVerified && pluginStateSaved && aiBudgetVerified && aiJobsVerified &&
+            ratingVerified &&
             staleWriteRejected && dedicatedWriterRequired && emptyScanProtected &&
             exclusiveWorker && sourcePacingVerified && reviewCommitted &&
             reviewViewsPersisted;
@@ -518,7 +550,7 @@ internal static class PostgresBackupAcceptance
         File.WriteAllText(Path.Combine(source, "review-history.jsonl"),
             "{\"Id\":\"seed-review\",\"Action\":\"initial\"}\n");
         File.WriteAllText(Path.Combine(source, "personal-ratings.json"),
-            "{\"schemaVersion\":1,\"ratings\":{}}");
+            "{}");
         Directory.CreateDirectory(Path.Combine(source, "ai-jobs"));
         File.WriteAllText(Path.Combine(source, "ai-jobs", new string('a', 32) + ".json"),
             "{\"job\":\"合成 AI 作业\",\"status\":\"queued\"}");

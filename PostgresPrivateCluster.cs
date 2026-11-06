@@ -46,8 +46,18 @@ internal sealed class PostgresPrivateCluster : IAsyncDisposable
             !File.Exists(Path.Combine(runtimeDirectory, "share", "postgres.bki")))
             throw new InvalidDataException("随程序提供的 PostgreSQL 组件不完整。 ");
         Directory.CreateDirectory(libraryDirectory);
-        var lease = new FileStream(Path.Combine(libraryDirectory, ".postgres-cluster-owner.lock"),
-            FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        FileStream lease;
+        try
+        {
+            lease = new FileStream(Path.Combine(libraryDirectory, ".postgres-cluster-owner.lock"),
+                FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        }
+        catch (IOException error) when ((error.HResult & 0xFFFF) is 32 or 33)
+        {
+            throw new InvalidOperationException(
+                "这个视频库正在由另一份映格使用或转换。请回到已打开的窗口等待完成；不要重复启动程序。",
+                error);
+        }
         try
         {
             var data = Path.Combine(libraryDirectory, "postgres-data");

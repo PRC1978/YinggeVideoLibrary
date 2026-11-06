@@ -603,7 +603,9 @@ internal static class BundledPostgresRuntime
                         "posters", "sample.jpg"))).SequenceEqual(new byte[] { 1, 2, 3, 4 });
                 try { await using var duplicate = await PostgresPrivateCluster.OpenAsync(
                     runtimeDirectory, privateLibrary); }
-                catch (IOException) { duplicateOwnerBlocked = true; }
+                catch (InvalidOperationException error) when (
+                    error.Message.Contains("另一份映格", StringComparison.Ordinal))
+                { duplicateOwnerBlocked = true; }
             }
             await using (var restarted = await PostgresPrivateCluster.OpenAsync(
                 runtimeDirectory, privateLibrary))

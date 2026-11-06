@@ -21,6 +21,7 @@
 - 在真正的新库第一次启动前，会先检查旧版 LocalAppData 缓存；若找到旧配置和索引，先恢复它们，再进入现有库转换流程。迁移失败会阻断空库初始化，避免把已有资料误判为新库。该生产目录缓存分支只做代码核对，未读取用户真实缓存。
 - 从真正的隔离空目录启动当前 Release 程序，出现数据库启用标记且索引／资料均为 0；停止该目录的测试进程后执行数据库窗口诊断，`passed=true`、`videos=0`、`realLibraryRead=false`。测试时临时指向 PostgreSQL 运行时的联接已移除。
 - 当前代码提交 `c84e4f6` 的单文件程序已重新发布并编入独立 AppId 安装包（81,313,787 字节；SHA-256 `DD88FB63A900330E39AE439FB2FC2FF431DDCCC11EE710712B79EFA1F0ADB2ED`）。隔离安装退出码 0，程序版本 `1.6.8+c84e4f6…`，PostgreSQL 组件齐全。从安装版打开 30 部旧文件库，自动转换得到 30 部索引、30 条资料与有效独立备份，随后新进程以同一隔离目录载入；安装版数据库窗口诊断 `passed=true`、`videos=30`、`realLibraryRead=false`。隔离卸载退出码 0，安装目录程序已移除，正式版开始菜单快捷方式仍指向正式安装路径。
+- 对同一单文件程序重新运行 `--self-test-postgres-backup-scale`：1、3,000、30,000 部三档的导入、备份、资料变更、恢复、回退副本、重启、运行时写入全部通过；15 项失败注入全部通过，`passed=true`、`realLibraryRead=false`。原始报告 `%TEMP%/yingge-pg-final-scale-34327ff62be74b62baef3fd70873f57f.json`。
 
 ## 打包问题与修正
 

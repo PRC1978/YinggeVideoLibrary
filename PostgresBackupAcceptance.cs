@@ -12,6 +12,29 @@ namespace YinggeVideoLibrary;
 // every backup lives under %TEMP%, and no real media file is opened.
 internal static class PostgresBackupAcceptance
 {
+    internal static async Task<int> RunSingleCaseToFileAsync(string runtimeDirectory,
+        string outputPath)
+    {
+        var probeRoot = Path.Combine(Path.GetTempPath(), "YinggePgBackupOne-" +
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(probeRoot);
+        var result = await RunMatrixCaseAsync(runtimeDirectory, probeRoot, 1);
+        var checksPath = Path.Combine(probeRoot, "backup-library-1", "runtime-write-checks.json");
+        var findings = new
+        {
+            passed = result.Imported && result.BackupVerified && result.MarkerActivated &&
+                result.MutationApplied && result.Restored && result.RollbackArchiveVerified &&
+                result.PreviousSchemaVerified && result.MarkerRewritten && result.RestartVerified &&
+                result.EntitiesVerified && result.RuntimeWritesVerified,
+            result, checks = File.Exists(checksPath) ?
+                JsonSerializer.Deserialize<Dictionary<string, bool>>(File.ReadAllText(checksPath)) : null,
+            realLibraryRead = false, probeDirectory = probeRoot
+        };
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
+        await File.WriteAllTextAsync(outputPath, JsonSerializer.Serialize(findings));
+        return findings.passed ? 0 : 1;
+    }
+
     internal static async Task<int> RunToFileAsync(string runtimeDirectory, string outputPath,
         bool includeLarge = false)
     {
@@ -209,6 +232,7 @@ internal static class PostgresBackupAcceptance
         if (afterRelease is not null) await afterRelease.DisposeAsync();
         var sourceReserved = await session.ReserveSourceAsync("runtime-source",
             TimeSpan.FromSeconds(2));
+        var sourceSpacingStartedAt = DateTimeOffset.UtcNow;
         var sourceSpacing = await session.ReserveSourceAsync("runtime-source",
             TimeSpan.FromSeconds(2));
         var sourceFailure = await session.RecordSourceFailureAsync("runtime-source",
@@ -216,7 +240,7 @@ internal static class PostgresBackupAcceptance
         var cooldown = await session.SourceCooldownAsync("runtime-source");
         var sourceRecovered = await session.ReportSourceSuccessAsync("runtime-source");
         var sourcePacingVerified = sourceReserved == DateTimeOffset.MinValue &&
-            sourceSpacing > DateTimeOffset.UtcNow &&
+            sourceSpacing >= sourceSpacingStartedAt.AddSeconds(2) &&
             sourceFailure > sourceSpacing && cooldown == sourceFailure && sourceRecovered;
         var config = MainWindow.CloneLibraryConfig(session.Config);
         var originalShowAll = config.ShowAll;
@@ -547,21 +571,34 @@ internal static class PostgresBackupAcceptance
 
         var savedConfig = await PostgresLibraryDocumentStore.ReadAsync(session.ConnectionString,
             "config.json");
-        return session.Config.ShowAll != originalShowAll &&
-            JsonSerializer.Deserialize<LibraryConfig>(savedConfig!.Content)?.ShowAll != originalShowAll &&
-            session.Index.Index.Entries[0].Size == index.Entries[0].Size &&
-            session.Metadata.Records[fixture.VideoId].Title == "数据库会话写入测试" &&
-            added == 1 && rescheduled && retryPersisted && markedFailed &&
-            failedPersisted && removedQueueItem && session.Queue.Count == 2 &&
-            bridgeReadsDatabase && cleanupAtomic && verifiedRoleAtomic && roleAutoVerified &&
-            session.Roles.State.Profiles[0].Name == "人物甲·会话写入" &&
-            candidateAfter?.Revision == candidateRevision &&
-            candidateAfter.Content.SequenceEqual(candidateBytes) &&
-            candidateBridgeVerified && pluginStateSaved && aiBudgetVerified && aiJobsVerified &&
-            ratingVerified && titleCandidatesVerified && siteListVerified && backupScheduleVerified &&
-            staleWriteRejected && dedicatedWriterRequired && emptyScanProtected &&
-            exclusiveWorker && sourcePacingVerified && reviewCommitted &&
-            reviewViewsPersisted;
+        var runtimeChecks = new Dictionary<string, bool>
+        {
+            ["configSaved"] = session.Config.ShowAll != originalShowAll &&
+                JsonSerializer.Deserialize<LibraryConfig>(savedConfig!.Content)?.ShowAll != originalShowAll,
+            ["indexSaved"] = session.Index.Index.Entries[0].Size == index.Entries[0].Size,
+            ["metadataSaved"] = session.Metadata.Records[fixture.VideoId].Title == "数据库会话写入测试",
+            ["queueLifecycle"] = added == 1 && rescheduled && retryPersisted && markedFailed &&
+                failedPersisted && removedQueueItem && session.Queue.Count == 2,
+            ["bridgeReadsDatabase"] = bridgeReadsDatabase,
+            ["cleanupAtomic"] = cleanupAtomic,
+            ["rolesAtomic"] = verifiedRoleAtomic && roleAutoVerified &&
+                session.Roles.State.Profiles[0].Name == "人物甲·会话写入",
+            ["documentCas"] = candidateAfter is not null &&
+                candidateAfter.Revision == candidateRevision &&
+                candidateAfter.Content.SequenceEqual(candidateBytes) && staleWriteRejected &&
+                dedicatedWriterRequired,
+            ["pluginBridge"] = candidateBridgeVerified && pluginStateSaved,
+            ["aiState"] = aiBudgetVerified && aiJobsVerified,
+            ["ratingAndCandidates"] = ratingVerified && titleCandidatesVerified,
+            ["siteListAndBackup"] = siteListVerified && backupScheduleVerified,
+            ["emptyScanProtected"] = emptyScanProtected,
+            ["workerExclusive"] = exclusiveWorker,
+            ["sourcePacing"] = sourcePacingVerified,
+            ["reviewCommitted"] = reviewCommitted && reviewViewsPersisted
+        };
+        File.WriteAllText(Path.Combine(library, "runtime-write-checks.json"),
+            JsonSerializer.Serialize(runtimeChecks));
+        return runtimeChecks.Values.All(value => value);
     }
 
     private static Fixture BuildFixture(string source, int count)

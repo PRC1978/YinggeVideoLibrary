@@ -13,6 +13,8 @@
 - `--self-test-postgres-backup-scale`：1／3,000／30,000 部导入、备份、恢复和数据库运行时写入均通过；30,000 部导入 4,148 ms、备份 2,159 ms、恢复 11,820 ms。结果 `passed=true`、`realLibraryRead=false`，报告在 `%TEMP%/yingge-pg-scale-72b1df080653444989ae93ba2257a055.json`。
 - 隔离安装包启用 `BundlePostgres`，独立 AppId `PRC1978.YinggeVideoLibrary.PGIsolatedCutover`；安装、同 AppId 覆盖升级、安装后数据库窗口诊断、卸载均退出码 0。正式安装版未动。
 - Release 构建 0 警告 0 错误，文件模式完整自检 `passed=true`、`realLibraryRead=false`。
+- 从独立 AppId 安装的程序，在 30 部合成视频库的真实设置窗口点击“下次启动转换为 PostgreSQL”，确认后关闭测试进程并重开。转换待办消失，`storage-postgresql.active` 记载 30 部视频、30 条资料和 PostgreSQL 18.6；界面重开仍显示 30 部。激活标记所指的独立备份目录存在，`database-export-manifest.json` 的 SHA-256 与标记逐字节一致；原 `config.json`、`library-index.json` 和 `metadata.json` 保留。测试安装包使用独立开始菜单分组，没有覆盖正式版快捷方式。
+- 转换后的隔离安装程序再次执行 `--diagnose-postgres-window`，结果 `passed=true`、`videos=30`、`realLibraryRead=false`，报告在 `%TEMP%/yingge-pg-ui-after-5e532adc5564462582289f9c821e2711.json`。测试安装包随后卸载，退出码 0；正式版开始菜单快捷方式仍指向正式安装目录且目标存在。
 
 ## 打包问题与修正
 
@@ -20,8 +22,8 @@
 
 ## 未完成的发布门槛
 
-1. 选择性导入的数据库合并、资料变化拒绝、取消、30,000 部规模与窗口控件存在性已通过自动诊断；真实鼠标点击和跨设备指纹包尚未实测。当前仅接受旧版 `backup-manifest.json` 包；数据库完整备份继续走完整恢复入口。成功导入留下的合并快照尚无自动保留轮数策略。
-2. 需要从安装版设置页实际点击排定转换，并验证中断后恢复、失败提示和完整审核／搜刮／人物／插件操作。当前只验证了同一转换函数的隔离诊断与安装后窗口读取。
+1. 选择性导入的数据库合并、资料变化拒绝、取消、30,000 部规模与窗口控件存在性已通过自动诊断；其真实鼠标点击和跨设备指纹包尚未实测。当前仅接受旧版 `backup-manifest.json` 包；数据库完整备份继续走完整恢复入口。成功导入留下的合并快照尚无自动保留轮数策略。
+2. 安装版设置页排定转换和重启成功路径已实测；中断后恢复、失败提示和完整审核／搜刮／人物／插件操作仍需验证。测试窗口点击一条视频的收藏操作后，旧 `config.json` 与索引 SHA-256 未变化；该单次点击尚不足以证明所有编辑入口持久化正确。
 3. 当前仍是 1.6.8 的开发代码；正式版本号、Release 安装包和更新资产均未准备。当前未推送、未发布，也未迁移真实库。
 4. PostgreSQL 主版本升级方案仍待实现；不得以新主版本运行旧数据库目录。
 

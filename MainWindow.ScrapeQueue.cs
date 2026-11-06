@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Windows;
@@ -116,14 +116,14 @@ public partial class MainWindow
         var policy = PolicyForSource(source);
         while (true)
         {
-            var readyAt = await Task.Run(() => ScrapeQueueStore.ReserveSourceRequest(DataDir, source,
+            var readyAt = await Task.Run(() => queueBridge.ReserveSourceRequest(source,
                 TimeSpan.FromSeconds(policy.IntervalSeconds)), cancellationToken);
             var now = DateTimeOffset.UtcNow;
             if (readyAt <= now) break;
             // Search and detail may legitimately query the same source twice
             // within one item. Wait for the pacing slot, but leave a genuinely
             // failing/429 source for another source or the next polling pass.
-            var cooldownAt = await Task.Run(() => ScrapeQueueStore.GetSourceCooldownAt(DataDir, source),
+            var cooldownAt = await Task.Run(() => queueBridge.GetSourceCooldownAt(source),
                 cancellationToken);
             if (cooldownAt > now)
                 throw new ScrapeSourceUnavailableException($"{source} 来源限速冷却中。", cooldownAt);
@@ -132,13 +132,13 @@ public partial class MainWindow
         try
         {
             var result = await request().WaitAsync(cancellationToken);
-            await Task.Run(() => ScrapeQueueStore.ReportSourceSuccess(DataDir, source), cancellationToken);
+            await Task.Run(() => queueBridge.ReportSourceSuccess(source), cancellationToken);
             return result;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (ScrapeNotFoundException)
         {
-            await Task.Run(() => ScrapeQueueStore.ReportSourceSuccess(DataDir, source), cancellationToken);
+            await Task.Run(() => queueBridge.ReportSourceSuccess(source), cancellationToken);
             throw;
         }
         catch (Exception ex) when (IsTemporaryScrapeFailure(ex))
@@ -155,8 +155,7 @@ public partial class MainWindow
                     => retryAt - DateTimeOffset.UtcNow,
                 _ => null
             };
-            var retryAtValue = await Task.Run(() => ScrapeQueueStore.RecordSourceFailure(
-                DataDir, source, ex.Message, limited, retryAfter,
+            var retryAtValue = await Task.Run(() => queueBridge.RecordSourceFailure(source, ex.Message, limited, retryAfter,
                 policy.ConsecutiveFailureLimit), cancellationToken);
             throw new ScrapeSourceUnavailableException($"{source} 暂时不可用：{ex.Message}", retryAtValue);
         }
@@ -200,7 +199,7 @@ public partial class MainWindow
                 scrapeQueueChanging = true;
                 try
                 {
-                    var count = await Task.Run(() => ScrapeQueueStore.RetryFailures(DataDir));
+                    var count = await Task.Run(() => queueBridge.RetryFailures());
                     Log($"已将 {count} 项失败搜刮重新排队");
                     await ResumeScrapePollingAsync();
                 }
@@ -234,7 +233,7 @@ public partial class MainWindow
         (int PendingCount, int FailedCount, DateTimeOffset? NextAttemptAt, List<(string Query, string Error)> FailedExamples) status;
         var codeSources = EnabledQueueCodeSources();
         var titleSources = EnabledQueueTitleSources();
-        try { status = await Task.Run(() => ScrapeQueueStore.GetStatus(DataDir, codeSources, titleSources)); }
+        try { status = await Task.Run(() => queueBridge.GetStatus(codeSources, titleSources)); }
         catch (Exception ex)
         {
             if (!isClosing) Log("读取搜刮队列状态失败：" + ex.Message);
@@ -285,7 +284,7 @@ public partial class MainWindow
     {
         if (scrapeQueueChanging) return;
         int pending;
-        try { pending = (await Task.Run(() => ScrapeQueueStore.GetStatus(DataDir))).PendingCount; }
+        try { pending = (await Task.Run(() => queueBridge.GetStatus())).PendingCount; }
         catch (Exception ex)
         {
             MessageBox.Show(this, "读取搜刮队列失败：" + ex.Message, "取消待处理队列", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -308,7 +307,7 @@ public partial class MainWindow
         {
             if (scrapeQueueTask is { IsCompleted: false } running)
                 try { await running; } catch (OperationCanceledException) { }
-            var removed = await Task.Run(() => ScrapeQueueStore.ClearPending(DataDir));
+            var removed = await Task.Run(() => queueBridge.ClearPending());
             TaskStatusText.Text = $"已取消 {removed} 项待处理搜刮；失败记录和已完成资料已保留";
             Log(TaskStatusText.Text);
         }
@@ -362,7 +361,7 @@ public partial class MainWindow
         try
         {
             if (!ReadScrapeFilterSettings()) return;
-            var queued = await Task.Run(() => ScrapeQueueStore.Load(DataDir));
+            var queued = await Task.Run(() => queueBridge.Load());
             var known = queued.Select(x => x.VideoId).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var refreshExisting = scrapeRefreshExistingBox?.IsChecked == true;
             var candidates = videos.Where(v => CanQueueForFullMetadata(v, refreshExisting) && !known.Contains(v.Id))
@@ -399,7 +398,7 @@ public partial class MainWindow
                         $"本次将加入全部 {pending.Count} 项符合条件的视频（番号 {pending.Count(item => item.Kind == "code")} 项，标题 {pending.Count(item => item.Kind == "title")} 项；其中已存资料补全 {refreshCount} 项）。\n后台会把番号或标题发送到已启用的公开资料来源，逐项限速联网。按当前间隔至少约 {FormatScrapeMinimumDuration(pending.Count)}，实际还包含网络耗时。\n\n补全结果进入人工审核；确认前不会覆盖已保存字段。可随时暂停或取消待处理队列。是否继续？",
                         "确认批量搜刮", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
                 TaskStatusText.Text = $"正在保存 {pending.Count} 项搜刮任务…";
-                var added = await Task.Run(() => ScrapeQueueStore.Add(DataDir, pending));
+                var added = await Task.Run(() => queueBridge.Add(pending));
                 Log($"已向搜刮队列加入全部 {added} 项符合条件的视频（番号/标题），按间隔逐项联网。");
                 if (added > 0 && scrapeRefreshExistingBox is not null) scrapeRefreshExistingBox.IsChecked = false;
             }
@@ -442,7 +441,7 @@ public partial class MainWindow
         var failed = 0;
         try
         {
-            using var lease = ScrapeQueueStore.TryAcquireWorker(DataDir);
+            using var lease = await Task.Run(() => queueBridge.TryAcquireWorker(), cancellationToken);
             if (lease is null)
             {
                 scrapeQueuePaused = true;
@@ -464,7 +463,7 @@ public partial class MainWindow
                 var queuePlugins = QueuePlugins();
                 var titleSources = EnabledQueueTitleSources(queuePlugins);
                 var (item, pendingCount, hasBlocked) = await Task.Run(
-                    () => ScrapeQueueStore.PeekNextFair(DataDir, codeSources, titleSources), cancellationToken);
+                    () => queueBridge.PeekNextFair(codeSources, titleSources), cancellationToken);
                 if (item is null)
                 {
                     if (hasBlocked)
@@ -491,7 +490,7 @@ public partial class MainWindow
                 videoById.TryGetValue(item.VideoId, out var video);
                 if (video is not null && !CanQueueForFullMetadata(video, item.RefreshExisting))
                 {
-                    await Task.Run(() => ScrapeQueueStore.Remove(DataDir, item.VideoId));
+                    await Task.Run(() => queueBridge.Remove(item.VideoId));
                     UpdateScrapeQueueStatus();
                     continue;
                 }
@@ -500,14 +499,14 @@ public partial class MainWindow
                     // An unavailable source drive must not discard queued work.
                     item.NextAttemptAt = DateTimeOffset.UtcNow.AddMinutes(2);
                     item.LastError = "视频当前不在索引中，等待文件夹重新可用";
-                    await Task.Run(() => ScrapeQueueStore.Reschedule(DataDir, item));
+                    await Task.Run(() => queueBridge.Reschedule(item));
                     Log("搜刮队列等待视频索引恢复：" + item.DisplayQuery);
                     UpdateScrapeQueueStatus();
                     continue;
                 }
                 if (ScrapeSkipReason(video) is { } skipReason)
                 {
-                    await Task.Run(() => ScrapeQueueStore.Remove(DataDir, item.VideoId));
+                    await Task.Run(() => queueBridge.Remove(item.VideoId));
                     Log($"已跳过搜刮：{video.Title} · {skipReason}");
                     UpdateScrapeQueueStatus();
                     continue;
@@ -525,7 +524,7 @@ public partial class MainWindow
                     {
                         var candidate = await ScrapeCodeFromEnabledSourcesAsync(item.Code, item.VideoId, cancellationToken, queue: true);
                         cancellationToken.ThrowIfCancellationRequested();
-                        if (!await Task.Run(() => ScrapeQueueStore.HasPending(DataDir, item.VideoId)))
+                        if (!await Task.Run(() => queueBridge.HasPending(item.VideoId)))
                         {
                             Log("搜刮任务已在另一份程序中取消：" + item.DisplayQuery);
                             continue;
@@ -535,7 +534,7 @@ public partial class MainWindow
                         status = await StoreScrapeReviewAsync(video, candidate,
                             forcePending: item.RefreshExisting, cancellationToken: cancellationToken);
                     }
-                    await Task.Run(() => ScrapeQueueStore.Remove(DataDir, item.VideoId));
+                    await Task.Run(() => queueBridge.Remove(item.VideoId));
                     if (status == "approved") approved++;
                     else if (status == "pending") review++;
                     else rejected++;
@@ -545,7 +544,7 @@ public partial class MainWindow
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
                 catch (OperationCanceledException ex)
                 {
-                    if (!await Task.Run(() => ScrapeQueueStore.HasPending(DataDir, item.VideoId)))
+                    if (!await Task.Run(() => queueBridge.HasPending(item.VideoId)))
                     {
                         Log("搜刮任务已在另一份程序中取消：" + item.DisplayQuery);
                         continue;
@@ -555,7 +554,7 @@ public partial class MainWindow
                 catch (ScrapeNotFoundException ex)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (!await Task.Run(() => ScrapeQueueStore.HasPending(DataDir, item.VideoId), cancellationToken))
+                    if (!await Task.Run(() => queueBridge.HasPending(item.VideoId), cancellationToken))
                     {
                         Log("搜刮任务已在另一份程序中取消：" + item.DisplayQuery);
                         continue;
@@ -564,14 +563,14 @@ public partial class MainWindow
                     {
                         // A failed attempt to enrich a legacy record must not
                         // replace its previously approved metadata or review.
-                        await Task.Run(() => ScrapeQueueStore.MarkFailed(DataDir, item.VideoId, "旧资料保留；新详情未找到：" + ex.Message));
+                        await Task.Run(() => queueBridge.MarkFailed(item.VideoId, "旧资料保留；新详情未找到：" + ex.Message));
                         failed++;
                         Log("旧资料已保留，补全详情未找到：" + item.DisplayQuery);
                     }
                     else
                     {
                         StoreUnmatchedScrape(video, item.Kind == "title" ? "标题搜刮" : "番号来源", ex.Message);
-                        await Task.Run(() => ScrapeQueueStore.Remove(DataDir, item.VideoId));
+                        await Task.Run(() => queueBridge.Remove(item.VideoId));
                         rejected++;
                     }
                 }
@@ -619,13 +618,13 @@ public partial class MainWindow
             var retryDelay = ScrapeRetryDelay(Math.Max(1, item.Attempts), ex);
             item.NextAttemptAt = DateTimeOffset.UtcNow.Add(retryDelay);
             item.LastError = ex.Message.Length > 240 ? ex.Message[..240] : ex.Message;
-            await Task.Run(() => ScrapeQueueStore.Reschedule(DataDir, item));
+            await Task.Run(() => queueBridge.Reschedule(item));
             Log(sourceUnavailable
                 ? $"搜刮来源冷却：{item.DisplayQuery} · {retryDelay.TotalSeconds:0} 秒后重试（未消耗视频重试次数）· {ex.Message}"
                 : $"搜刮暂时失败：{item.DisplayQuery} · {retryDelay.TotalSeconds:0} 秒后重试（{item.Attempts}/{MaxScrapeAttempts - 1}）· {ex.Message}");
             return false;
         }
-        await Task.Run(() => ScrapeQueueStore.MarkFailed(DataDir, item.VideoId, ex.Message));
+        await Task.Run(() => queueBridge.MarkFailed(item.VideoId, ex.Message));
         Log($"搜刮失败：{item.DisplayQuery} · {ex.Message}");
         return true;
     }

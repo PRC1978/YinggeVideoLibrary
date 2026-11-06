@@ -1,4 +1,4 @@
-﻿using System.Windows;
+using System.Windows;
 using System.Windows.Controls;
 using Button = System.Windows.Controls.Button;
 using CheckBox = System.Windows.Controls.CheckBox;
@@ -191,7 +191,7 @@ public partial class MainWindow
             var planningTask = Task.Run(() => inputs.Where(input => acceptedIds.Contains(input.video.Id))
                 .Select(input => PlanScrapeQueueItem(input.video, hasCodeSource, useFolderHint, libraryFolders,
                     input.refresh, input.code, input.title)).ToList());
-            var queueTask = Task.Run(() => ScrapeQueueStore.Load(DataDir));
+            var queueTask = Task.Run(() => queueBridge.Load());
             await Task.WhenAll(planningTask, queueTask);
             plans = planningTask.Result;
             queued = queueTask.Result;

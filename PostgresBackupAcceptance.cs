@@ -286,6 +286,16 @@ internal static class PostgresBackupAcceptance
         var failedPersisted = session.Queue.Single(item => item.VideoId == retry.VideoId)
             .Failed;
         var removedQueueItem = await session.RemoveQueueAsync(retry.VideoId);
+        var bridge = new ScrapeQueueBridge(fixture.MediaRoot, session);
+        // Normal UI callers dispatch the synchronous bridge from a worker thread.
+        // Exercise that same boundary so an ambient UI context cannot deadlock it.
+        var bridgeReadsDatabase = await Task.Run(() =>
+        {
+            var bridgedStatus = bridge.GetStatus(["runtime-code-source"], ["runtime-title-source"]);
+            var bridgedQueue = bridge.Load();
+            return bridgedStatus.PendingCount == 2 && bridgedQueue.Count == 2 &&
+                bridge.PeekNextFair(["runtime-code-source"], ["runtime-title-source"]).PendingCount == 2;
+        });
         var roles = RoleProfileStore.Parse(JsonSerializer.Serialize(session.Roles.State));
         roles.Profiles[0].Name = "人物甲·会话写入";
         await session.SaveRolesAsync(roles);
@@ -319,6 +329,7 @@ internal static class PostgresBackupAcceptance
             session.Metadata.Records[fixture.VideoId].Title == "数据库会话写入测试" &&
             added == 1 && rescheduled && retryPersisted && markedFailed &&
             failedPersisted && removedQueueItem && session.Queue.Count == 2 &&
+            bridgeReadsDatabase &&
             session.Roles.State.Profiles[0].Name == "人物甲·会话写入" &&
             candidateAfter?.Revision == candidateRevision &&
             candidateAfter.Content.SequenceEqual(candidateBytes) &&

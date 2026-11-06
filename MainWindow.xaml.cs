@@ -376,6 +376,7 @@ public partial class MainWindow : Window
     const int ReviewManualThreshold = 80;
     const int ReviewRejectThreshold = 40;
     readonly PostgresLibraryRuntimeSession? postgresSession;
+    readonly ScrapeQueueBridge queueBridge;
     LibraryConfig config = new();
     LibraryConfig configBaseline = new();
     string configSource = "unknown";
@@ -489,6 +490,7 @@ public partial class MainWindow : Window
     internal MainWindow(PostgresLibraryRuntimeSession? storageSession)
     {
         postgresSession = storageSession;
+        queueBridge = new ScrapeQueueBridge(DataDir, storageSession);
         InitializeComponent();
         SizeChanged += (_, _) => UpdateHeaderResponsive();
         InitializeFolderExternalDrop();

@@ -37,7 +37,7 @@ public partial class MainWindow
                 pluginFailures.Add($"{plugin.DisplayName} 来源键无效");
                 continue;
             }
-            var cooldownAt = await Task.Run(() => ScrapeQueueStore.GetSourceCooldownAt(DataDir, sourceKey),
+            var cooldownAt = await Task.Run(() => queueBridge.GetSourceCooldownAt(sourceKey),
                 cancellationToken);
             if (cooldownAt > DateTimeOffset.UtcNow)
             {
@@ -255,7 +255,7 @@ public partial class MainWindow
         }
         else await AdditionalScrapers.DownloadPosterAsync(record, video.Id, DataDir).WaitAsync(cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
-        if (!await Task.Run(() => ScrapeQueueStore.HasPending(DataDir, item.VideoId), cancellationToken))
+        if (!await Task.Run(() => queueBridge.HasPending(item.VideoId), cancellationToken))
             throw new OperationCanceledException("标题搜刮任务已从队列取消。", cancellationToken);
 
         var status = await StoreScrapeReviewAsync(video, record, forcePending: true, cancellationToken: cancellationToken);

@@ -99,7 +99,7 @@ public partial class MainWindow
                     ? current.Poster : null });
         }
         if (review.DecisionSource == "plugin")
-            choices.AddRange(PluginCandidateStore.Get(DataDir, video.Id).Select(item => item.Metadata.Clone()));
+            choices.AddRange(PluginCandidates.Get(video.Id).Select(item => item.Metadata.Clone()));
         var snapshot = ScrapeCandidateCache.LoadTitleCandidates(DataDir, video.Id);
         if (snapshot is not null)
             choices.AddRange(snapshot.Candidates.Where(item => item.DetailStatus == "verified" &&

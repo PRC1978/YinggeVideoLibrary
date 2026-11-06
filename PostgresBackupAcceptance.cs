@@ -424,6 +424,27 @@ internal static class PostgresBackupAcceptance
             await session.SaveDocumentAsync("config.json", candidateBytes, null);
         }
         catch (InvalidDataException) { dedicatedWriterRequired = true; }
+        var candidateBridge = new PluginCandidateBridge(fixture.MediaRoot, session);
+        var bridgeCandidate = new PluginCandidateRecord
+        {
+            PluginId = "sample-plugin", Metadata = new MovieMetadata
+            {
+                Title = "隔离候选", SourceUrl = "https://example.org/work/1", Code = "EX-001"
+            }
+        };
+        var candidateAdded = candidateBridge.Add(fixture.VideoId, bridgeCandidate);
+        var candidateDuplicate = candidateBridge.Add(fixture.VideoId, bridgeCandidate);
+        var candidateBridgeVerified = candidateAdded.Saved && candidateAdded.Count == 1 &&
+            candidateDuplicate.Saved && candidateDuplicate.Count == 1 &&
+            candidateBridge.Get(fixture.VideoId).Single().Metadata.Code == "EX-001";
+        var stateBridge = new PluginStateBridge(fixture.MediaRoot, session);
+        var enabledPlugins = stateBridge.Load();
+        enabledPlugins.Enabled.Add("another-plugin");
+        var pluginStateSaved = stateBridge.Save(enabledPlugins, out _) &&
+            stateBridge.Load().Enabled.Contains("another-plugin");
+        var erroredPlugins = stateBridge.ChangeError("sample-plugin", "isolated error");
+        pluginStateSaved &= erroredPlugins.LastErrors["sample-plugin"].Message == "isolated error" &&
+            !stateBridge.ChangeError("sample-plugin", null).LastErrors.ContainsKey("sample-plugin");
 
         var savedConfig = await PostgresLibraryDocumentStore.ReadAsync(session.ConnectionString,
             "config.json");
@@ -437,6 +458,7 @@ internal static class PostgresBackupAcceptance
             session.Roles.State.Profiles[0].Name == "人物甲·会话写入" &&
             candidateAfter?.Revision == candidateRevision &&
             candidateAfter.Content.SequenceEqual(candidateBytes) &&
+            candidateBridgeVerified && pluginStateSaved &&
             staleWriteRejected && dedicatedWriterRequired && emptyScanProtected &&
             exclusiveWorker && sourcePacingVerified && reviewCommitted &&
             reviewViewsPersisted;
@@ -490,7 +512,7 @@ internal static class PostgresBackupAcceptance
             """);
         File.WriteAllText(Path.Combine(source, "plugins.json"), """
             {"schemaVersion":1,"enabled":["sample-plugin"],
-             "consents":{"sample-plugin":true},"lastErrors":{}}
+             "consents":{"sample-plugin":"signature"},"lastErrors":{}}
             """);
         File.WriteAllText(Path.Combine(source, "plugin-candidates.json"), "{\"videos\":{}}");
         File.WriteAllText(Path.Combine(source, "review-history.jsonl"),

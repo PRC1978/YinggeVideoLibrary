@@ -22,8 +22,10 @@ public partial class MainWindow
 {
     readonly List<PluginDescriptor> pluginCatalog = [];
     PluginState? pluginState;
+    PluginStateBridge? pluginStateBridge;
     bool pluginCatalogLoaded;
     bool pluginBusy;
+    PluginCandidateBridge PluginCandidates => new(DataDir, postgresSession);
 
     string PluginRoot => Path.Combine(DataDir, "plugins");
 
@@ -32,7 +34,8 @@ public partial class MainWindow
         if (pluginCatalogLoaded && !reload) return;
         pluginCatalog.Clear();
         pluginCatalog.AddRange(PluginManifestReader.Scan(PluginRoot));
-        pluginState = PluginStateStore.Load(DataDir);
+        pluginStateBridge ??= new PluginStateBridge(DataDir, postgresSession);
+        pluginState = pluginStateBridge.Load();
         foreach (var plugin in pluginCatalog)
         {
             plugin.Enabled = PluginStateStore.IsEnabled(pluginState, plugin.Id);
@@ -247,7 +250,7 @@ public partial class MainWindow
         {
             next.Enabled.RemoveAll(id => id.Equals(plugin.Id, StringComparison.OrdinalIgnoreCase));
         }
-        if (!PluginStateStore.Save(DataDir, next, out var error))
+        if (!pluginStateBridge!.Save(next, out var error))
         {
             MessageBox.Show(this, $"插件状态无法保存，未做任何更改：{error}\n\n如果插件目录或数据目录是只读的，请先取消只读再试。",
                 "插件", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -264,8 +267,13 @@ public partial class MainWindow
     void PluginClearErrorClick(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is not PluginDescriptor plugin || pluginState is null) return;
-        PluginStateStore.ClearError(DataDir, plugin.Id);
-        pluginState.LastErrors.Remove(plugin.Id);
+        try { pluginState = pluginStateBridge!.ChangeError(plugin.Id, null); }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "插件错误状态无法保存：" + ex.Message,
+                "插件", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
         plugin.LastError = null;
         plugin.LastErrorAt = null;
         RenderPlugins();
@@ -317,7 +325,9 @@ public partial class MainWindow
         {
             plugin.LastError = PluginLog.Redact(outcome.ErrorMessage);
             plugin.LastErrorAt = DateTime.Now;
-            PluginStateStore.RecordError(DataDir, plugin.Id, $"{outcome.ErrorCode}：{outcome.ErrorMessage}");
+            try { pluginState = pluginStateBridge!.ChangeError(plugin.Id,
+                $"{outcome.ErrorCode}：{outcome.ErrorMessage}"); }
+            catch (Exception ex) { Log("插件错误状态无法保存：" + ex.Message); }
             RenderPlugins();
         }
         return outcome;
@@ -421,7 +431,7 @@ public partial class MainWindow
         var count = 0;
         foreach (var candidate in candidates)
         {
-            var (saved, written) = PluginCandidateStore.Add(DataDir, video.Id, new PluginCandidateRecord
+            var (saved, written) = PluginCandidates.Add(video.Id, new PluginCandidateRecord
             {
                 PluginId = plugin.Id,
                 SavedAt = DateTimeOffset.Now,
@@ -432,7 +442,7 @@ public partial class MainWindow
             if (!written) return new PluginCandidateSaveResult(count, PluginQueueState.Failed, "候选文件无法写入");
             count = saved;
         }
-        var stored = PluginCandidateStore.Get(DataDir, video.Id);
+        var stored = PluginCandidates.Get(video.Id);
         if (stored.Count == 0) return new PluginCandidateSaveResult(0, PluginQueueState.Failed, "候选未能保存");
         var existing = config.AiReviews.GetValueOrDefault(video.Id);
         // Never replace an approved record, and never silently move a pending
@@ -482,7 +492,7 @@ public partial class MainWindow
     void ApplyPluginCandidateSelection(string videoId, int index)
     {
         if (videos.FirstOrDefault(item => item.Id == videoId) is not { } video) return;
-        var stored = PluginCandidateStore.Get(DataDir, videoId);
+        var stored = PluginCandidates.Get(videoId);
         if (index < 0 || index >= stored.Count) return;
         var record = stored[index];
         var plugin = PluginScrapeBridge.DescriptorFor(record.PluginId,

@@ -4230,7 +4230,7 @@ public partial class MainWindow : Window
         if (reviewPageJumpBox is not null) reviewPageJumpBox.Text = (reviewPageIndex + 1).ToString();
         if (reviewTopPageJumpBox is not null) reviewTopPageJumpBox.Text = (reviewPageIndex + 1).ToString();
         var ids = records.Select(review => review.VideoId).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var pluginCandidates = PluginCandidateStore.Load(DataDir).Videos;
+        var pluginCandidates = PluginCandidates.Load().Videos;
         reviewSelection.RemoveWhere(id => !ids.Contains(id));
         ReviewQueuePanel.Children.Clear();
         var low = records.Count(review => review.Confidence < ReviewManualThreshold);

@@ -226,6 +226,14 @@ internal static class ScrapeCandidateCache
             uri.Query.Length < 1024 ? uri : null;
         var left = Parse(first);
         var right = Parse(second);
+        // r18's offline identity lives in the fragment. Two editions can
+        // share a DVD code and the same public root URL, so ignoring it would
+        // let a different imported work satisfy a cached candidate.
+        if (left?.Host.Equals("r18.dev", StringComparison.OrdinalIgnoreCase) == true ||
+            right?.Host.Equals("r18.dev", StringComparison.OrdinalIgnoreCase) == true)
+            return left is not null && right is not null &&
+                R18OfflineCatalog.TrustedWorkUrl(first) && R18OfflineCatalog.TrustedWorkUrl(second) &&
+                first == second;
         return left is not null && right is not null &&
             left.Host.Equals(right.Host, StringComparison.OrdinalIgnoreCase) &&
             left.AbsolutePath.TrimEnd('/').Equals(right.AbsolutePath.TrimEnd('/'), StringComparison.Ordinal) &&

@@ -20,6 +20,14 @@ internal static class R18OfflineDiagnostics
         yield return new("r18NativeIdentityRequiresExactCode", NativeMetadataAggregation.IsNativeSource(R18OfflineCatalog.Source) &&
             !ScrapeCodeIdentity.Same("ABC1-23", "ABC-123"));
         var workUrl = "https://r18.dev/#offline-abc00123";
+        var edition = new MovieMetadata { Source = R18OfflineCatalog.Source, SourceUrl = workUrl,
+            Code = "ABC-123", DetailFetched = true, DetailIdentityVerified = true };
+        var differentEdition = new MovieMetadata { Source = R18OfflineCatalog.Source,
+            SourceUrl = "https://r18.dev/#offline-abc00124", Code = "ABC-123",
+            DetailFetched = true, DetailIdentityVerified = true };
+        yield return new("r18CachedEditionsRequireSameContentId",
+            ScrapeCandidateCache.DetailMatchesCandidate(edition, edition) &&
+            !ScrapeCandidateCache.DetailMatchesCandidate(edition, differentEdition));
         var credit = new VerifiedPersonCredit
         {
             Provider = "R18", PersonId = "actress:123", Name = "示例人物",
@@ -82,10 +90,30 @@ internal static class R18OfflineDiagnostics
             result["sampleResults"] = found.Count;
             result["titleResults"] = titleFound.Count;
             result["titleMatchedSample"] = titleFound.Any(item => NativeMetadataAggregation.HasExactCode(item, code));
+            using var duplicateSample = new NpgsqlCommand("""
+                SELECT content_id,title_en FROM yingge_r18_active.derived_video
+                WHERE dvd_id='SS-023' AND title_en='Tokyo Mask Club' LIMIT 1
+                """, connection);
+            using var duplicateRow = duplicateSample.ExecuteReader();
+            string? editionId = null;
+            string? editionTitle = null;
+            if (duplicateRow.Read())
+            {
+                editionId = duplicateRow.GetString(0);
+                editionTitle = duplicateRow.GetString(1);
+            }
+            duplicateRow.Close();
+            var editionResults = editionTitle is null ? null : R18OfflineCatalog.SearchTitle(connectionString, editionTitle);
+            var editionIsolated = editionResults is null || editionResults.Any(item =>
+                    item.ExternalIds.GetValueOrDefault("R18") == editionId) &&
+                editionResults.All(item => item.Code != "SS-023" ||
+                    item.ExternalIds.GetValueOrDefault("R18") == editionId);
+            result["duplicateEditionChecked"] = editionResults is not null;
+            result["duplicateEditionIsolated"] = editionIsolated;
             result["posterUrl"] = found.FirstOrDefault()?.PosterUrl;
             result["verifiedPersonCredits"] = found.Sum(item => item.PersonCredits.Count(credit =>
                 RoleProfileStore.TryVerifiedPersonCredit(item, credit, out _)));
-            result["passed"] = found.Count > 0 && titleFound.Any(item => NativeMetadataAggregation.HasExactCode(item, code)) && found.All(item =>
+            result["passed"] = editionIsolated && found.Count > 0 && titleFound.Any(item => NativeMetadataAggregation.HasExactCode(item, code)) && found.All(item =>
                 item.DetailIdentityVerified && NativeMetadataAggregation.HasExactCode(item, code));
         }
         catch (Exception ex) { result["error"] = ex.ToString(); }

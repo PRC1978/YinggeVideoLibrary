@@ -249,6 +249,18 @@ internal static class R18OfflineCatalog
         using var connection = new NpgsqlConnection(connectionString);
         connection.Open();
         if (!SchemaExistsWithoutTransaction(connection, Active)) return [];
+        return SearchDetails(connection, code, null);
+    }
+
+    static IReadOnlyList<MovieMetadata> SearchDetails(NpgsqlConnection connection, string? code, string? exactContentId)
+    {
+        var key = code is null ? "" : ScrapeCodeIdentity.Key(code).ToLowerInvariant();
+        if (exactContentId is null && (key.Length < 4 || key.Length > 32)) return [];
+        if (exactContentId is not null && (exactContentId.Length is < 1 or > 128 ||
+            exactContentId.Any(ch => !char.IsAsciiLetterOrDigit(ch) && ch is not '-' and not '_'))) return [];
+        var where = exactContentId is null
+            ? "lower(replace(v.dvd_id,'-',''))=@compact OR lower(v.content_id)=@key"
+            : "lower(v.content_id)=@contentId";
         using var command = new NpgsqlCommand($"""
             SELECT v.content_id, v.dvd_id, v.title_en, v.title_ja,
                    v.comment_ja, v.comment_en, v.runtime_mins, v.release_date,
@@ -259,12 +271,16 @@ internal static class R18OfflineCatalog
             LEFT JOIN "{Active}".derived_maker m ON m.id=v.maker_id
             LEFT JOIN "{Active}".derived_label l ON l.id=v.label_id
             LEFT JOIN "{Active}".derived_series s ON s.id=v.series_id
-            WHERE lower(replace(v.dvd_id,'-',''))=@compact OR lower(v.content_id)=@key
+            WHERE {where}
             ORDER BY v.release_date DESC NULLS LAST, v.content_id
             LIMIT 12
             """, connection);
-        command.Parameters.AddWithValue("key", key);
-        command.Parameters.AddWithValue("compact", key.Replace("-", "", StringComparison.Ordinal));
+        if (exactContentId is null)
+        {
+            command.Parameters.AddWithValue("key", key);
+            command.Parameters.AddWithValue("compact", key.Replace("-", "", StringComparison.Ordinal));
+        }
+        else command.Parameters.AddWithValue("contentId", exactContentId.ToLowerInvariant());
         var results = new List<MovieMetadata>();
         using (var reader = command.ExecuteReader())
         {
@@ -273,7 +289,7 @@ internal static class R18OfflineCatalog
                 string? Get(int index) => reader.IsDBNull(index) ? null : reader.GetString(index);
                 var contentId = reader.GetString(0);
                 var dvdId = Get(1);
-                var matchedContentId = ScrapeCodeIdentity.Same(contentId, code);
+                var matchedContentId = code is not null && ScrapeCodeIdentity.Same(contentId, code);
                 var record = new MovieMetadata
                 {
                     Code = matchedContentId ? contentId : (string.IsNullOrWhiteSpace(dvdId) ? contentId : dvdId),
@@ -288,7 +304,7 @@ internal static class R18OfflineCatalog
                     ExternalIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["R18"] = contentId }
                 };
                 if (matchedContentId && !string.IsNullOrWhiteSpace(dvdId)) record.ExternalIds["R18.DvdId"] = dvdId;
-                if (ScrapeCodeIdentity.Same(record.Code, code) || ScrapeCodeIdentity.Same(contentId, code))
+                if (exactContentId is not null || ScrapeCodeIdentity.Same(record.Code, code) || ScrapeCodeIdentity.Same(contentId, code))
                     results.Add(record);
             }
         }
@@ -358,7 +374,7 @@ internal static class R18OfflineCatalog
         connection.Open();
         if (!SchemaExistsWithoutTransaction(connection, Active)) return [];
         using var command = new NpgsqlCommand($"""
-            SELECT coalesce(dvd_id,content_id)
+            SELECT content_id
             FROM "{Active}".derived_video
             WHERE lower(title_en) LIKE @prefix ESCAPE '\'
                OR lower(title_ja) LIKE @prefix ESCAPE '\'
@@ -372,13 +388,13 @@ internal static class R18OfflineCatalog
         command.Parameters.AddWithValue("prefix", query.Replace("\\", "\\\\", StringComparison.Ordinal)
             .Replace("%", "\\%", StringComparison.Ordinal).Replace("_", "\\_", StringComparison.Ordinal) + "%");
         command.Parameters.AddWithValue("text", query);
-        var codes = new List<string>();
+        var contentIds = new List<string>();
         using (var reader = command.ExecuteReader())
-            while (reader.Read()) codes.Add(reader.GetString(0));
+            while (reader.Read()) contentIds.Add(reader.GetString(0));
         var results = new List<MovieMetadata>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var code in codes)
-            foreach (var record in SearchCode(connectionString, code))
+        foreach (var contentId in contentIds)
+            foreach (var record in SearchDetails(connection, null, contentId))
                 if (seen.Add(record.ExternalIds.GetValueOrDefault("R18") ?? record.Code)) results.Add(record);
         return results.Take(12).ToList();
     }

@@ -300,7 +300,9 @@ internal static class PostgresLibraryMigration
     {
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await SetSearchPathAsync(connection, schema, cancellationToken);
+        // Verification must never fall back to a table in the live public schema.
+        // A damaged staging import would otherwise appear identical to the old library.
+        await SetSearchPathAsync(connection, schema, cancellationToken, includePublic: false);
         await using var command = new NpgsqlCommand("""
             SELECT (SELECT count(*) FROM library_video),
                    (SELECT count(*) FROM library_metadata),
@@ -325,7 +327,7 @@ internal static class PostgresLibraryMigration
         if (sourceIndex is null || sourceMetadata is null) return false;
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await SetSearchPathAsync(connection, schema, cancellationToken);
+        await SetSearchPathAsync(connection, schema, cancellationToken, includePublic: false);
         var videos = new Dictionary<string, IndexEntry>(StringComparer.Ordinal);
         await using (var command = new NpgsqlCommand(
             "SELECT video_id,path,size_bytes,modified_ticks,missing FROM library_video", connection))
@@ -415,12 +417,13 @@ internal static class PostgresLibraryMigration
     }
 
     private static async Task SetSearchPathAsync(NpgsqlConnection connection, string schema,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool includePublic = true)
     {
         schema = ValidateSchema(schema);
         if (schema == "public") return;
         await using var command = new NpgsqlCommand(
-            $"SET search_path TO \"{schema}\", public", connection);
+            includePublic ? $"SET search_path TO \"{schema}\", public" :
+                $"SET search_path TO \"{schema}\"", connection);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 

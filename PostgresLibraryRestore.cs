@@ -34,8 +34,9 @@ internal static class PostgresLibraryRestore
         if (!await PostgresLibraryExport.VerifyOfflineAsync(backupDirectory, cancellationToken))
             throw new InvalidDataException("备份清单或文件校验失败；未开始恢复。 ");
 
-        var hasMarker = File.Exists(Path.Combine(dataDirectory,
-            PostgresStorageModeGuard.MarkerName));
+        var markerPath = Path.Combine(dataDirectory, PostgresStorageModeGuard.MarkerName);
+        var hasMarker = File.Exists(markerPath);
+        var originalMarker = hasMarker ? await File.ReadAllBytesAsync(markerPath, cancellationToken) : null;
         using var offlineLease = new FileStream(
             Path.Combine(dataDirectory, ".library-session.lock"), FileMode.OpenOrCreate,
             FileAccess.ReadWrite, FileShare.None);
@@ -43,10 +44,14 @@ internal static class PostgresLibraryRestore
         var rollbackArchive = Path.Combine(dataDirectory, "backups", "pre-restore-" + timestamp);
         var stagingSchema = "yingge_restore_" + Guid.NewGuid().ToString("N")[..12];
         var previousSchema = "yingge_prev_" + timestamp.Replace("-", "");
+        var assetStage = Path.Combine(dataDirectory, ".postgres-assets-stage-" + Guid.NewGuid().ToString("N"));
+        var assetPrevious = Path.Combine(dataDirectory, ".postgres-assets-prev-" + Guid.NewGuid().ToString("N"));
         var swapped = false;
+        var assetsSwapped = false;
         try
         {
             PostgresStorageModeGuard.BeginRestore(dataDirectory);
+            StageAssets(backupDirectory, assetStage);
 
             // Step 3: a verified copy of what is live right now. The caller
             // already holds the exclusive lease, so the backup takes it as an
@@ -67,6 +72,8 @@ internal static class PostgresLibraryRestore
             await SwapSchemasAsync(connectionString, stagingSchema, previousSchema,
                 cancellationToken);
             swapped = true;
+            SwapAssets(dataDirectory, assetStage, assetPrevious);
+            assetsSwapped = true;
 
             if (!await PostgresLibraryMigration.VerifyContentAsync(backupDirectory, connectionString,
                     cancellationToken))
@@ -79,12 +86,25 @@ internal static class PostgresLibraryRestore
                     dataDirectory, backupDirectory, cancellationToken);
             var counts = await PostgresLibraryMigration.VerifyAsync(connectionString, cancellationToken);
             PostgresStorageModeGuard.EndRestore(dataDirectory);
+            if (File.Exists(Path.Combine(dataDirectory, PostgresStorageModeGuard.RestoreSentinelName)))
+                throw new IOException("恢复已完成，但阻断标记未能清除。 ");
+            try { DeletePrivateAssetDirectory(dataDirectory, assetPrevious); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            try { DeletePrivateAssetDirectory(dataDirectory, assetStage); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
             return new("public", previousSchema, rollback.Directory, counts.VideoCount,
                 counts.MetadataCount, hasMarker);
         }
         catch
         {
             var reverted = true;
+            if (assetsSwapped || Directory.Exists(assetPrevious))
+            {
+                try { RevertAssets(dataDirectory, assetStage, assetPrevious); }
+                catch { reverted = false; }
+            }
             if (swapped)
             {
                 try
@@ -98,9 +118,86 @@ internal static class PostgresLibraryRestore
             // leave behind; it never holds the live data.
             try { await DropSchemaAsync(connectionString, stagingSchema, CancellationToken.None); }
             catch { }
+            if (reverted && Directory.Exists(assetStage))
+                try { DeletePrivateAssetDirectory(dataDirectory, assetStage); }
+                catch { reverted = false; }
+            if (reverted && originalMarker is not null)
+            {
+                try
+                {
+                    var markerTemp = markerPath + ".rollback-" + Guid.NewGuid().ToString("N");
+                    await File.WriteAllBytesAsync(markerTemp, originalMarker, CancellationToken.None);
+                    File.Move(markerTemp, markerPath, overwrite: true);
+                }
+                catch { reverted = false; }
+            }
             if (reverted) PostgresStorageModeGuard.EndRestore(dataDirectory);
             throw;
         }
+    }
+
+    private static void StageAssets(string backupDirectory, string stage)
+    {
+        Directory.CreateDirectory(stage);
+        foreach (var name in new[] { "posters", "thumbs" })
+        {
+            var target = Path.Combine(stage, name);
+            Directory.CreateDirectory(target);
+            var source = Path.Combine(backupDirectory, name);
+            if (!Directory.Exists(source)) continue;
+            foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.TopDirectoryOnly))
+                File.Copy(file, Path.Combine(target, Path.GetFileName(file)));
+        }
+    }
+
+    private static void SwapAssets(string dataDirectory, string stage, string previous)
+    {
+        Directory.CreateDirectory(previous);
+        foreach (var name in new[] { "posters", "thumbs" })
+        {
+            var live = Path.Combine(dataDirectory, name);
+            var old = Path.Combine(previous, name);
+            if (Directory.Exists(live)) Directory.Move(live, old);
+            Directory.Move(Path.Combine(stage, name), live);
+        }
+    }
+
+    private static void RevertAssets(string dataDirectory, string stage, string previous)
+    {
+        Directory.CreateDirectory(stage);
+        foreach (var name in new[] { "posters", "thumbs" })
+        {
+            var live = Path.Combine(dataDirectory, name);
+            var staged = Path.Combine(stage, name);
+            var old = Path.Combine(previous, name);
+            if (!Directory.Exists(staged))
+            {
+                if (Directory.Exists(live)) Directory.Move(live, staged);
+                if (Directory.Exists(old)) Directory.Move(old, live);
+            }
+        }
+        DeletePrivateAssetDirectory(dataDirectory, previous);
+    }
+
+    private static void DeletePrivateAssetDirectory(string dataDirectory, string target)
+    {
+        var root = Path.GetFullPath(dataDirectory).TrimEnd(Path.DirectorySeparatorChar) +
+            Path.DirectorySeparatorChar;
+        var resolved = Path.GetFullPath(target);
+        if (!resolved.StartsWith(root, StringComparison.OrdinalIgnoreCase) ||
+            Path.GetDirectoryName(resolved)?.TrimEnd(Path.DirectorySeparatorChar) !=
+                root.TrimEnd(Path.DirectorySeparatorChar) ||
+            !(Path.GetFileName(resolved).StartsWith(".postgres-assets-stage-", StringComparison.Ordinal) ||
+              Path.GetFileName(resolved).StartsWith(".postgres-assets-prev-", StringComparison.Ordinal)))
+            throw new InvalidDataException("图片暂存目录不在视频库内。 ");
+        if (!Directory.Exists(resolved)) return;
+        if ((File.GetAttributes(resolved) & FileAttributes.ReparsePoint) != 0 ||
+            Directory.EnumerateDirectories(resolved, "*", SearchOption.TopDirectoryOnly).Any(path =>
+                (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0) ||
+            Directory.EnumerateFiles(resolved, "*", SearchOption.AllDirectories).Any(path =>
+                (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0))
+            throw new InvalidDataException("图片暂存目录包含文件链接。 ");
+        Directory.Delete(resolved, recursive: true);
     }
 
     // Removes leftovers from an interrupted restore. Staging schemas are always

@@ -107,6 +107,8 @@ internal static class PostgresBackupAcceptance
                 !PostgresStorageModeGuard.LegacyFilesMayOpen(library);
 
             await MutateAsync(cluster.ConnectionString, videos);
+            File.WriteAllBytes(Path.Combine(library, "posters", "sample.jpg"), [9, 9, 9]);
+            File.WriteAllBytes(Path.Combine(library, "thumbs", "sample-custom.png"), [8, 8, 8]);
             var mutationApplied = await HasMutatedStateAsync(cluster.ConnectionString);
 
             watch.Restart();
@@ -117,7 +119,11 @@ internal static class PostgresBackupAcceptance
             // against the raw source directory: the export normalises the queue
             // into scrape-queue.json and intentionally drops journal generations.
             var restored = !await HasMutatedStateAsync(cluster.ConnectionString) &&
-                await PostgresLibraryMigration.VerifyContentAsync(backup, cluster.ConnectionString);
+                await PostgresLibraryMigration.VerifyContentAsync(backup, cluster.ConnectionString) &&
+                File.ReadAllBytes(Path.Combine(library, "posters", "sample.jpg"))
+                    .SequenceEqual(new byte[] { 1, 2, 3, 4 }) &&
+                File.ReadAllBytes(Path.Combine(library, "thumbs", "sample-custom.png"))
+                    .SequenceEqual(new byte[] { 5, 6, 7 });
 
             var archiveVerified = await PostgresLibraryExport.VerifyOfflineAsync(
                 restore.RollbackArchive);

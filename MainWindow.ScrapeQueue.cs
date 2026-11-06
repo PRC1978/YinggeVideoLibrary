@@ -441,7 +441,7 @@ public partial class MainWindow
         var failed = 0;
         try
         {
-            using var lease = await Task.Run(() => queueBridge.TryAcquireWorker(), cancellationToken);
+            await using var lease = await queueBridge.TryAcquireWorkerAsync(cancellationToken);
             if (lease is null)
             {
                 scrapeQueuePaused = true;

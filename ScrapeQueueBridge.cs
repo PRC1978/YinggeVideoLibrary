@@ -100,15 +100,22 @@ internal sealed class ScrapeQueueBridge
             failed.Take(5).Select(item => (item.DisplayQuery, item.LastError)).ToList());
     }
 
-    internal IDisposable? TryAcquireWorker()
+    internal async Task<IAsyncDisposable?> TryAcquireWorkerAsync(
+        CancellationToken cancellationToken = default)
     {
-        if (postgres is null) return ScrapeQueueStore.TryAcquireWorker(dataDir);
-        var lease = postgres.TryAcquireScrapeWorkerAsync().GetAwaiter().GetResult();
-        return lease is null ? null : new SyncLease(lease);
+        if (postgres is not null)
+            return await postgres.TryAcquireScrapeWorkerAsync(cancellationToken);
+        var lease = await Task.Run(() => ScrapeQueueStore.TryAcquireWorker(dataDir),
+            cancellationToken);
+        return lease is null ? null : new FileLease(lease);
     }
 
-    private sealed class SyncLease(PostgresScrapeWorkerLease lease) : IDisposable
+    private sealed class FileLease(IDisposable lease) : IAsyncDisposable
     {
-        public void Dispose() => lease.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        public ValueTask DisposeAsync()
+        {
+            lease.Dispose();
+            return ValueTask.CompletedTask;
+        }
     }
 }

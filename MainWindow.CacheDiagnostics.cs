@@ -459,16 +459,9 @@ public partial class MainWindow
                 }
                 // Exercise every navigator page. The 24-row page limit must
                 // never truncate the nodes or relationships on the sphere.
-                // The quick-search list may follow the graph in the category
-                // workbench. Locate the graph by its viewport, not by a
-                // brittle last-child position.
-                var graphPanel = CategoryPanel.Children.OfType<System.Windows.Controls.Border>()
-                    .Select(border => border.Child as System.Windows.Controls.StackPanel)
-                    .FirstOrDefault(panel => panel is not null && panel.Children
-                        .OfType<System.Windows.Controls.ScrollViewer>()
-                        .Any(child => ReferenceEquals(child, sphereGraphViewport)))
-                    ?? throw new InvalidOperationException("分类图布局未创建");
-                var navPanel = graphPanel.Children[^1] as System.Windows.Controls.StackPanel
+                // The graph now uses a two-column grid. Keep a direct handle
+                // to its navigator instead of assuming an old StackPanel tree.
+                var navPanel = sphereNavigatorPanel
                     ?? throw new InvalidOperationException("分类节点导航未创建");
                 var navBar = navPanel.Children[0] as System.Windows.Controls.DockPanel
                     ?? throw new InvalidOperationException("分类节点导航栏未创建");

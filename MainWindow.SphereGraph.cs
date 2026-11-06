@@ -750,6 +750,7 @@ public partial class MainWindow
 
     SphereMapSurface? sphereMapSurface;
     Border? sphereGraphCard;
+    StackPanel? sphereNavigatorPanel;
 
     Border? sphereSelectionBar;
     TextBlock? sphereSelectionTitle;
@@ -1941,6 +1942,7 @@ public partial class MainWindow
             NavigateSphereNode(item.Path);
         };
         Update();
+        sphereNavigatorPanel = panel;
         return panel;
     }
 

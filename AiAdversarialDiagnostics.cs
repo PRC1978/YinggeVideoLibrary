@@ -69,7 +69,7 @@ internal static class AiAdversarialDiagnostics
         }
         var verified = new MovieMetadata
         {
-            Title = "The Great Film", Source = "TMDB 电影",
+            Title = "The Great Film (2020)", Source = "TMDB 电影", ReleaseDate = "2020-01-01",
             DetailFetched = true, DetailIdentityVerified = true
         };
         var missingDetail = verified.Clone();
@@ -84,7 +84,7 @@ internal static class AiAdversarialDiagnostics
         fuzzyTitle.Title = "The Great Film: Part Two";
         var weakSource = verified.Clone();
         weakSource.Source = "Unverified Mirror";
-        var officialExact = ScrapeIdentityPolicy.Apply("The Great Film", verified,
+        var officialExact = ScrapeIdentityPolicy.Apply("The Great Film (2020)", verified,
             assessment.Confidence, assessment.Verdict, assessment.Reason);
 
         var stale = new LibraryConfig();

@@ -375,6 +375,13 @@ internal static class FeatureDiagnostics
                 var fuzzyOfficial = ScrapeIdentityPolicy.Apply("示例影片 特别版", restored, 100, "approve", "AI 极高可信");
                 findings["verifiedOfficialExactTitleGate"] = exactOfficial.Verdict == "approve" && exactOfficial.Confidence == 100
                     && fuzzyOfficial.Verdict == "review" && fuzzyOfficial.Confidence == 79;
+                var noLocalYear = ScrapeIdentityPolicy.Apply("示例影片.mp4", restored, 100, "approve", "AI 极高可信");
+                var noSourceYear = restored.Clone();
+                noSourceYear.ReleaseDate = "";
+                noSourceYear.Title = "示例影片";
+                var missingSourceYear = ScrapeIdentityPolicy.Apply("示例影片 (2025)", noSourceYear, 100, "approve", "AI 极高可信");
+                findings["uncodedNamesakeRequiresYearEvidence"] = noLocalYear.Verdict == "review" && noLocalYear.Confidence == 79
+                    && missingSourceYear.Verdict == "review" && missingSourceYear.Confidence == 79;
                 var differentYear = restored.Clone();
                 differentYear.Title = "示例影片";
                 differentYear.ReleaseDate = "2024-06-01";

@@ -41,13 +41,15 @@ internal static class ScrapeIdentityPolicy
         }
 
         // Official catalogs have stable IDs in their detail responses. Their
-        // exact title (or original title) can identify an uncoded local item;
-        // a partial/fuzzy title, even at AI confidence 100, still needs review.
+        // An exact title alone can still identify a remake or a namesake.
+        // For uncoded local items, require one explicit local year and a
+        // matching year from the verified catalog detail before auto-approval.
         if (IsOfficialCatalog(candidate.Source) &&
+            Years(localTitle).Count == 1 &&
             (ExactTitle(localTitle, candidate.Title) || ExactTitle(localTitle, candidate.OriginalTitle)))
             return new(Math.Clamp(confidence, 0, 100), verdict, reason);
 
-        return Pending(confidence, verdict, reason, "仅有近似标题，须人工核对作品身份");
+        return Pending(confidence, verdict, reason, "缺少可核对的番号或年份与完整标题，须人工核对作品身份");
     }
 
     static ScrapeIdentityDecision Pending(int confidence, string verdict, string reason, string evidence)

@@ -97,7 +97,7 @@ internal sealed class PostgresPrivateCluster : IAsyncDisposable
                 var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
                 await process.WaitForExitAsync(cancellationToken);
                 if (process.ExitCode != 0 || !output.Contains(" " + clusterVersion + ".", StringComparison.Ordinal))
-                    throw new InvalidDataException("数据库文件版本与随程序提供的 PostgreSQL 版本不匹配。 ");
+                    throw new InvalidDataException($"数据库文件版本 {clusterVersion} 与随程序提供的 PostgreSQL 不匹配。现有资料未被改动；请先用原版本导出并校验备份，再按升级说明迁移，勿删除数据库目录。");
             }
             var listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();

@@ -508,7 +508,8 @@ internal static class PostgresBackupAcceptance
                         PostgresStorageModeGuard.StorageMode.PostgreSql;
             }
             // Simulate a killed process: sentinel plus a leftover staging schema.
-            PostgresStorageModeGuard.BeginRestore(library);
+            PostgresStorageModeGuard.BeginRestore(library,
+                "yingge_restore_deadbeef", "yingge_prev_deadbeef");
             await ExecuteAsync(cluster.ConnectionString,
                 "CREATE SCHEMA IF NOT EXISTS yingge_restore_deadbeef");
             var cleaned = await PostgresLibraryRestore.CleanupInterruptedAsync(

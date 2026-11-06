@@ -14,6 +14,8 @@ namespace YinggeVideoLibrary;
 // database must never look like a clean file-mode library.
 internal static class PostgresStorageModeGuard
 {
+    internal sealed record RestoreAttempt(string StagingSchema, string PreviousSchema,
+        DateTimeOffset StartedUtc, int ProcessId);
     internal const string MarkerName = "storage-postgresql.active";
     internal const string RestoreSentinelName = ".postgres-restore-in-progress";
 
@@ -49,17 +51,37 @@ internal static class PostgresStorageModeGuard
     internal static bool PostgresMayOpen(string dataDirectory) =>
         Current(dataDirectory) == StorageMode.PostgreSql;
 
-    internal static void BeginRestore(string dataDirectory)
+    internal static void BeginRestore(string dataDirectory, string? stagingSchema = null,
+        string? previousSchema = null)
     {
         Directory.CreateDirectory(dataDirectory);
         var sentinel = Path.Combine(dataDirectory, RestoreSentinelName);
         var temp = sentinel + ".tmp-" + Guid.NewGuid().ToString("N");
-        File.WriteAllText(temp, JsonSerializer.Serialize(new
-        {
-            startedUtc = DateTimeOffset.UtcNow,
-            processId = Environment.ProcessId
-        }));
+        File.WriteAllText(temp, JsonSerializer.Serialize(new RestoreAttempt(
+            stagingSchema ?? "", previousSchema ?? "", DateTimeOffset.UtcNow,
+            Environment.ProcessId)));
         File.Move(temp, sentinel, overwrite: true);
+    }
+
+    internal static RestoreAttempt? ReadRestoreAttempt(string dataDirectory)
+    {
+        try
+        {
+            var path = Path.Combine(dataDirectory, RestoreSentinelName);
+            var attempt = JsonSerializer.Deserialize<RestoreAttempt>(File.ReadAllBytes(path));
+            if (attempt is null || !attempt.StagingSchema.StartsWith("yingge_restore_",
+                    StringComparison.Ordinal) ||
+                !attempt.PreviousSchema.StartsWith("yingge_prev_", StringComparison.Ordinal))
+                return null;
+            PostgresLibraryMigration.ValidateSchema(attempt.StagingSchema);
+            PostgresLibraryMigration.ValidateSchema(attempt.PreviousSchema);
+            return attempt;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
+            JsonException or ArgumentException)
+        {
+            return null;
+        }
     }
 
     internal static void EndRestore(string dataDirectory)

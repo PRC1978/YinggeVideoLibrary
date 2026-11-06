@@ -44,14 +44,14 @@ internal static class PostgresLibraryRestore
         var timestamp = DateTimeOffset.Now.ToString("yyyyMMdd-HHmmss");
         var rollbackArchive = Path.Combine(dataDirectory, "backups", "pre-restore-" + timestamp);
         var stagingSchema = "yingge_restore_" + Guid.NewGuid().ToString("N")[..12];
-        var previousSchema = "yingge_prev_" + timestamp.Replace("-", "");
+        var previousSchema = "yingge_prev_" + Guid.NewGuid().ToString("N")[..12];
         var assetStage = Path.Combine(dataDirectory, ".postgres-assets-stage-" + Guid.NewGuid().ToString("N"));
         var assetPrevious = Path.Combine(dataDirectory, ".postgres-assets-prev-" + Guid.NewGuid().ToString("N"));
         var swapped = false;
         var assetsSwapped = false;
         try
         {
-            PostgresStorageModeGuard.BeginRestore(dataDirectory);
+            PostgresStorageModeGuard.BeginRestore(dataDirectory, stagingSchema, previousSchema);
             StageAssets(backupDirectory, assetStage);
 
             // Step 3: a verified copy of what is live right now. The caller
@@ -217,26 +217,24 @@ internal static class PostgresLibraryRestore
     internal static async Task<bool> CleanupInterruptedAsync(string connectionString,
         string dataDirectory, CancellationToken cancellationToken = default)
     {
+        var attempt = PostgresStorageModeGuard.ReadRestoreAttempt(dataDirectory);
+        if (attempt is null) return false;
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        var staging = new List<string>();
-        await using (var command = new NpgsqlCommand(
-            "SELECT nspname FROM pg_namespace WHERE nspname LIKE 'yingge!_restore!_%' ESCAPE '!'",
-            connection))
-        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
-            while (await reader.ReadAsync(cancellationToken)) staging.Add(reader.GetString(0));
-        foreach (var schema in staging)
-            await DropSchemaAsync(connection, schema, cancellationToken);
         await using var previousCount = new NpgsqlCommand(
-            "SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'yingge!_prev!_%' ESCAPE '!'",
-            connection);
+            "SELECT count(*) FROM pg_namespace WHERE nspname=@schema", connection);
+        previousCount.Parameters.AddWithValue("schema", attempt.PreviousSchema);
         var swapped = Convert.ToInt64(await previousCount.ExecuteScalarAsync(cancellationToken) ?? 0L) > 0;
         await using var present = new NpgsqlCommand(
             "SELECT to_regclass('public.library_migration') IS NOT NULL", connection);
         var hasMarker = (bool)(await present.ExecuteScalarAsync(cancellationToken) ?? false);
         if (!hasMarker || swapped) return false;
+        // No swap from this attempt occurred. Remove only its staging schema;
+        // older rollback schemas are unrelated and must remain untouched.
+        await DropSchemaAsync(connection, attempt.StagingSchema, cancellationToken);
         PostgresStorageModeGuard.EndRestore(dataDirectory);
-        return true;
+        return !File.Exists(Path.Combine(dataDirectory,
+            PostgresStorageModeGuard.RestoreSentinelName));
     }
 
     private static async Task SwapSchemasAsync(string connectionString, string fromSchema,

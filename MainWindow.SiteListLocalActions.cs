@@ -11,8 +11,10 @@ public partial class MainWindow
     {
         var local = SnapshotSiteListLibrary();
         var oldMemory = CloneLibraryConfig(config);
-        var result = await Task.Run(() => SaveSiteListLocalAction(preview, local,
-            ConfigPath, DataDir, credentialStoreReady, javinfoCredentialReady));
+        var result = postgresSession is null
+            ? await Task.Run(() => SaveSiteListLocalAction(preview, local,
+                ConfigPath, DataDir, credentialStoreReady, javinfoCredentialReady))
+            : await SaveSiteListLocalActionDatabaseAsync(preview, local);
         ReconcileSiteListLocalAction(result.Config, oldMemory, result.Action);
         return result.Action;
     }
@@ -21,8 +23,10 @@ public partial class MainWindow
     {
         var local = SnapshotSiteListLibrary();
         var oldMemory = CloneLibraryConfig(config);
-        var result = await Task.Run(() => UndoSavedSiteListLocalAction(actionId, local,
-            ConfigPath, credentialStoreReady, javinfoCredentialReady));
+        var result = postgresSession is null
+            ? await Task.Run(() => UndoSavedSiteListLocalAction(actionId, local,
+                ConfigPath, credentialStoreReady, javinfoCredentialReady))
+            : await UndoSiteListLocalActionDatabaseAsync(actionId, local);
         ReconcileSiteListLocalAction(result.Config, oldMemory, result.Action);
         return result.Action;
     }
@@ -42,7 +46,7 @@ public partial class MainWindow
         configBaseline.TmdbToken = config.TmdbToken;
         configBaseline.AiKey = config.AiKey;
         configBaseline.JavinfoKey = config.JavinfoKey;
-        configSource = "config.json";
+        configSource = postgresSession is null ? "config.json" : "PostgreSQL";
         configSaveVersion++;
         if (action.Changes.Any(change => change.BeforeTags is not null)) categoryDataVersion++;
         var affected = action.Changes.Select(change => change.VideoId)
@@ -78,6 +82,34 @@ public partial class MainWindow
             return (persisted, action);
         }
         finally { if (ownsMutex) ConfigWriteMutex.ReleaseMutex(); }
+    }
+
+    async Task<(LibraryConfig Config, SiteListLocalAction Action)> SaveSiteListLocalActionDatabaseAsync(
+        SiteListLocalActionStore.Preview preview,
+        IReadOnlyList<SiteListImportStore.LocalVideo> library)
+    {
+        var list = await PostgresSiteListImportStore.LoadAsync(postgresSession!.ConnectionString);
+        if (list.Revision != preview.ListRevision)
+            throw new InvalidOperationException("导入清单已更新，请重新预览。");
+        await Task.Run(() => ValidateSiteListLocalIdentity(preview.Changes, list, library,
+            requireEntry: true));
+        var edited = CloneLibraryConfig(postgresSession.Config);
+        var action = SiteListLocalActionStore.Apply(edited, preview);
+        await postgresSession.SaveConfigAsync(edited);
+        return (CloneLibraryConfig(postgresSession.Config), action);
+    }
+
+    async Task<(LibraryConfig Config, SiteListLocalAction Action)> UndoSiteListLocalActionDatabaseAsync(
+        string actionId, IReadOnlyList<SiteListImportStore.LocalVideo> library)
+    {
+        var edited = CloneLibraryConfig(postgresSession!.Config);
+        if (!edited.SiteListLocalActions.TryGetValue(actionId, out var original) || original.Kind != "apply")
+            throw new InvalidOperationException("片单操作历史已改变，请刷新后重试。");
+        await Task.Run(() => ValidateSiteListLocalIdentity(original.Changes, null, library,
+            requireEntry: false));
+        var action = SiteListLocalActionStore.Undo(edited, actionId);
+        await postgresSession.SaveConfigAsync(edited);
+        return (CloneLibraryConfig(postgresSession.Config), action);
     }
 
     internal static (LibraryConfig Config, SiteListLocalAction Action) UndoSavedSiteListLocalAction(

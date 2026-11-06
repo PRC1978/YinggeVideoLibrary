@@ -101,7 +101,32 @@ internal static class SiteListImportStore
         return WithMutex(() => LoadUnlocked(dataDirectory));
     }
 
+    internal static State ParseDatabaseDocument(byte[]? bytes)
+    {
+        if (bytes is null) return new State();
+        if (bytes.Length > MaxStoredBytes) throw new InvalidDataException("数据库站点清单超过 30 MB 上限。");
+        var state = JsonSerializer.Deserialize<State>(bytes)
+            ?? throw new InvalidDataException("数据库站点清单为空或无法读取。");
+        Validate(state);
+        return state;
+    }
+
+    internal static byte[] SerializeDatabaseDocument(State state)
+    {
+        Validate(state);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(state, JsonOptions);
+        if (bytes.Length > MaxStoredBytes)
+            throw new InvalidOperationException("导入清单已达到 30 MB 存储上限。");
+        return bytes;
+    }
+
     internal static Preview CreatePreview(string dataDirectory, string exportPath,
+        IReadOnlyList<LocalVideo> library, CancellationToken cancellationToken = default,
+        IProgress<HashProgress>? progress = null)
+        => CreatePreviewFromState(WithMutex(() => LoadUnlocked(dataDirectory)),
+            exportPath, library, cancellationToken, progress);
+
+    internal static Preview CreatePreviewFromState(State state, string exportPath,
         IReadOnlyList<LocalVideo> library, CancellationToken cancellationToken = default,
         IProgress<HashProgress>? progress = null)
     {
@@ -109,7 +134,7 @@ internal static class SiteListImportStore
         var bytes = ReadExport(fullPath);
         var hash = Convert.ToHexString(SHA256.HashData(bytes));
         var rows = ParseExport(fullPath, bytes);
-        var state = WithMutex(() => LoadUnlocked(dataDirectory));
+        Validate(state);
         var match = new MatchIndex(library);
         var known = state.Entries.Select(entry => entry.Key).ToHashSet(StringComparer.Ordinal);
         var preview = new Preview
@@ -160,8 +185,11 @@ internal static class SiteListImportStore
 
     internal static AuditAction Commit(string dataDirectory, Preview preview,
         IReadOnlyList<LocalVideo> currentLibrary, CancellationToken cancellationToken = default,
-        IProgress<HashProgress>? progress = null)
+        IProgress<HashProgress>? progress = null, State? databaseState = null,
+        Action<State>? databaseSave = null)
     {
+        if ((databaseState is null) != (databaseSave is null))
+            throw new ArgumentException("数据库清单状态与保存函数必须同时提供。");
         cancellationToken.ThrowIfCancellationRequested();
         if (preview.Importable == 0) throw new InvalidOperationException("没有可导入的新条目。");
         if (preview.Rows.Count == 0 || preview.Rows.Count > MaxRows ||
@@ -216,7 +244,8 @@ internal static class SiteListImportStore
         return WithMutex(() =>
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var state = LoadUnlocked(dataDirectory);
+            var state = databaseState ?? LoadUnlocked(dataDirectory);
+            Validate(state);
             if (state.Revision != preview.StoreRevision)
                 throw new InvalidOperationException("导入清单已被其他窗口修改，请重新预览。");
             var existing = state.Entries.Select(entry => entry.Key).ToHashSet(StringComparer.Ordinal);
@@ -246,16 +275,21 @@ internal static class SiteListImportStore
             state.Actions.Add(action);
             state.Revision++;
             cancellationToken.ThrowIfCancellationRequested();
-            SaveUnlocked(dataDirectory, state);
+            if (databaseSave is null) SaveUnlocked(dataDirectory, state);
+            else databaseSave(state);
             return action;
         });
     }
 
-    internal static AuditAction Undo(string dataDirectory, string batchId)
+    internal static AuditAction Undo(string dataDirectory, string batchId,
+        State? databaseState = null, Action<State>? databaseSave = null)
     {
+        if ((databaseState is null) != (databaseSave is null))
+            throw new ArgumentException("数据库清单状态与保存函数必须同时提供。");
         return WithMutex(() =>
         {
-            var state = LoadUnlocked(dataDirectory);
+            var state = databaseState ?? LoadUnlocked(dataDirectory);
+            Validate(state);
             var import = state.Actions.SingleOrDefault(action => action.Kind == "import" && action.BatchId == batchId)
                 ?? throw new InvalidOperationException("找不到这次导入记录。");
             if (state.Actions.Any(action => action.Kind == "undo" && action.BatchId == batchId))
@@ -274,7 +308,8 @@ internal static class SiteListImportStore
             };
             state.Actions.Add(undo);
             state.Revision++;
-            SaveUnlocked(dataDirectory, state);
+            if (databaseSave is null) SaveUnlocked(dataDirectory, state);
+            else databaseSave(state);
             return undo;
         });
     }

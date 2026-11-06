@@ -157,8 +157,11 @@ public partial class MainWindow
                     if (busy && !cancellation.IsCancellationRequested)
                         status.Text = $"正在校验已匹配本地视频内容 {item.Done:N0}/{item.Total:N0}；可取消，预览不会写入。";
                 });
-                active = await Task.Run(() => SiteListImportStore.CreatePreview(
-                    DataDir, filePath, local, cancellation.Token, progress));
+                active = postgresSession is null
+                    ? await Task.Run(() => SiteListImportStore.CreatePreview(
+                        DataDir, filePath, local, cancellation.Token, progress))
+                    : await PostgresSiteListImportStore.CreatePreviewAsync(
+                        postgresSession.ConnectionString, filePath, local, cancellation.Token, progress);
                 rows.ItemsSource = active.Rows;
                 status.Text = $"共 {active.Rows.Count:N0} 条 · 已匹配 {active.Matched:N0} · 待核对 {active.Pending:N0} · 未匹配 {active.Unmatched:N0} · 重复 {active.Duplicates:N0}。可导入 {active.Importable:N0} 条。";
                 if (active.Importable == 0 && active.Duplicates > 0)
@@ -192,8 +195,11 @@ public partial class MainWindow
                     if (busy && !cancellation.IsCancellationRequested)
                         status.Text = $"正在复核已匹配视频 {item.Done:N0}/{item.Total:N0}；保存前可取消。";
                 });
-                var action = await Task.Run(() => SiteListImportStore.Commit(
-                    DataDir, selected, local, cancellation.Token, progress));
+                var action = postgresSession is null
+                    ? await Task.Run(() => SiteListImportStore.Commit(
+                        DataDir, selected, local, cancellation.Token, progress))
+                    : await PostgresSiteListImportStore.CommitAsync(
+                        postgresSession.ConnectionString, DataDir, selected, local, cancellation.Token, progress);
                 Log($"导入站点清单 {action.EntryKeys.Count:N0} 条；可在设置中查看或撤销");
                 SetBusy(false);
                 dialog.DialogResult = true;
@@ -239,7 +245,9 @@ public partial class MainWindow
     async void OpenSavedSiteLists(object sender, RoutedEventArgs e)
     {
         SiteListImportStore.State state;
-        try { state = await Task.Run(() => SiteListImportStore.Load(DataDir)); }
+        try { state = postgresSession is null
+            ? await Task.Run(() => SiteListImportStore.Load(DataDir))
+            : await PostgresSiteListImportStore.LoadAsync(postgresSession.ConnectionString); }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "已导入清单", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
         if (isClosing || !IsLoaded) return;
         var dialog = new Window
@@ -485,8 +493,14 @@ public partial class MainWindow
             undo.IsEnabled = close.IsEnabled = false;
             try
             {
-                await Task.Run(() => SiteListImportStore.Undo(DataDir, selected.BatchId));
-                state = await Task.Run(() => SiteListImportStore.Load(DataDir));
+                if (postgresSession is null)
+                    await Task.Run(() => SiteListImportStore.Undo(DataDir, selected.BatchId));
+                else
+                    await PostgresSiteListImportStore.UndoAsync(postgresSession.ConnectionString,
+                        DataDir, selected.BatchId);
+                state = postgresSession is null
+                    ? await Task.Run(() => SiteListImportStore.Load(DataDir))
+                    : await PostgresSiteListImportStore.LoadAsync(postgresSession.ConnectionString);
                 ApplyFilter();
                 history.ItemsSource = state.Actions.AsEnumerable().Reverse().ToArray();
                 summary.Text = $"已保存 {state.Entries.Count:N0} 条 · {state.Actions.Count(action => action.Kind == "import"):N0} 次导入";
@@ -604,8 +618,12 @@ public partial class MainWindow
                 var target = new LibraryConfig { Favorites = favorites, Tags = tags };
                 var useFavorite = favorite.IsChecked == true;
                 var newTag = tag.Text.Trim();
+                var savedList = postgresSession is null
+                    ? await Task.Run(() => SiteListImportStore.Load(DataDir))
+                    : await PostgresSiteListImportStore.LoadAsync(postgresSession.ConnectionString,
+                        cancellation.Token);
                 prepared = await Task.Run(() => SiteListLocalActionStore.Prepare(
-                    SiteListImportStore.Load(DataDir), selected, local, target, useFavorite, newTag,
+                    savedList, selected, local, target, useFavorite, newTag,
                     cancellation.Token));
                 var names = selected.GroupBy(entry => entry.VideoId, StringComparer.OrdinalIgnoreCase)
                     .ToDictionary(group => group.Key, group => group.First().LocalTitle, StringComparer.OrdinalIgnoreCase);

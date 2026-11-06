@@ -491,6 +491,22 @@ internal static class PostgresBackupAcceptance
         var titleCandidatesVerified = titleFromDatabase?.Query == "隔离标题" &&
             titleFromDatabase.Candidates.Single().SearchMetadata.Title == "数据库候选" &&
             !Directory.Exists(Path.Combine(fixture.MediaRoot, "title-candidates"));
+        Directory.CreateDirectory(fixture.MediaRoot);
+        var siteExport = Path.Combine(fixture.MediaRoot, "isolated-list.csv");
+        await File.WriteAllTextAsync(siteExport,
+            "source,title,code,url\r\nTest,Unmatched isolated title,,\r\n");
+        var sitePreview = await PostgresSiteListImportStore.CreatePreviewAsync(
+            session.ConnectionString, siteExport, []);
+        var siteImport = await PostgresSiteListImportStore.CommitAsync(session.ConnectionString,
+            fixture.MediaRoot, sitePreview, []);
+        var siteLoaded = await PostgresSiteListImportStore.LoadAsync(session.ConnectionString);
+        var siteUndo = await PostgresSiteListImportStore.UndoAsync(session.ConnectionString,
+            fixture.MediaRoot, siteImport.BatchId);
+        var siteAfterUndo = await PostgresSiteListImportStore.LoadAsync(session.ConnectionString);
+        var siteListVerified = siteImport.EntryKeys.Count == 1 && siteLoaded.Entries.Count == 1 &&
+            siteUndo.Kind == "undo" && siteAfterUndo.Entries.Count == 0 &&
+            siteAfterUndo.Actions.Count == 2 &&
+            !File.Exists(Path.Combine(fixture.MediaRoot, "site-list-import.json"));
 
         var savedConfig = await PostgresLibraryDocumentStore.ReadAsync(session.ConnectionString,
             "config.json");
@@ -505,7 +521,7 @@ internal static class PostgresBackupAcceptance
             candidateAfter?.Revision == candidateRevision &&
             candidateAfter.Content.SequenceEqual(candidateBytes) &&
             candidateBridgeVerified && pluginStateSaved && aiBudgetVerified && aiJobsVerified &&
-            ratingVerified && titleCandidatesVerified &&
+            ratingVerified && titleCandidatesVerified && siteListVerified &&
             staleWriteRejected && dedicatedWriterRequired && emptyScanProtected &&
             exclusiveWorker && sourcePacingVerified && reviewCommitted &&
             reviewViewsPersisted;

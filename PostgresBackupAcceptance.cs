@@ -35,7 +35,8 @@ internal static class PostgresBackupAcceptance
     internal sealed record FailureResult(bool InterruptedBackupClean, bool SpacePrecheckRejected,
         bool CorruptPackageRejected, bool OldPackageRejected, bool OldDatabaseUpgraded,
         bool NewerDatabaseRefused, bool InterruptedRestoreKeptOldData, bool InterruptedRestoreCleaned,
-        bool FailedActivationLeftNoMarker, bool FailedRestoreReverted, bool SentinelBlocksBothModes);
+        bool FailedActivationLeftNoMarker, bool FailedRestoreReverted, bool SentinelBlocksBothModes,
+        bool FailedAfterMarkerRestoredOriginal);
 
     internal static async Task<Dictionary<string, object?>> RunAsync(string runtimeDirectory,
         string probeRoot, bool includeLarge = true)
@@ -67,7 +68,8 @@ internal static class PostgresBackupAcceptance
                 failures.OldPackageRejected && failures.OldDatabaseUpgraded &&
                 failures.NewerDatabaseRefused && failures.InterruptedRestoreKeptOldData &&
                 failures.InterruptedRestoreCleaned && failures.FailedActivationLeftNoMarker &&
-                failures.FailedRestoreReverted && failures.SentinelBlocksBothModes;
+                failures.FailedRestoreReverted && failures.SentinelBlocksBothModes &&
+                failures.FailedAfterMarkerRestoredOriginal;
         }
         catch (Exception ex)
         {
@@ -566,9 +568,29 @@ internal static class PostgresBackupAcceptance
                 !PostgresStorageModeGuard.PostgresMayOpen(library);
             PostgresStorageModeGuard.EndRestore(library);
 
+            Log(probeRoot, "failure 10");
+            // Marker replacement is also part of the restore transaction. A
+            // failure after that step must restore its exact original bytes.
+            var markerPath = Path.Combine(library, PostgresStorageModeGuard.MarkerName);
+            var originalMarker = await File.ReadAllBytesAsync(markerPath);
+            var markerReverted = false;
+            try
+            {
+                await PostgresLibraryRestore.RestoreInPlaceAsync(cluster.ConnectionString,
+                    library, backup, interruptAfterMarker: () =>
+                        throw new InvalidDataException("注入：标记改写后失败"));
+            }
+            catch (InvalidDataException)
+            {
+                markerReverted = (await File.ReadAllBytesAsync(markerPath)).SequenceEqual(originalMarker) &&
+                    await PostgresLibraryMigration.VerifyContentAsync(mutatedBackup,
+                        cluster.ConnectionString) &&
+                    PostgresStorageModeGuard.PostgresMayOpen(library);
+            }
+
             return new(interruptedClean, spaceRejected, corruptRejected, oldPackageRejected,
                 oldUpgraded, newerRefused, interruptedRestore, cleanedOk, markerlessRejected,
-                reverted, sentinelBlocks);
+                reverted, sentinelBlocks, markerReverted);
         }
         finally
         {

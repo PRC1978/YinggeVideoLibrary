@@ -25,7 +25,8 @@ internal static class PostgresLibraryRestore
 
     internal static async Task<Result> RestoreInPlaceAsync(string connectionString,
         string dataDirectory, string backupDirectory, CancellationToken cancellationToken = default,
-        Action? interruptBeforeSwap = null, Action? interruptAfterSwap = null)
+        Action? interruptBeforeSwap = null, Action? interruptAfterSwap = null,
+        Action? interruptAfterMarker = null)
     {
         dataDirectory = Path.GetFullPath(dataDirectory);
         backupDirectory = Path.GetFullPath(backupDirectory);
@@ -84,6 +85,7 @@ internal static class PostgresLibraryRestore
             if (hasMarker)
                 await PostgresStorageModeActivation.RewriteAfterRestoreAsync(connectionString,
                     dataDirectory, backupDirectory, cancellationToken);
+            interruptAfterMarker?.Invoke();
             var counts = await PostgresLibraryMigration.VerifyAsync(connectionString, cancellationToken);
             PostgresStorageModeGuard.EndRestore(dataDirectory);
             if (File.Exists(Path.Combine(dataDirectory, PostgresStorageModeGuard.RestoreSentinelName)))

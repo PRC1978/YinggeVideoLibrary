@@ -11,6 +11,9 @@ internal sealed class PostgresLibraryRuntimeSession : IAsyncDisposable
     private readonly PostgresPrivateCluster cluster;
 
     internal string ConnectionString => cluster.ConnectionString;
+    internal Task<PostgresScrapeWorkerLease?> TryAcquireScrapeWorkerAsync(
+        CancellationToken cancellationToken = default) =>
+        PostgresScrapeWorkerLease.TryAcquireAsync(ConnectionString, cancellationToken);
     internal LibraryConfig Config { get; private set; }
     internal PostgresLibraryIndexStore.Snapshot Index { get; private set; }
     internal PostgresLibraryMetadataStore.Snapshot Metadata { get; private set; }

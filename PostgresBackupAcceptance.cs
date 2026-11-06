@@ -196,6 +196,15 @@ internal static class PostgresBackupAcceptance
     private static async Task<bool> VerifyRuntimeWritesAsync(
         PostgresLibraryRuntimeSession session, Fixture fixture)
     {
+        var firstWorker = await session.TryAcquireScrapeWorkerAsync();
+        if (firstWorker is null) return false;
+        var secondWorker = await session.TryAcquireScrapeWorkerAsync();
+        var exclusiveWorker = secondWorker is null;
+        if (secondWorker is not null) await secondWorker.DisposeAsync();
+        await firstWorker.DisposeAsync();
+        var afterRelease = await session.TryAcquireScrapeWorkerAsync();
+        exclusiveWorker &= afterRelease is not null;
+        if (afterRelease is not null) await afterRelease.DisposeAsync();
         var config = MainWindow.CloneLibraryConfig(session.Config);
         var originalShowAll = config.ShowAll;
         config.ShowAll = !originalShowAll;
@@ -283,7 +292,8 @@ internal static class PostgresBackupAcceptance
             session.Roles.State.Profiles[0].Name == "人物甲·会话写入" &&
             candidateAfter?.Revision == candidateRevision &&
             candidateAfter.Content.SequenceEqual(candidateBytes) &&
-            staleWriteRejected && dedicatedWriterRequired && emptyScanProtected;
+            staleWriteRejected && dedicatedWriterRequired && emptyScanProtected &&
+            exclusiveWorker;
     }
 
     private static Fixture BuildFixture(string source, int count)

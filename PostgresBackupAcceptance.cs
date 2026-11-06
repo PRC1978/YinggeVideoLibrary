@@ -36,7 +36,7 @@ internal static class PostgresBackupAcceptance
         bool CorruptPackageRejected, bool OldPackageRejected, bool OldDatabaseUpgraded,
         bool NewerDatabaseRefused, bool InterruptedRestoreKeptOldData, bool InterruptedRestoreCleaned,
         bool FailedActivationLeftNoMarker, bool FailedRestoreReverted, bool SentinelBlocksBothModes,
-        bool FailedAfterMarkerRestoredOriginal);
+        bool FailedAfterMarkerRestoredOriginal, bool PartialAssetSwapReverted);
 
     internal static async Task<Dictionary<string, object?>> RunAsync(string runtimeDirectory,
         string probeRoot, bool includeLarge = true)
@@ -69,7 +69,7 @@ internal static class PostgresBackupAcceptance
                 failures.NewerDatabaseRefused && failures.InterruptedRestoreKeptOldData &&
                 failures.InterruptedRestoreCleaned && failures.FailedActivationLeftNoMarker &&
                 failures.FailedRestoreReverted && failures.SentinelBlocksBothModes &&
-                failures.FailedAfterMarkerRestoredOriginal;
+                failures.FailedAfterMarkerRestoredOriginal && failures.PartialAssetSwapReverted;
         }
         catch (Exception ex)
         {
@@ -588,9 +588,29 @@ internal static class PostgresBackupAcceptance
                     PostgresStorageModeGuard.PostgresMayOpen(library);
             }
 
+            Log(probeRoot, "failure 11");
+            var assetSwapReverted = false;
+            try
+            {
+                await PostgresLibraryRestore.RestoreInPlaceAsync(cluster.ConnectionString,
+                    library, backup, interruptDuringAssetSwap: () =>
+                        throw new InvalidDataException("注入：图片目录切换到一半"));
+            }
+            catch (InvalidDataException)
+            {
+                assetSwapReverted =
+                    File.ReadAllBytes(Path.Combine(library, "posters", "sample.jpg"))
+                        .SequenceEqual(new byte[] { 1, 2, 3, 4 }) &&
+                    File.ReadAllBytes(Path.Combine(library, "thumbs", "sample-custom.png"))
+                        .SequenceEqual(new byte[] { 5, 6, 7 }) &&
+                    await PostgresLibraryMigration.VerifyContentAsync(mutatedBackup,
+                        cluster.ConnectionString) &&
+                    PostgresStorageModeGuard.PostgresMayOpen(library);
+            }
+
             return new(interruptedClean, spaceRejected, corruptRejected, oldPackageRejected,
                 oldUpgraded, newerRefused, interruptedRestore, cleanedOk, markerlessRejected,
-                reverted, sentinelBlocks, markerReverted);
+                reverted, sentinelBlocks, markerReverted, assetSwapReverted);
         }
         finally
         {

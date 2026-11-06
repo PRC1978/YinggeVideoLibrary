@@ -26,7 +26,7 @@ internal static class PostgresLibraryRestore
     internal static async Task<Result> RestoreInPlaceAsync(string connectionString,
         string dataDirectory, string backupDirectory, CancellationToken cancellationToken = default,
         Action? interruptBeforeSwap = null, Action? interruptAfterSwap = null,
-        Action? interruptAfterMarker = null)
+        Action? interruptAfterMarker = null, Action? interruptDuringAssetSwap = null)
     {
         dataDirectory = Path.GetFullPath(dataDirectory);
         backupDirectory = Path.GetFullPath(backupDirectory);
@@ -73,7 +73,7 @@ internal static class PostgresLibraryRestore
             await SwapSchemasAsync(connectionString, stagingSchema, previousSchema,
                 cancellationToken);
             swapped = true;
-            SwapAssets(dataDirectory, assetStage, assetPrevious);
+            SwapAssets(dataDirectory, assetStage, assetPrevious, interruptDuringAssetSwap);
             assetsSwapped = true;
 
             if (!await PostgresLibraryMigration.VerifyContentAsync(backupDirectory, connectionString,
@@ -152,7 +152,8 @@ internal static class PostgresLibraryRestore
         }
     }
 
-    private static void SwapAssets(string dataDirectory, string stage, string previous)
+    private static void SwapAssets(string dataDirectory, string stage, string previous,
+        Action? interruptDuringAssetSwap)
     {
         Directory.CreateDirectory(previous);
         foreach (var name in new[] { "posters", "thumbs" })
@@ -160,6 +161,7 @@ internal static class PostgresLibraryRestore
             var live = Path.Combine(dataDirectory, name);
             var old = Path.Combine(previous, name);
             if (Directory.Exists(live)) Directory.Move(live, old);
+            interruptDuringAssetSwap?.Invoke();
             Directory.Move(Path.Combine(stage, name), live);
         }
     }
@@ -172,11 +174,18 @@ internal static class PostgresLibraryRestore
             var live = Path.Combine(dataDirectory, name);
             var staged = Path.Combine(stage, name);
             var old = Path.Combine(previous, name);
-            if (!Directory.Exists(staged))
+            if (Directory.Exists(old))
             {
-                if (Directory.Exists(live)) Directory.Move(live, staged);
-                if (Directory.Exists(old)) Directory.Move(old, live);
+                if (Directory.Exists(live))
+                {
+                    if (Directory.Exists(staged))
+                        throw new InvalidDataException("图片回退遇到两个活动目录；保留阻断标记。 ");
+                    Directory.Move(live, staged);
+                }
+                Directory.Move(old, live);
             }
+            else if (!Directory.Exists(staged) && Directory.Exists(live))
+                Directory.Move(live, staged);
         }
         DeletePrivateAssetDirectory(dataDirectory, previous);
     }

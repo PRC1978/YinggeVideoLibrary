@@ -379,6 +379,32 @@ public partial class MainWindow
             AppendPostgresBackupControls(section);
             return section;
         }
+        section.Children.Add(new TextBlock { Text = "数据库存储", FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 17, 0, 0) });
+        section.Children.Add(SettingsHint("转换会在下次启动、打开视频库之前执行；先复制全部旧资料到私有 PostgreSQL，创建并验证独立备份，成功后才启用数据库。原文件保留。"));
+        var convert = new Button { Content = "下次启动转换为 PostgreSQL",
+            Style = (Style)FindResource("Action"), HorizontalAlignment = System.Windows.HorizontalAlignment.Left };
+        convert.Click += (_, _) =>
+        {
+            try
+            {
+                if (!Directory.Exists(Path.Combine(AppContext.BaseDirectory, "postgres")))
+                    throw new InvalidDataException("当前安装包不含 PostgreSQL 运行时，无法转换。");
+                if (System.Windows.MessageBox.Show(this,
+                    "下次启动会在载入视频前转换当前视频库，并生成独立完整备份。转换期间请勿打开另一份映格。旧资料文件会保留。继续排定？",
+                    "转换为 PostgreSQL", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                    return;
+                PostgresLibraryCutover.Stage(DataDir);
+                convert.IsEnabled = false;
+                convert.Content = "已排定 · 关闭并重新打开软件";
+            }
+            catch (Exception error)
+            {
+                System.Windows.MessageBox.Show(this, error.Message, "无法排定数据库转换",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        };
+        section.Children.Add(convert);
         section.Children.Add(new TextBlock { Text = "定期一致性备份", FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 17, 0, 0) });
         section.Children.Add(SettingsHint("到期后标记为待执行；关闭所有映格窗口并重新打开时，会在载入资料库前完成一致性备份和校验。"));

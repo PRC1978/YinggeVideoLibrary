@@ -99,6 +99,16 @@ public partial class App : System.Windows.Application
             Shutdown(await PostgresWindowDiagnostics.RunAsync(e.Args[1], e.Args[2], e.Args[3]));
             return;
         }
+        if (e.Args.Length > 3 && e.Args[0] == "--migrate-library-postgres")
+        {
+            Shutdown(await PostgresLibraryCutover.RunToFileAsync(e.Args[1], e.Args[2], e.Args[3]));
+            return;
+        }
+        if (e.Args.Length > 3 && e.Args[0] == "--self-test-postgres-pending")
+        {
+            Shutdown(await PostgresLibraryCutover.TestPendingToFileAsync(e.Args[1], e.Args[2], e.Args[3]));
+            return;
+        }
         if (e.Args.Length > 1 && e.Args[0] == "--self-test-cloud-account")
         {
             Shutdown(await CloudAccountDiagnostics.RunToFileAsync(e.Args[1]));
@@ -340,6 +350,43 @@ public partial class App : System.Windows.Application
         // them in the background so a failed prune can never delay or block startup.
         _ = Task.Run(() => UpdateBackupJanitor.TryRun(System.IO.Path.GetDirectoryName(Environment.ProcessPath)));
         var dataDir = AppPaths.DataDirectory;
+        if (System.IO.File.Exists(System.IO.Path.Combine(dataDir, PostgresLibraryCutover.PendingName)))
+        {
+            try
+            {
+                await PostgresLibraryCutover.ApplyPendingAsync(
+                    System.IO.Path.Combine(AppContext.BaseDirectory, "postgres"), dataDir);
+            }
+            catch (Exception error)
+            {
+                var noDatabaseWasCreated =
+                    PostgresStorageModeGuard.Current(dataDir) ==
+                        PostgresStorageModeGuard.StorageMode.LegacyFiles &&
+                    !System.IO.Directory.Exists(System.IO.Path.Combine(dataDir, "postgres-data"));
+                if (noDatabaseWasCreated)
+                {
+                    // Preflight failed before any database was created. Resume
+                    // the ordinary file-mode startup so its pending operations
+                    // can finish; the user can stage conversion again later.
+                    try { System.IO.File.Delete(System.IO.Path.Combine(dataDir,
+                        PostgresLibraryCutover.PendingName)); }
+                    catch
+                    {
+                        Shutdown(1);
+                        return;
+                    }
+                    System.Windows.MessageBox.Show("数据库转换未开始，已取消待办并继续载入原文件库。\n" + error.Message,
+                        "映格视频库 · 数据库转换", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+                else
+                {
+                    System.Windows.MessageBox.Show("数据库转换已停止；旧资料文件未删除。为防止资料分叉，本次不载入视频库。\n" + error.Message,
+                        "映格视频库 · 数据库转换", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    Shutdown(1);
+                    return;
+                }
+            }
+        }
         var storageMode = PostgresStorageModeGuard.Current(dataDir);
         if (storageMode == PostgresStorageModeGuard.StorageMode.PostgreSql)
         {

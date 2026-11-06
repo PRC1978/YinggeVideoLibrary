@@ -4709,6 +4709,12 @@ public partial class MainWindow : Window
     {
         try
         {
+            if (PostgresStorageModeGuard.Current(DataDir) !=
+                PostgresStorageModeGuard.StorageMode.LegacyFiles)
+            {
+                BackupInfo.Text = "数据库模式请使用数据库备份；此按钮不会写入文件模式的待办任务。";
+                return;
+            }
             LibraryBackupService.StageOfflineBackup(DataDir);
             BackupInfo.Text = "一致性备份已排定。关闭所有映格窗口并重新打开后，会在载入资料前创建并校验备份。";
             RefreshOfflineBackupStatus();
@@ -4720,6 +4726,12 @@ public partial class MainWindow : Window
     {
         try
         {
+            if (PostgresStorageModeGuard.Current(DataDir) !=
+                PostgresStorageModeGuard.StorageMode.LegacyFiles)
+            {
+                BackupInfo.Text = "数据库模式请使用数据库恢复；此按钮不会排定文件模式的恢复。";
+                return;
+            }
             var latest = LibraryBackupService.LatestBackup(DataDir);
             if (latest is null) { BackupInfo.Text = "没有找到备份。"; return; }
             BackupInfo.Text = "正在校验备份并比较当前资料…";

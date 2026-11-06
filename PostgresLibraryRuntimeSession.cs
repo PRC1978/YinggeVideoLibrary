@@ -14,6 +14,35 @@ internal sealed class PostgresLibraryRuntimeSession : IAsyncDisposable
     internal Task<PostgresScrapeWorkerLease?> TryAcquireScrapeWorkerAsync(
         CancellationToken cancellationToken = default) =>
         PostgresScrapeWorkerLease.TryAcquireAsync(ConnectionString, cancellationToken);
+
+    internal Task<(ScrapeQueueItem? Item, int PendingCount, bool HasBlocked)>
+        PeekQueueAsync(string cacheDirectory, IReadOnlyCollection<string> codeSources,
+            IReadOnlyCollection<string> titleSources,
+            CancellationToken cancellationToken = default) =>
+        PostgresScrapeQueueScheduler.PeekNextFairAsync(ConnectionString,
+            cacheDirectory, codeSources, titleSources, cancellationToken: cancellationToken);
+
+    internal Task<DateTimeOffset> ReserveSourceAsync(string source, TimeSpan spacing,
+        CancellationToken cancellationToken = default) =>
+        PostgresScrapeSourceBackoffStore.ReserveAsync(ConnectionString,
+            source, spacing, cancellationToken);
+
+    internal Task<DateTimeOffset> SourceCooldownAsync(string source,
+        CancellationToken cancellationToken = default) =>
+        PostgresScrapeSourceBackoffStore.GetCooldownAtAsync(ConnectionString,
+            source, cancellationToken);
+
+    internal Task<DateTimeOffset> RecordSourceFailureAsync(string source, string error,
+        bool rateLimited, TimeSpan? retryAfter = null,
+        int consecutiveFailureLimit = 4, CancellationToken cancellationToken = default) =>
+        PostgresScrapeSourceBackoffStore.RecordFailureAsync(ConnectionString,
+            source, error, rateLimited, retryAfter, consecutiveFailureLimit,
+            cancellationToken);
+
+    internal Task<bool> ReportSourceSuccessAsync(string source,
+        CancellationToken cancellationToken = default) =>
+        PostgresScrapeSourceBackoffStore.ReportSuccessAsync(ConnectionString,
+            source, cancellationToken);
     internal LibraryConfig Config { get; private set; }
     internal PostgresLibraryIndexStore.Snapshot Index { get; private set; }
     internal PostgresLibraryMetadataStore.Snapshot Metadata { get; private set; }

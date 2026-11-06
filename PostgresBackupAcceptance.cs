@@ -205,6 +205,17 @@ internal static class PostgresBackupAcceptance
         var afterRelease = await session.TryAcquireScrapeWorkerAsync();
         exclusiveWorker &= afterRelease is not null;
         if (afterRelease is not null) await afterRelease.DisposeAsync();
+        var sourceReserved = await session.ReserveSourceAsync("runtime-source",
+            TimeSpan.FromSeconds(2));
+        var sourceSpacing = await session.ReserveSourceAsync("runtime-source",
+            TimeSpan.FromSeconds(2));
+        var sourceFailure = await session.RecordSourceFailureAsync("runtime-source",
+            "temporary", false);
+        var cooldown = await session.SourceCooldownAsync("runtime-source");
+        var sourceRecovered = await session.ReportSourceSuccessAsync("runtime-source");
+        var sourcePacingVerified = sourceReserved == DateTimeOffset.MinValue &&
+            sourceSpacing > DateTimeOffset.UtcNow &&
+            sourceFailure > sourceSpacing && cooldown == sourceFailure && sourceRecovered;
         var config = MainWindow.CloneLibraryConfig(session.Config);
         var originalShowAll = config.ShowAll;
         config.ShowAll = !originalShowAll;
@@ -293,7 +304,7 @@ internal static class PostgresBackupAcceptance
             candidateAfter?.Revision == candidateRevision &&
             candidateAfter.Content.SequenceEqual(candidateBytes) &&
             staleWriteRejected && dedicatedWriterRequired && emptyScanProtected &&
-            exclusiveWorker;
+            exclusiveWorker && sourcePacingVerified;
     }
 
     private static Fixture BuildFixture(string source, int count)

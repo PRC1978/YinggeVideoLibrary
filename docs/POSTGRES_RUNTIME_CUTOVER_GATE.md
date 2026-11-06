@@ -9,7 +9,7 @@
 | 配置、标签、分类、收藏、审核记录 | `MainWindow.LoadConfig` / `SaveConfig` | `PostgresLibraryConfigStore` | 主窗口读写、三路合并和凭据清除接线；审核事务不能只改配置 |
 | 视频索引与缺失状态 | `MainWindow.SaveIndexAsync`、增量扫描和缺失清理 | `PostgresLibraryIndexStore`、`PostgresLibraryRuntimeSession.SaveScannedIndexAsync` | 主窗口启动读取和扫描入口接线、清理撤销与 CAS 冲突处理。隔离库已验证空扫描不覆盖不同根目录的旧索引 |
 | 搜刮资料 | `MetadataStore.Load/Save` 与审核事务 | `PostgresLibraryMetadataStore`、`PostgresReviewTransactionStore` | 所有资料写入、审核历史和撤销同事务 |
-| 搜刮队列与来源冷却 | `ScrapeQueueStore` 文件日志 | `PostgresScrapeQueueStore`、`PostgresScrapeSourceBackoffStore` | 主窗口后台调度、取消、重试、重启恢复实际接线；隔离库已验证数据库会话中的加入、延期、失败和移除 |
+| 搜刮队列与来源冷却 | `ScrapeQueueStore` 文件日志 | `PostgresScrapeQueueStore`、`PostgresScrapeSourceBackoffStore`、`PostgresScrapeWorkerLease` | 主窗口后台调度、取消、重试、重启恢复实际接线；隔离库已验证数据库会话中的加入、延期、失败、移除、来源冷却及双工作者互斥 |
 | 人物与关系 | `RoleProfileStore` 文件 | `PostgresRoleProfileStore` | 自动搜刮、手工编辑、作品关联与撤销接线 |
 | 插件、候选、AI 作业与用户状态 | 多个独立 JSON 文件 | `PostgresLibraryDocumentStore`、`PostgresUserStateStore` | 逐个消除正常程序的文件权威写入；只允许图片缓存继续落文件 |
 | 备份和恢复 | 设置页 `LibraryBackupService` | `PostgresLibraryBackup` / `PostgresLibraryRestore` | 数据库模式的预览、进度、离线恢复入口与回退副本保留策略 |

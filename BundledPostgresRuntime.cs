@@ -604,7 +604,7 @@ internal static class BundledPostgresRuntime
                 try { await using var duplicate = await PostgresPrivateCluster.OpenAsync(
                     runtimeDirectory, privateLibrary); }
                 catch (InvalidOperationException error) when (
-                    error.Message.Contains("另一份映格", StringComparison.Ordinal))
+                    error.Message.Contains("已被运行中的映格占用", StringComparison.Ordinal))
                 { duplicateOwnerBlocked = true; }
             }
             await using (var restarted = await PostgresPrivateCluster.OpenAsync(

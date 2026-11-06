@@ -12,6 +12,14 @@ public partial class App : System.Windows.Application
     System.IO.FileStream? librarySessionLease;
     PostgresLibraryRuntimeSession? postgresRuntimeSession;
 
+    static bool IsLibraryLeaseConflict(Exception error)
+    {
+        for (Exception? current = error; current is not null; current = current.InnerException)
+            if (current is System.IO.IOException io && (io.HResult & 0xFFFF) is 32 or 33)
+                return true;
+        return false;
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
         if (postgresRuntimeSession is not null)
@@ -383,6 +391,13 @@ public partial class App : System.Windows.Application
         // them in the background so a failed prune can never delay or block startup.
         _ = Task.Run(() => UpdateBackupJanitor.TryRun(System.IO.Path.GetDirectoryName(Environment.ProcessPath)));
         var dataDir = AppPaths.DataDirectory;
+        // A previous window may be hidden in the notification area. Wake it
+        // before touching migration, backup or database files.
+        if (SingleInstanceActivation.TryActivateExisting(dataDir, 100))
+        {
+            Shutdown();
+            return;
+        }
         var postgresRuntimeDirectory = System.IO.Path.Combine(AppContext.BaseDirectory, "postgres");
         if (!AppPaths.IsRedirected &&
             (!System.IO.Directory.Exists(dataDir) ||
@@ -518,6 +533,12 @@ public partial class App : System.Windows.Application
                 }
                 librarySessionLease?.Dispose();
                 librarySessionLease = null;
+                if (IsLibraryLeaseConflict(error) &&
+                    SingleInstanceActivation.TryActivateExisting(dataDir, 1500))
+                {
+                    Shutdown();
+                    return;
+                }
                 YinggeVideoLibrary.ThemeMessageBox.Show("PostgreSQL 视频库未能安全载入；旧文件库未被打开。\n" + error.Message,
                     "映格视频库 · 存储模式", MessageBoxButton.OK, MessageBoxImage.Warning);
                 Shutdown(1);
@@ -590,6 +611,12 @@ public partial class App : System.Windows.Application
             }
             catch (Exception error)
             {
+                if (IsLibraryLeaseConflict(error) &&
+                    SingleInstanceActivation.TryActivateExisting(dataDir))
+                {
+                    Shutdown();
+                    return;
+                }
                 YinggeVideoLibrary.ThemeMessageBox.Show("自动转换为 PostgreSQL 未完成。旧资料文件未删除；为避免两种存储分叉，本次不载入视频库。\n" +
                     error.Message, "映格视频库 · 数据库转换", MessageBoxButton.OK, MessageBoxImage.Warning);
                 Shutdown(1);

@@ -55,7 +55,7 @@ internal sealed class PostgresPrivateCluster : IAsyncDisposable
         catch (IOException error) when ((error.HResult & 0xFFFF) is 32 or 33)
         {
             throw new InvalidOperationException(
-                "这个视频库正在由另一份映格使用或转换。请回到已打开的窗口等待完成；不要重复启动程序。",
+                "这个视频库已被运行中的映格占用。它可能缩到了系统托盘；请从托盘打开映格，或在任务管理器中检查后台进程。请勿删除锁文件。",
                 error);
         }
         try

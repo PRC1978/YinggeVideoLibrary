@@ -25,6 +25,7 @@ public partial class MainWindow
     TextBlock? startupStatus;
     Button? startupUseCurrentButton;
     Forms.NotifyIcon? startupTrayIcon;
+    SingleInstanceActivation? startupActivation;
     Forms.ContextMenuStrip? startupTrayMenu;
     Drawing.Icon? startupTrayDrawingIcon;
     bool startupOptionsUpdating;
@@ -35,6 +36,7 @@ public partial class MainWindow
 
     void InitializeStartupBehavior()
     {
+        startupActivation = SingleInstanceActivation.Start(this, DataDir);
         Loaded += (_, _) => Dispatcher.BeginInvoke(
             new Action(StartupRegistration.RefreshOwnedDesktopShortcutIcon),
             System.Windows.Threading.DispatcherPriority.Background);
@@ -47,6 +49,8 @@ public partial class MainWindow
         };
         Closed += (_, _) =>
         {
+            startupActivation?.Dispose();
+            startupActivation = null;
             if (startupTrayIcon is not null)
             {
                 startupTrayIcon.Visible = false;
@@ -132,6 +136,12 @@ public partial class MainWindow
         WindowState = WindowState.Normal;
         Activate();
         PresentDeferredUpdateIfAvailable();
+    }
+
+    internal void ActivateFromSecondLaunch()
+    {
+        if (isClosing) return;
+        RestoreFromTray();
     }
 
     void ExitFromTray()

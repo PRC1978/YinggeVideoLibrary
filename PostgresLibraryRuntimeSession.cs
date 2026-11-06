@@ -275,6 +275,13 @@ internal sealed class PostgresLibraryRuntimeSession : IAsyncDisposable
         finally { writeGate.Release(); }
     }
 
+    internal async Task ReloadRolesAsync(CancellationToken cancellationToken = default)
+    {
+        await writeGate.WaitAsync(cancellationToken);
+        try { Roles = await PostgresRoleProfileStore.LoadAsync(ConnectionString, cancellationToken); }
+        finally { writeGate.Release(); }
+    }
+
     // Used for the remaining allowlisted user-state documents until their
     // individual UI writers are moved to typed database operations. A caller
     // must carry the revision it read; the session never overwrites blindly.

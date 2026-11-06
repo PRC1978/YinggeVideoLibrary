@@ -10,7 +10,7 @@
 | 视频索引与缺失状态 | `MainWindow.SaveIndexAsync`、增量扫描和缺失清理 | `PostgresLibraryIndexStore`、`PostgresLibraryRuntimeSession.SaveScannedIndexAsync`、`PostgresMissingCleanupStore` | 数据库会话下的缺失清理和撤销已用同一事务写索引及历史；激活前拒绝未完成的旧清理。仍需真实窗口操作及大库验收。隔离库已验证空扫描不覆盖不同根目录的旧索引 |
 | 搜刮资料 | `MetadataStore.Load/Save` 与审核事务 | `PostgresLibraryMetadataStore`、`PostgresReviewTransactionStore` | 所有资料写入、审核历史和撤销同事务 |
 | 搜刮队列与来源冷却 | `MainWindow.ScrapeQueue` / `TitleScrapeQueue` | `ScrapeQueueBridge`、`PostgresScrapeQueueStore`、`PostgresScrapeSourceBackoffStore`、`PostgresScrapeWorkerLease` | 主窗口队列的加入、取消、重试、轮询和来源冷却已通过模式入口；仍需数据库模式的真实窗口操作、重启恢复与故障注入验收。诊断探针保持文件模式 |
-| 人物与关系 | `RoleProfileStore` 文件 | `PostgresRoleProfileStore` | 自动搜刮、手工编辑、作品关联与撤销接线 |
+| 人物与关系 | `RoleProfileStore` 文件 | `PostgresRoleProfileStore` | 人物窗口的手工读写与自动发现已接数据库会话；已用隔离库验证 TMDB 人物抓取、建档、作品关联和资料版本冲突拒绝，仍需真实窗口与大库验收 |
 | 插件、候选、AI 作业与用户状态 | 多个独立 JSON 文件 | `PostgresLibraryDocumentStore`、`PostgresUserStateStore` | 逐个消除正常程序的文件权威写入；只允许图片缓存继续落文件 |
 | 备份和恢复 | 设置页 `LibraryBackupService` | `PostgresLibraryBackup` / `PostgresLibraryRestore` | 数据库模式的预览、进度、离线恢复入口与回退副本保留策略 |
 

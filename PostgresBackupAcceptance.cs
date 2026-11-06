@@ -340,6 +340,69 @@ internal static class PostgresBackupAcceptance
         var roles = RoleProfileStore.Parse(JsonSerializer.Serialize(session.Roles.State));
         roles.Profiles[0].Name = "人物甲·会话写入";
         await session.SaveRolesAsync(roles);
+        var roleBaseline = await PostgresRoleProfileStore.LoadAsync(session.ConnectionString);
+        var verifiedRoles = RoleProfileStore.Parse(JsonSerializer.Serialize(roleBaseline.State));
+        verifiedRoles.Profiles[0].Biography = "数据库自动发现证据";
+        var metadataRevision = await PostgresLibraryMetadataStore.ReadRevisionAsync(
+            session.ConnectionString);
+        var verifiedRoleSave = await PostgresRoleProfileStore.SaveVerifiedBatchAsync(
+            session.ConnectionString, roleBaseline, verifiedRoles, metadataRevision);
+        var wrongMetadataRejected = false;
+        try
+        {
+            await PostgresRoleProfileStore.SaveVerifiedBatchAsync(session.ConnectionString,
+                verifiedRoleSave, RoleProfileStore.Parse(JsonSerializer.Serialize(verifiedRoleSave.State)),
+                "stale-metadata-revision");
+        }
+        catch (InvalidOperationException) { wrongMetadataRejected = true; }
+        var roleAfterRejected = await PostgresRoleProfileStore.LoadAsync(session.ConnectionString);
+        var verifiedRoleAtomic = wrongMetadataRejected &&
+            roleAfterRejected.DocumentRevision == verifiedRoleSave.DocumentRevision &&
+            roleAfterRejected.State.Profiles[0].Biography == "数据库自动发现证据";
+        using var personWorkJson = JsonDocument.Parse("""
+            {"id":42,"title":"数据库会话写入测试","credits":{"cast":[
+              {"id":101,"name":"数据库演员","character":"主角"}]}}
+            """);
+        var verifiedWork = AdditionalScrapers.ParseTmdbDetails(new MovieMetadata
+        {
+            Source = "TMDB 电影", SourceUrl = "https://www.themoviedb.org/movie/42",
+            Title = "数据库会话写入测试"
+        }, personWorkJson.RootElement, "movie");
+        var personMetadata = session.Metadata.Records.ToDictionary(pair => pair.Key,
+            pair => pair.Value.Clone(), StringComparer.Ordinal);
+        personMetadata[fixture.VideoId] = verifiedWork;
+        await session.SaveMetadataAsync(personMetadata);
+        var personVideo = new VideoItem
+        {
+            Id = fixture.VideoId, Title = verifiedWork.Title, Category = "电影",
+            Path = Path.Combine(Path.GetTempPath(), "ordinary-film", "Example.mp4"),
+            Folder = Path.Combine(Path.GetTempPath(), "ordinary-film"),
+            Size = firstEntry.Size, Modified = new DateTime(firstEntry.ModifiedTicks)
+        };
+        var personPreview = RoleProfileAutoScraper.Preview([personVideo], personMetadata,
+            roleAfterRejected.State);
+        static Task<RoleProfileStore.SourceDetails> FetchOfflinePerson(
+            RoleProfileStore.SourceIdentity identity, CancellationToken _)
+            => Task.FromResult(new RoleProfileStore.SourceDetails
+            {
+                Provider = identity.Provider, PersonId = identity.PersonId,
+                SourceUrl = identity.PersonUrl, Name = identity.NameAtSource,
+                Biography = "隔离来源资料"
+            });
+        var personRun = await RoleProfileAutoScraper.RunAsync(fixture.MediaRoot,
+            personPreview, "offline-test-token", fetchDetails: FetchOfflinePerson,
+            postgresSession: session);
+        var discoveredRoles = await PostgresRoleProfileStore.LoadAsync(session.ConnectionString);
+        var person = RoleProfileStore.FindBySource(discoveredRoles.State, "TMDB", "101");
+        var roleAutoVerified = personPreview.Candidates.Count == 1 &&
+            personRun.Created == 1 && personRun.Fetched == 1 && personRun.Failed == 0 &&
+            person?.Works.Single().LocalVideoId == fixture.VideoId &&
+            person.SourcedDetails.Single().Biography == "隔离来源资料" &&
+            !File.Exists(Path.Combine(fixture.MediaRoot, RoleProfileStore.FileName));
+        if (!roleAutoVerified)
+            throw new InvalidDataException($"人物数据库路径校验失败：候选={personPreview.Candidates.Count}，" +
+                $"新建={personRun.Created}，已抓取={personRun.Fetched}，失败={personRun.Failed}，" +
+                $"档案={(person is null ? "无" : person.Works.Count.ToString())}。");
 
         var candidateBefore = await session.ReadDocumentAsync("plugin-candidates.json");
         if (candidateBefore is null) return false;
@@ -370,7 +433,7 @@ internal static class PostgresBackupAcceptance
             session.Metadata.Records[fixture.VideoId].Title == "数据库会话写入测试" &&
             added == 1 && rescheduled && retryPersisted && markedFailed &&
             failedPersisted && removedQueueItem && session.Queue.Count == 2 &&
-            bridgeReadsDatabase && cleanupAtomic &&
+            bridgeReadsDatabase && cleanupAtomic && verifiedRoleAtomic && roleAutoVerified &&
             session.Roles.State.Profiles[0].Name == "人物甲·会话写入" &&
             candidateAfter?.Revision == candidateRevision &&
             candidateAfter.Content.SequenceEqual(candidateBytes) &&

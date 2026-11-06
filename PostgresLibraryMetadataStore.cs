@@ -13,6 +13,17 @@ internal static class PostgresLibraryMetadataStore
 {
     internal sealed record Snapshot(Dictionary<string, MovieMetadata> Records, string Revision);
 
+    internal static async Task<string> ReadRevisionAsync(string connectionString,
+        CancellationToken cancellationToken = default)
+    {
+        await using var source = NpgsqlDataSource.Create(connectionString);
+        await using var connection = await source.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(
+            "SELECT metadata_sha256 FROM library_migration WHERE id=1", connection);
+        return (string?)await command.ExecuteScalarAsync(cancellationToken)
+            ?? throw new InvalidDataException("数据库尚未导入作品资料。 ");
+    }
+
     internal static async Task<Snapshot> ReadAsync(string connectionString,
         CancellationToken cancellationToken = default)
     {

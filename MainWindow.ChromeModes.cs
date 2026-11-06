@@ -220,7 +220,7 @@ public partial class MainWindow
         {
             var found = videos.FirstOrDefault(item => item.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
             if (found is not null) ShowMetadataDetailsForVideo(found);
-        }, savedMetadata: metadata);
+        }, savedMetadata: metadata, postgresSession: postgresSession);
         RolesHost.Children.Add(embeddedRoles);
     }
 

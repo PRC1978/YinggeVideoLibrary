@@ -241,14 +241,33 @@ internal static class RoleProfileAutoScraper
         string tmdbToken, IProgress<Progress>? progress = null,
         CancellationToken cancellationToken = default,
         Func<RoleProfileStore.SourceIdentity, CancellationToken,
-            Task<RoleProfileStore.SourceDetails>>? fetchDetails = null)
+            Task<RoleProfileStore.SourceDetails>>? fetchDetails = null,
+        PostgresLibraryRuntimeSession? postgresSession = null)
     {
         if (preview.CapacityExceeded)
             throw new InvalidOperationException(preview.WorkCapacityExceededCount > 0
                 ? $"有 {preview.WorkCapacityExceededCount:N0} 条作品关联会超过单个人物 20,000 部的上限；请缩小导入范围。"
                 : "候选人物数量超过单个角色档案库 10,000 人的上限，请先缩小导入范围。 ");
-        var state = RoleProfileStore.Load(dataDir);
-        var (currentMetadata, metadataStamp) = LoadStableMetadata(dataDir);
+        PostgresRoleProfileStore.Snapshot? postgresRoles = null;
+        RoleProfileStore.State state;
+        Dictionary<string, MovieMetadata> currentMetadata;
+        MetadataStamp metadataStamp = default;
+        string? postgresMetadataRevision = null;
+        if (postgresSession is null)
+        {
+            state = RoleProfileStore.Load(dataDir);
+            (currentMetadata, metadataStamp) = LoadStableMetadata(dataDir);
+        }
+        else
+        {
+            postgresRoles = await PostgresRoleProfileStore.LoadAsync(
+                postgresSession.ConnectionString, cancellationToken);
+            state = RoleProfileStore.Parse(System.Text.Json.JsonSerializer.Serialize(postgresRoles.State));
+            var stored = await PostgresLibraryMetadataStore.ReadAsync(
+                postgresSession.ConnectionString, cancellationToken);
+            currentMetadata = stored.Records;
+            postgresMetadataRevision = stored.Revision;
+        }
         if (preview.Candidates.Count > 0 && currentMetadata.Count == 0)
             throw new InvalidDataException("已保存的作品元数据已移除或无法读取，请重新预览人物候选。 ");
         var profilesBySource = state.Profiles.SelectMany(profile => profile.Sources.Select(source =>
@@ -301,16 +320,51 @@ internal static class RoleProfileAutoScraper
                 created, updated, fetched, failed, name));
         }
 
-        void SavePending()
+        async Task RefreshCurrentMetadataAsync(CancellationToken? saveToken = null)
+        {
+            if (postgresSession is null)
+            {
+                RefreshMetadata(dataDir, ref currentMetadata, ref metadataStamp);
+                return;
+            }
+            var revision = await PostgresLibraryMetadataStore.ReadRevisionAsync(
+                postgresSession.ConnectionString, saveToken ?? cancellationToken);
+            if (revision == postgresMetadataRevision) return;
+            var refreshed = await PostgresLibraryMetadataStore.ReadAsync(
+                postgresSession.ConnectionString, saveToken ?? cancellationToken);
+            currentMetadata = refreshed.Records;
+            postgresMetadataRevision = refreshed.Revision;
+        }
+
+        async Task SavePendingAsync(CancellationToken? saveToken = null)
         {
             if (pending == 0) return;
-            pending = 0;
             // Hold the same cross-process lease used by metadata writers from
             // the final provenance check through this role-profile commit.
             // If a work changed while a prior person was being fetched, the
             // whole unsaved batch is refused instead of persisting stale links.
-            using var lease = MetadataStore.AcquireReviewWriteLease();
-            (currentMetadata, metadataStamp) = LoadStableMetadata(dataDir);
+            if (postgresSession is null)
+            {
+                using var lease = MetadataStore.AcquireReviewWriteLease();
+                (currentMetadata, metadataStamp) = LoadStableMetadata(dataDir);
+                CheckPendingEvidence();
+                RoleProfileStore.Save(dataDir, state);
+            }
+            else
+            {
+                await RefreshCurrentMetadataAsync(saveToken);
+                CheckPendingEvidence();
+                postgresRoles = await PostgresRoleProfileStore.SaveVerifiedBatchAsync(
+                    postgresSession.ConnectionString, postgresRoles!, state,
+                    postgresMetadataRevision!, saveToken ?? cancellationToken);
+            }
+            pending = 0;
+            pendingEvidence.Clear();
+            lastSaveUtc = DateTimeOffset.UtcNow;
+        }
+
+        void CheckPendingEvidence()
+        {
             foreach (var (candidate, evidenceAtApply) in pendingEvidence)
             {
                 var currentKeys = VerifiedEvidence(candidate, currentMetadata)
@@ -320,9 +374,6 @@ internal static class RoleProfileAutoScraper
                     item.Video.Id + "\n" + item.Record.SourceUrl)))
                     throw new InvalidDataException("导入期间作品来源已改变，当前未保存批次已停止；请重新预览人物候选。 ");
             }
-            RoleProfileStore.Save(dataDir, state);
-            pendingEvidence.Clear();
-            lastSaveUtc = DateTimeOffset.UtcNow;
         }
 
         try
@@ -330,7 +381,7 @@ internal static class RoleProfileAutoScraper
             foreach (var candidate in preview.Candidates)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                RefreshMetadata(dataDir, ref currentMetadata, ref metadataStamp);
+                await RefreshCurrentMetadataAsync();
                 var validEvidence = VerifiedEvidence(candidate, currentMetadata);
                 if (validEvidence.Length == 0)
                 {
@@ -386,7 +437,7 @@ internal static class RoleProfileAutoScraper
 
                 // The network request may have taken seconds. Recheck disk
                 // provenance before applying either the details or the works.
-                RefreshMetadata(dataDir, ref currentMetadata, ref metadataStamp);
+                await RefreshCurrentMetadataAsync();
                 validEvidence = VerifiedEvidence(candidate, currentMetadata);
                 if (validEvidence.Length == 0)
                 {
@@ -446,17 +497,17 @@ internal static class RoleProfileAutoScraper
                 }
                 processed++;
                 if (pending >= SaveBatchSize || pending > 0 &&
-                    DateTimeOffset.UtcNow - lastSaveUtc >= MaxSaveInterval) SavePending();
+                    DateTimeOffset.UtcNow - lastSaveUtc >= MaxSaveInterval) await SavePendingAsync();
                 Report(candidate.Name);
             }
         }
         catch (Exception error)
         {
-            try { SavePending(); }
+            try { await SavePendingAsync(CancellationToken.None); }
             catch (Exception saveError) { throw new AggregateException(error, saveError); }
             throw;
         }
-        SavePending();
+        await SavePendingAsync();
         return new Result(processed, created, updated, fetched, failed,
             skippedCredentials, skippedChanged, skippedRateLimited, failures);
     }

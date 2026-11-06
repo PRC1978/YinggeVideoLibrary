@@ -74,7 +74,7 @@ public partial class MainWindow
             {
                 var found = videos.FirstOrDefault(item => item.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
                 if (found is not null) ShowMetadataDetailsForVideo(found);
-            }, savedMetadata: metadata) { Owner = this };
+            }, savedMetadata: metadata, postgresSession: postgresSession) { Owner = this };
             browser.ShowDialog();
         }
         catch (Exception ex)

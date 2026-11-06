@@ -28,6 +28,8 @@ namespace YinggeVideoLibrary;
 internal sealed partial class RoleProfilesView : Grid
 {
     readonly string dataDir;
+    readonly RoleProfileBridge roleStore;
+    readonly PostgresLibraryRuntimeSession? postgresSession;
     readonly IReadOnlyList<VideoItem> videos;
     Dictionary<string, VideoItem> videosById = new(StringComparer.OrdinalIgnoreCase);
     readonly IReadOnlyDictionary<string, MovieMetadata> savedMetadata;
@@ -104,9 +106,12 @@ internal sealed partial class RoleProfilesView : Grid
     internal RoleProfilesView(string dataDir, IReadOnlyList<VideoItem> videos,
         MovieMetadata? origin, VideoItem? originVideo, string tmdbToken,
         Action<string> openVideoDetails, bool preloadForDiagnostics = false,
-        IReadOnlyDictionary<string, MovieMetadata>? savedMetadata = null)
+        IReadOnlyDictionary<string, MovieMetadata>? savedMetadata = null,
+        PostgresLibraryRuntimeSession? postgresSession = null)
     {
         this.dataDir = dataDir;
+        this.postgresSession = postgresSession;
+        roleStore = new RoleProfileBridge(dataDir, postgresSession);
         // Copy references only; the potentially expensive ID map is built
         // together with the profile snapshot after the window becomes visible.
         this.videos = videos.ToArray();
@@ -117,6 +122,8 @@ internal sealed partial class RoleProfilesView : Grid
         this.openVideoDetails = openVideoDetails;
         if (preloadForDiagnostics)
         {
+            if (roleStore.DatabaseMode)
+                throw new InvalidOperationException("数据库人物页不能使用同步预载诊断。 ");
             if (this.videos.Count > 256)
                 throw new InvalidOperationException("离屏诊断只能同步加载少量临时视频。");
             videosById = BuildVideoMap(this.videos);
@@ -328,10 +335,10 @@ internal sealed partial class RoleProfilesView : Grid
             {
                 try
                 {
-                    var ready = await Task.Run(() =>
-                        (Profiles: RoleProfileStore.Load(dataDir), VideoMap: BuildVideoMap(this.videos)));
-                    state = ready.Profiles;
-                    videosById = ready.VideoMap;
+                    var profiles = await roleStore.LoadAsync();
+                    var videoMap = await Task.Run(() => BuildVideoMap(this.videos));
+                    state = profiles;
+                    videosById = videoMap;
                     root.IsEnabled = true;
                     RefreshList();
                 }
@@ -363,13 +370,13 @@ internal sealed partial class RoleProfilesView : Grid
                 autoStatus.Text = "没有找到能同时核对演员姓名、作品番号和来源链接的唯一人物；未写入档案。可使用手工档案。";
                 return;
             }
-            var current = await Task.Run(() => MetadataStore.Load(dataDir), token);
+            var current = await roleStore.LoadMetadataAsync(token);
             if (!current.TryGetValue(originVideo.Id, out var saved) ||
                 !MovieMetadata.SameReviewContent(saved, origin))
                 throw new InvalidOperationException("作品资料在查找期间改变，未写入人物档案。请重新打开作品详情。");
             await CreateOrOpenVerified(new VerifiedPersonOption(matched.Name, "JavDB", matched.Url,
                 matched.Url, origin.SourceUrl, ""));
-            var persisted = await Task.Run(() => RoleProfileStore.Load(dataDir), token);
+            var persisted = await roleStore.LoadAsync(token);
             var linked = RoleProfileStore.FindBySource(persisted, "JavDB", matched.Url)?.Works.Any(work =>
                 work.LocalVideoId.Equals(originVideo.Id, StringComparison.OrdinalIgnoreCase)) == true;
             autoStatus.Text = linked
@@ -568,8 +575,9 @@ internal sealed partial class RoleProfilesView : Grid
             // Read the committed metadata file on the worker. The main window's
             // live dictionary can change as the scraping queue completes.
             var nameFilter = search.Text.Trim();
+            var currentMetadata = await roleStore.LoadMetadataAsync(token);
             var preview = await Task.Run(() => RoleProfileAutoScraper.Preview(
-                videos, MetadataStore.Load(dataDir), state, nameFilter, token), token);
+                videos, currentMetadata, state, nameFilter, token), token);
             token.ThrowIfCancellationRequested();
             if (preview.CapacityExceeded)
             {
@@ -597,7 +605,7 @@ internal sealed partial class RoleProfilesView : Grid
                     + (item.CurrentName.Length == 0 ? "" : "\n当前：" + item.CurrentName);
             });
             var result = await Task.Run(() => RoleProfileAutoScraper.RunAsync(dataDir,
-                preview, tmdbToken, progress, token), token);
+                preview, tmdbToken, progress, token, postgresSession: postgresSession), token);
             autoStatus.Text = $"完成：新建 {result.Created:N0}、更新 {result.Updated:N0}，读取详情 {result.Fetched:N0}；失败 {result.Failed:N0}。"
                 + (result.SkippedCredentials > 0 ? $" {result.SkippedCredentials:N0} 位缺少来源凭据，仍保留来源身份。" : "")
                 + (result.SkippedChanged > 0 ? $" {result.SkippedChanged:N0} 位因作品资料变更而跳过，请重新预览。" : "")
@@ -625,7 +633,7 @@ internal sealed partial class RoleProfilesView : Grid
             {
                 try
                 {
-                    state = await Task.Run(() => RoleProfileStore.Load(dataDir));
+                    state = await roleStore.LoadAsync();
                     RefreshList();
                 }
                 catch (Exception ex)
@@ -1166,13 +1174,13 @@ internal sealed partial class RoleProfilesView : Grid
             change();
             var p = state.Profiles.FirstOrDefault(value => value.Id == (selectId ?? selectedProfileId));
             if (p is not null) p.UpdatedUtc = DateTimeOffset.UtcNow;
-            await Task.Run(() => RoleProfileStore.Save(dataDir, state));
+            await roleStore.SaveAsync(state);
             if (selectId is not null) selectedProfileId = selectId;
             RefreshList();
         }
         catch (Exception ex)
         {
-            try { state = await Task.Run(() => RoleProfileStore.Load(dataDir)); } catch { }
+            try { state = await roleStore.LoadAsync(); } catch { }
             MessageBox.Show(Window.GetWindow(this), ex.Message, "角色档案未保存", MessageBoxButton.OK, MessageBoxImage.Warning);
             RefreshList();
         }
@@ -1272,7 +1280,7 @@ internal sealed partial class RoleProfilesView : Grid
                     if (index < 0) throw new InvalidDataException("原档案已更改，请重新打开编辑窗口。");
                     state.Profiles[index] = draft;
                 }
-                await Task.Run(() => RoleProfileStore.Save(dataDir, state));
+                await roleStore.SaveAsync(state);
                 selectedProfileId = draft.Id;
                 editorSaving = false;
                 editor.DialogResult = true;
@@ -1280,7 +1288,7 @@ internal sealed partial class RoleProfilesView : Grid
             }
             catch (Exception ex)
             {
-                try { state = await Task.Run(() => RoleProfileStore.Load(dataDir)); } catch { }
+                try { state = await roleStore.LoadAsync(); } catch { }
                 MessageBox.Show(editor, ex.Message, "角色档案未保存", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
             finally { editorSaving = false; editor.IsEnabled = true; }
@@ -1328,10 +1336,11 @@ internal sealed class RoleProfilesWindow : Window
     internal RoleProfilesWindow(string dataDir, IReadOnlyList<VideoItem> videos,
         MovieMetadata? origin, VideoItem? originVideo, string tmdbToken,
         Action<string> openVideoDetails, bool preloadForDiagnostics = false,
-        IReadOnlyDictionary<string, MovieMetadata>? savedMetadata = null)
+        IReadOnlyDictionary<string, MovieMetadata>? savedMetadata = null,
+        PostgresLibraryRuntimeSession? postgresSession = null)
     {
         view = new RoleProfilesView(dataDir, videos, origin, originVideo, tmdbToken,
-            openVideoDetails, preloadForDiagnostics, savedMetadata);
+            openVideoDetails, preloadForDiagnostics, savedMetadata, postgresSession);
         Title = "人物与角色档案";
         Width = 1110; Height = 750; MinWidth = 760; MinHeight = 520;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;

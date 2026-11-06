@@ -83,6 +83,11 @@ public partial class App : System.Windows.Application
                 e.Args.Length > 3 && e.Args[3] == "--scale"));
             return;
         }
+        if (e.Args.Length > 2 && e.Args[0] == "--self-test-postgres-backup")
+        {
+            Shutdown(await PostgresBackupAcceptance.RunToFileAsync(e.Args[1], e.Args[2]));
+            return;
+        }
         if (e.Args.Length > 1 && e.Args[0] == "--self-test-cloud-account")
         {
             Shutdown(await CloudAccountDiagnostics.RunToFileAsync(e.Args[1]));

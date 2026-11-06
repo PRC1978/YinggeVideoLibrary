@@ -12,6 +12,21 @@ namespace YinggeVideoLibrary;
 // every backup lives under %TEMP%, and no real media file is opened.
 internal static class PostgresBackupAcceptance
 {
+    internal static async Task<int> RunToFileAsync(string runtimeDirectory, string outputPath)
+    {
+        var probeRoot = Path.Combine(Path.GetTempPath(), "YinggePgBackupProbe-" +
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(probeRoot);
+        var findings = await RunAsync(runtimeDirectory, probeRoot, includeLarge: false);
+        var passed = findings.TryGetValue("backupMatrixVerified", out var matrix) && matrix is true &&
+            findings.TryGetValue("backupFailureInjectionVerified", out var failures) && failures is true;
+        findings["passed"] = passed;
+        findings["realLibraryRead"] = false;
+        findings["probeDirectory"] = probeRoot;
+        await File.WriteAllBytesAsync(outputPath, JsonSerializer.SerializeToUtf8Bytes(findings));
+        return passed ? 0 : 1;
+    }
+
     internal sealed record CaseResult(int Videos, bool Imported, bool BackupVerified,
         bool MarkerActivated, bool MutationApplied, bool Restored, bool RollbackArchiveVerified,
         bool PreviousSchemaVerified, bool MarkerRewritten, bool RestartVerified,

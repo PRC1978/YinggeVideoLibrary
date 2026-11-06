@@ -46,7 +46,8 @@ internal static class PostgresStorageModeGuard
     }
 
     internal static bool LegacyFilesMayOpen(string dataDirectory) =>
-        Current(dataDirectory) == StorageMode.LegacyFiles;
+        Current(dataDirectory) == StorageMode.LegacyFiles &&
+        !File.Exists(Path.Combine(dataDirectory, PostgresLibraryCutover.NewLibraryPendingName));
 
     internal static bool PostgresMayOpen(string dataDirectory) =>
         Current(dataDirectory) == StorageMode.PostgreSql;

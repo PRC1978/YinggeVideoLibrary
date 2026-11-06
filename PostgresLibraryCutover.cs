@@ -8,8 +8,49 @@ namespace YinggeVideoLibrary;
 internal static class PostgresLibraryCutover
 {
     internal const string PendingName = "postgres-cutover.pending";
+    internal const string NewLibraryPendingName = ".postgres-new-initialization";
     internal sealed record Result(string DataDirectory, string BackupDirectory,
         int VideoCount, int MetadataCount, bool Reopened);
+
+    // A genuinely new library starts in the database too. Never infer that a
+    // partly populated directory is new: existing users must retain the
+    // verified offline conversion path.
+    internal static async Task<bool> InitializeNewAsync(string runtimeDirectory,
+        string dataDirectory, CancellationToken cancellationToken = default)
+    {
+        dataDirectory = Path.GetFullPath(dataDirectory);
+        Directory.CreateDirectory(dataDirectory);
+        var pending = Path.Combine(dataDirectory, NewLibraryPendingName);
+        if (PostgresStorageModeGuard.Current(dataDirectory) ==
+            PostgresStorageModeGuard.StorageMode.PostgreSql)
+        {
+            if (File.Exists(pending)) File.Delete(pending);
+            return false;
+        }
+        if (PostgresStorageModeGuard.Current(dataDirectory) !=
+            PostgresStorageModeGuard.StorageMode.LegacyFiles) return false;
+        if (!File.Exists(pending))
+        {
+            if (Directory.EnumerateFileSystemEntries(dataDirectory).Any()) return false;
+            await File.WriteAllTextAsync(pending, "postgresql-new-v1\n", cancellationToken);
+        }
+        else if (await File.ReadAllTextAsync(pending, cancellationToken) != "postgresql-new-v1\n")
+            throw new InvalidDataException("新资料库初始化标记无效，已停止启动。");
+        var configPath = Path.Combine(dataDirectory, "config.json");
+        var indexPath = Path.Combine(dataDirectory, "library-index.json");
+        var metadataPath = Path.Combine(dataDirectory, "metadata.json");
+        if (!File.Exists(configPath))
+            await File.WriteAllBytesAsync(configPath,
+                JsonSerializer.SerializeToUtf8Bytes(new LibraryConfig()), cancellationToken);
+        if (!File.Exists(indexPath))
+            await File.WriteAllBytesAsync(indexPath,
+                JsonSerializer.SerializeToUtf8Bytes(new LibraryIndex()), cancellationToken);
+        if (!File.Exists(metadataPath))
+            await File.WriteAllTextAsync(metadataPath, "{}", cancellationToken);
+        await ConvertAsync(runtimeDirectory, dataDirectory, cancellationToken);
+        File.Delete(pending);
+        return true;
+    }
 
     internal static async Task<Result> ConvertAsync(string runtimeDirectory,
         string dataDirectory, CancellationToken cancellationToken = default)
@@ -150,6 +191,45 @@ internal static class PostgresLibraryCutover
         {
             report["result"] = await ConvertAsync(runtimeDirectory, dataDirectory);
             report["passed"] = true;
+        }
+        catch (Exception error) { report["error"] = error.ToString(); }
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(reportPath))!);
+        await File.WriteAllBytesAsync(reportPath, JsonSerializer.SerializeToUtf8Bytes(report));
+        return Equals(report["passed"], true) ? 0 : 1;
+    }
+
+    internal static async Task<int> TestNewLibraryToFileAsync(string runtimeDirectory,
+        string reportPath)
+    {
+        var report = new Dictionary<string, object?> { ["passed"] = false,
+            ["realLibraryRead"] = false };
+        var directory = Path.Combine(Path.GetTempPath(), "YinggePgNew-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var created = await InitializeNewAsync(runtimeDirectory, directory);
+            await using (var session = await PostgresLibraryRuntimeSession.OpenAsync(
+                runtimeDirectory, directory))
+            {
+                report["emptyVideos"] = session.Index.Index.Entries.Count == 0;
+                report["emptyMetadata"] = session.Metadata.Records.Count == 0;
+            }
+            report["databaseActive"] = PostgresStorageModeGuard.PostgresMayOpen(directory);
+            report["legacyWriterBlocked"] = !PostgresStorageModeGuard.LegacyFilesMayOpen(directory);
+            report["rollbackFilesKept"] = new[] { "config.json", "library-index.json",
+                "metadata.json" }.All(name => File.Exists(Path.Combine(directory, name)));
+            report["secondInitIgnored"] = !await InitializeNewAsync(runtimeDirectory, directory);
+            var interrupted = Path.Combine(Path.GetTempPath(), "YinggePgInterrupted-" +
+                Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(interrupted);
+            await File.WriteAllTextAsync(Path.Combine(interrupted, NewLibraryPendingName),
+                "postgresql-new-v1\n");
+            report["interruptedBlocksLegacy"] =
+                !PostgresStorageModeGuard.LegacyFilesMayOpen(interrupted);
+            report["interruptedResumed"] = await InitializeNewAsync(runtimeDirectory, interrupted) &&
+                PostgresStorageModeGuard.PostgresMayOpen(interrupted) &&
+                !File.Exists(Path.Combine(interrupted, NewLibraryPendingName));
+            report["passed"] = created && report.Where(pair => pair.Key is not "passed" and
+                not "realLibraryRead").All(pair => Equals(pair.Value, true));
         }
         catch (Exception error) { report["error"] = error.ToString(); }
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(reportPath))!);

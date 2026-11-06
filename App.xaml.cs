@@ -117,6 +117,11 @@ public partial class App : System.Windows.Application
                 e.Args[1], e.Args[2]));
             return;
         }
+        if (e.Args.Length > 2 && e.Args[0] == "--self-test-postgres-new-library")
+        {
+            Shutdown(await PostgresLibraryCutover.TestNewLibraryToFileAsync(e.Args[1], e.Args[2]));
+            return;
+        }
         if (e.Args.Length > 3 && e.Args[0] == "--diagnose-postgres-window")
         {
             Shutdown(await PostgresWindowDiagnostics.RunAsync(e.Args[1], e.Args[2], e.Args[3]));
@@ -373,6 +378,24 @@ public partial class App : System.Windows.Application
         // them in the background so a failed prune can never delay or block startup.
         _ = Task.Run(() => UpdateBackupJanitor.TryRun(System.IO.Path.GetDirectoryName(Environment.ProcessPath)));
         var dataDir = AppPaths.DataDirectory;
+        var postgresRuntimeDirectory = System.IO.Path.Combine(AppContext.BaseDirectory, "postgres");
+        if (System.IO.File.Exists(System.IO.Path.Combine(dataDir,
+                PostgresLibraryCutover.NewLibraryPendingName)) ||
+            !System.IO.Directory.Exists(dataDir) ||
+            !System.IO.Directory.EnumerateFileSystemEntries(dataDir).Any())
+        {
+            try
+            {
+                await PostgresLibraryCutover.InitializeNewAsync(postgresRuntimeDirectory, dataDir);
+            }
+            catch (Exception error)
+            {
+                System.Windows.MessageBox.Show("新视频库的 PostgreSQL 初始化未完成。为避免写入两种存储，本次不载入视频库。\n" +
+                    error.Message, "映格视频库 · 数据库初始化", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Shutdown(1);
+                return;
+            }
+        }
         if (System.IO.File.Exists(System.IO.Path.Combine(dataDir, PostgresLibraryCutover.PendingName)))
         {
             try
@@ -518,6 +541,35 @@ public partial class App : System.Windows.Application
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             Shutdown(1);
             return;
+        }
+        if (System.IO.File.Exists(System.IO.Path.Combine(postgresRuntimeDirectory, "bin", "postgres.exe")) &&
+            new[] { "config.json", "library-index.json", "metadata.json" }.All(name =>
+                System.IO.File.Exists(System.IO.Path.Combine(dataDir, name))))
+        {
+            try
+            {
+                var cacheMigration = global::YinggeVideoLibrary.MainWindow.TryMigrateLegacyCaches(dataDir);
+                if (cacheMigration.Contains("稍后重试", StringComparison.Ordinal))
+                    throw new InvalidOperationException(cacheMigration);
+                await PostgresLibraryCutover.ConvertAsync(postgresRuntimeDirectory, dataDir);
+                var executable = Environment.ProcessPath ??
+                    throw new InvalidOperationException("无法定位程序文件以重新载入数据库。");
+                var restart = new System.Diagnostics.ProcessStartInfo(executable)
+                {
+                    UseShellExecute = true
+                };
+                foreach (var argument in e.Args) restart.ArgumentList.Add(argument);
+                System.Diagnostics.Process.Start(restart);
+                Shutdown();
+                return;
+            }
+            catch (Exception error)
+            {
+                System.Windows.MessageBox.Show("自动转换为 PostgreSQL 未完成。旧资料文件未删除；为避免两种存储分叉，本次不载入视频库。\n" +
+                    error.Message, "映格视频库 · 数据库转换", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Shutdown(1);
+                return;
+            }
         }
         try { librarySessionLease = LibraryBackupService.AcquireSessionLease(dataDir); }
         catch (Exception ex)

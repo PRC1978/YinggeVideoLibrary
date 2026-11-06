@@ -13,7 +13,7 @@ public partial class MainWindow
     // Use a location outside AppData for the shared cache. Packaged desktop
     // processes virtualize LocalAppData, even when the path string looks
     // identical to an unpackaged process. Run before LoadConfig.
-    static string TryMigrateLegacyCaches(string destinationDataDir)
+    internal static string TryMigrateLegacyCaches(string destinationDataDir)
     {
         // An explicit data directory is an isolated library, including diagnostic
         // fixtures. Importing the user's legacy cache into an empty redirected

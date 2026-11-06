@@ -11,12 +11,13 @@ internal sealed class PostgresLibraryRuntimeSession : IAsyncDisposable
     private readonly PostgresPrivateCluster cluster;
 
     internal string ConnectionString => cluster.ConnectionString;
-    internal LibraryConfig Config { get; }
-    internal PostgresLibraryIndexStore.Snapshot Index { get; }
-    internal PostgresLibraryMetadataStore.Snapshot Metadata { get; }
-    internal IReadOnlyList<ScrapeQueueItem> Queue { get; }
-    internal PostgresReviewTransactionStore.HistorySnapshot ReviewHistory { get; }
-    internal PostgresRoleProfileStore.Snapshot Roles { get; }
+    internal LibraryConfig Config { get; private set; }
+    internal PostgresLibraryIndexStore.Snapshot Index { get; private set; }
+    internal PostgresLibraryMetadataStore.Snapshot Metadata { get; private set; }
+    internal IReadOnlyList<ScrapeQueueItem> Queue { get; private set; }
+    internal PostgresReviewTransactionStore.HistorySnapshot ReviewHistory { get; private set; }
+    internal PostgresRoleProfileStore.Snapshot Roles { get; private set; }
+    private readonly SemaphoreSlim writeGate = new(1, 1);
 
     private PostgresLibraryRuntimeSession(PostgresPrivateCluster cluster, LibraryConfig config,
         PostgresLibraryIndexStore.Snapshot index,
@@ -31,6 +32,93 @@ internal sealed class PostgresLibraryRuntimeSession : IAsyncDisposable
         Queue = queue;
         ReviewHistory = reviewHistory;
         Roles = roles;
+    }
+
+    internal async Task SaveConfigAsync(LibraryConfig edited,
+        CancellationToken cancellationToken = default)
+    {
+        await writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            Config = await PostgresLibraryConfigStore.SaveAsync(ConnectionString,
+                Config, edited, cancellationToken);
+        }
+        finally { writeGate.Release(); }
+    }
+
+    internal async Task SaveIndexAsync(LibraryIndex edited,
+        CancellationToken cancellationToken = default)
+    {
+        await writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            await PostgresLibraryIndexStore.SaveAsync(ConnectionString, edited,
+                Index.Revision, cancellationToken);
+            Index = await PostgresLibraryIndexStore.ReadAsync(ConnectionString,
+                cancellationToken);
+        }
+        finally { writeGate.Release(); }
+    }
+
+    internal async Task SaveMetadataAsync(IReadOnlyDictionary<string, MovieMetadata> edited,
+        CancellationToken cancellationToken = default)
+    {
+        await writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            await PostgresLibraryMetadataStore.SaveAsync(ConnectionString, edited,
+                Metadata.Revision, cancellationToken);
+            Metadata = await PostgresLibraryMetadataStore.ReadAsync(ConnectionString,
+                cancellationToken);
+        }
+        finally { writeGate.Release(); }
+    }
+
+    internal async Task CommitReviewAsync(ReviewTransaction transaction,
+        CancellationToken cancellationToken = default)
+    {
+        await writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            await PostgresReviewTransactionStore.CommitAsync(ConnectionString, transaction,
+                cancellationToken);
+            var document = await PostgresLibraryDocumentStore.ReadAsync(ConnectionString,
+                "config.json", cancellationToken)
+                ?? throw new InvalidDataException("审核提交后数据库配置丢失。 ");
+            Config = JsonSerializer.Deserialize<LibraryConfig>(document.Content)
+                ?? throw new InvalidDataException("审核提交后数据库配置无效。 ");
+            Metadata = await PostgresLibraryMetadataStore.ReadAsync(ConnectionString,
+                cancellationToken);
+            ReviewHistory = await PostgresReviewTransactionStore.LoadAsync(ConnectionString,
+                cancellationToken);
+        }
+        finally { writeGate.Release(); }
+    }
+
+    internal async Task<int> AddQueueAsync(IEnumerable<ScrapeQueueItem> candidates,
+        CancellationToken cancellationToken = default)
+    {
+        await writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            var added = await PostgresScrapeQueueStore.AddAsync(ConnectionString, candidates,
+                cancellationToken);
+            Queue = await PostgresScrapeQueueStore.LoadAsync(ConnectionString, cancellationToken);
+            return added;
+        }
+        finally { writeGate.Release(); }
+    }
+
+    internal async Task SaveRolesAsync(RoleProfileStore.State edited,
+        CancellationToken cancellationToken = default)
+    {
+        await writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            Roles = await PostgresRoleProfileStore.SaveAsync(ConnectionString, Roles,
+                edited, cancellationToken);
+        }
+        finally { writeGate.Release(); }
     }
 
     internal static async Task<PostgresLibraryRuntimeSession> OpenAsync(string runtimeDirectory,
@@ -80,5 +168,9 @@ internal sealed class PostgresLibraryRuntimeSession : IAsyncDisposable
         }
     }
 
-    public ValueTask DisposeAsync() => cluster.DisposeAsync();
+    public async ValueTask DisposeAsync()
+    {
+        writeGate.Dispose();
+        await cluster.DisposeAsync();
+    }
 }

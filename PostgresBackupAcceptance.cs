@@ -30,7 +30,8 @@ internal static class PostgresBackupAcceptance
     internal sealed record CaseResult(int Videos, bool Imported, bool BackupVerified,
         bool MarkerActivated, bool MutationApplied, bool Restored, bool RollbackArchiveVerified,
         bool PreviousSchemaVerified, bool MarkerRewritten, bool RestartVerified,
-        bool EntitiesVerified, long ImportMs, long BackupMs, long RestoreMs, long BackupBytes);
+        bool EntitiesVerified, bool RuntimeWritesVerified, long ImportMs, long BackupMs,
+        long RestoreMs, long BackupBytes);
 
     internal sealed record FailureResult(bool InterruptedBackupClean, bool SpacePrecheckRejected,
         bool CorruptPackageRejected, bool OldPackageRejected, bool OldDatabaseUpgraded,
@@ -58,7 +59,8 @@ internal static class PostgresBackupAcceptance
             findings["backupMatrixVerified"] = results.All(item => item.Imported &&
                 item.BackupVerified && item.MarkerActivated && item.MutationApplied &&
                 item.Restored && item.RollbackArchiveVerified && item.PreviousSchemaVerified &&
-                item.MarkerRewritten && item.RestartVerified && item.EntitiesVerified);
+                item.MarkerRewritten && item.RestartVerified && item.EntitiesVerified &&
+                item.RuntimeWritesVerified);
 
             var failures = await RunFailureCasesAsync(runtimeDirectory, probeRoot);
             Log(probeRoot, "failure cases done");
@@ -162,6 +164,7 @@ internal static class PostgresBackupAcceptance
 
             var reopened = await PostgresLibraryRuntimeSession.OpenAsync(runtimeDirectory, library);
             bool restartVerified;
+            bool runtimeWritesVerified;
             try
             {
                 restartVerified = PostgresStorageModeGuard.PostgresMayOpen(library) &&
@@ -172,12 +175,13 @@ internal static class PostgresBackupAcceptance
                     reopened.Config.Folders.Count == 1 &&
                     reopened.Queue.Count == 2 &&
                     await VerifyEntitiesAsync(reopened.ConnectionString, videos);
+                runtimeWritesVerified = await VerifyRuntimeWritesAsync(reopened, videos);
             }
             finally { await reopened.DisposeAsync(); }
 
             return new(count, importedOk, backupOk, markerOk, mutationApplied, restored,
                 archiveVerified, previousSchemaVerified, markerRewritten, restartVerified,
-                entities, importMs, backupMs, restoreMs,
+                entities, runtimeWritesVerified, importMs, backupMs, restoreMs,
                 PostgresLibraryBackup.DirectorySize(backup));
         }
         catch
@@ -188,6 +192,47 @@ internal static class PostgresBackupAcceptance
     }
 
     private sealed record Fixture(int Videos, string VideoId, string MediaRoot);
+
+    private static async Task<bool> VerifyRuntimeWritesAsync(
+        PostgresLibraryRuntimeSession session, Fixture fixture)
+    {
+        var config = MainWindow.CloneLibraryConfig(session.Config);
+        var originalShowAll = config.ShowAll;
+        config.ShowAll = !originalShowAll;
+        await session.SaveConfigAsync(config);
+
+        var index = new LibraryIndex
+        {
+            Folders = session.Index.Index.Folders,
+            Entries = session.Index.Index.Entries.Select(entry => new IndexEntry
+            {
+                Path = entry.Path, Size = entry.Size + (entry.Path.EndsWith("video-000000.mp4",
+                    StringComparison.Ordinal) ? 1 : 0), ModifiedTicks = entry.ModifiedTicks,
+                Missing = entry.Missing
+            }).ToList()
+        };
+        await session.SaveIndexAsync(index);
+
+        var metadata = session.Metadata.Records.ToDictionary(pair => pair.Key,
+            pair => pair.Value.Clone(), StringComparer.Ordinal);
+        metadata[fixture.VideoId].Title = "数据库会话写入测试";
+        await session.SaveMetadataAsync(metadata);
+
+        var added = await session.AddQueueAsync([new ScrapeQueueItem
+            { VideoId = "runtime-queue-test", Code = "RUNTIME-001" }]);
+        var roles = RoleProfileStore.Parse(JsonSerializer.Serialize(session.Roles.State));
+        roles.Profiles[0].Name = "人物甲·会话写入";
+        await session.SaveRolesAsync(roles);
+
+        var savedConfig = await PostgresLibraryDocumentStore.ReadAsync(session.ConnectionString,
+            "config.json");
+        return session.Config.ShowAll != originalShowAll &&
+            JsonSerializer.Deserialize<LibraryConfig>(savedConfig!.Content)?.ShowAll != originalShowAll &&
+            session.Index.Index.Entries[0].Size == index.Entries[0].Size &&
+            session.Metadata.Records[fixture.VideoId].Title == "数据库会话写入测试" &&
+            added == 1 && session.Queue.Count == 3 &&
+            session.Roles.State.Profiles[0].Name == "人物甲·会话写入";
+    }
 
     private static Fixture BuildFixture(string source, int count)
     {

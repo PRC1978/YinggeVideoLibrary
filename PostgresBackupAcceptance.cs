@@ -251,6 +251,25 @@ internal static class PostgresBackupAcceptance
             pair => pair.Value.Clone(), StringComparer.Ordinal);
         metadata[fixture.VideoId].Title = "数据库会话写入测试";
         await session.SaveMetadataAsync(metadata);
+        var reviewBefore = new ReviewItemSnapshot
+        {
+            Review = session.Config.AiReviews.GetValueOrDefault(fixture.VideoId),
+            Metadata = session.Metadata.Records[fixture.VideoId].Clone(),
+            Tags = session.Config.Tags.GetValueOrDefault(fixture.VideoId)?.ToList(),
+            AutoAmateur = session.Config.AutoAmateurTags.Contains(fixture.VideoId)
+        };
+        var reviewAfter = reviewBefore.Clone();
+        reviewAfter.Review = new AiReviewRecord { Status = "approved" };
+        var historyBefore = session.ReviewHistory.Records.Count;
+        await session.CommitReviewAsync(ReviewTransactionStore.Create("runtime-review",
+            new Dictionary<string, ReviewItemSnapshot> { [fixture.VideoId] = reviewBefore },
+            new Dictionary<string, ReviewItemSnapshot> { [fixture.VideoId] = reviewAfter }));
+        var reviewCommitted = session.Config.AiReviews[fixture.VideoId].Status == "approved" &&
+            session.ReviewHistory.Records.Count == historyBefore + 1;
+        var reviewViews = await session.ChangeReviewViewsAsync(existing =>
+            existing.Append(new ReviewSavedView { Name = "数据库会话视图", Status = "pending" }));
+        var reviewViewsPersisted = reviewViews.Count == 1 &&
+            (await session.LoadReviewViewsAsync()).Value.Single().Name == "数据库会话视图";
 
         var added = await session.AddQueueAsync([new ScrapeQueueItem
             { VideoId = "runtime-queue-test", Code = "RUNTIME-001" }]);
@@ -304,7 +323,8 @@ internal static class PostgresBackupAcceptance
             candidateAfter?.Revision == candidateRevision &&
             candidateAfter.Content.SequenceEqual(candidateBytes) &&
             staleWriteRejected && dedicatedWriterRequired && emptyScanProtected &&
-            exclusiveWorker && sourcePacingVerified;
+            exclusiveWorker && sourcePacingVerified && reviewCommitted &&
+            reviewViewsPersisted;
     }
 
     private static Fixture BuildFixture(string source, int count)

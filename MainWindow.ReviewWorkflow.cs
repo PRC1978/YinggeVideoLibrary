@@ -248,11 +248,18 @@ public partial class MainWindow
             while (!isClosing)
             {
                 var mutationVersion = reviewHistoryMutationVersion;
-                var (loaded, invalid) = await Task.Run(() =>
-                {
-                    var rows = ReviewTransactionStore.Load(DataDir, out var invalidRows);
-                    return (rows, invalidRows);
-                });
+                var (loaded, invalid) = postgresSession is null
+                    ? await Task.Run(() =>
+                    {
+                        var rows = ReviewTransactionStore.Load(DataDir, out var invalidRows);
+                        return (rows, invalidRows);
+                    })
+                    : await Task.Run(async () =>
+                    {
+                        var snapshot = await PostgresReviewTransactionStore.LoadAsync(
+                            postgresSession.ConnectionString);
+                        return (snapshot.Records, snapshot.InvalidLines);
+                    });
                 if (mutationVersion != reviewHistoryMutationVersion) continue;
                 reviewHistory.Clear();
                 reviewHistory.AddRange(loaded);
@@ -303,7 +310,11 @@ public partial class MainWindow
         if (reviewSavedViewPicker is null) return;
         try
         {
-            reviewSavedViews = ReviewSavedViewStore.Load(DataDir, out var recovered);
+            var recovered = false;
+            reviewSavedViews = postgresSession is null
+                ? ReviewSavedViewStore.Load(DataDir, out recovered)
+                : Task.Run(() => postgresSession.LoadReviewViewsAsync())
+                    .GetAwaiter().GetResult().Value;
             reviewSavedViewNotice!.Text = recovered
                 ? "审核视图主文件损坏，已从恢复副本读取。保存新视图会重建主文件。"
                 : "组合状态、来源与可信度后可保存视图；批量选择只作用于当前筛选结果。";
@@ -386,7 +397,16 @@ public partial class MainWindow
                 MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
         try
         {
-            reviewSavedViews = ReviewSavedViewStore.Upsert(DataDir, CurrentReviewView(name));
+            if (postgresSession is null)
+                reviewSavedViews = ReviewSavedViewStore.Upsert(DataDir, CurrentReviewView(name));
+            else
+            {
+                var edited = CurrentReviewView(name);
+                reviewSavedViews = Task.Run(() => postgresSession.ChangeReviewViewsAsync(existing =>
+                    existing.Where(view => !string.Equals(view.Name, name,
+                        StringComparison.CurrentCultureIgnoreCase)).Append(edited)))
+                    .GetAwaiter().GetResult();
+            }
             ReloadSavedReviewViews(name);
             Log("已保存审核视图：" + name);
         }
@@ -400,7 +420,12 @@ public partial class MainWindow
             MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
         try
         {
-            reviewSavedViews = ReviewSavedViewStore.Delete(DataDir, name);
+            reviewSavedViews = postgresSession is null
+                ? ReviewSavedViewStore.Delete(DataDir, name)
+                : Task.Run(() => postgresSession.ChangeReviewViewsAsync(existing =>
+                    existing.Where(view => !string.Equals(view.Name, name,
+                        StringComparison.CurrentCultureIgnoreCase))))
+                    .GetAwaiter().GetResult();
             ReloadSavedReviewViews();
             Log("已删除审核视图：" + name);
         }
@@ -663,6 +688,39 @@ public partial class MainWindow
     // any of the config, metadata or history writes.
     bool TryCommitJournaledReview(ReviewTransaction transaction, out string error)
     {
+        if (postgresSession is not null)
+        {
+            try
+            {
+                Task.Run(() => postgresSession.CommitReviewAsync(transaction))
+                    .GetAwaiter().GetResult();
+                ApplyPostgresReviewState(transaction);
+                error = "";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    Task.Run(() => postgresSession.ReloadReviewStateAsync())
+                        .GetAwaiter().GetResult();
+                    if (postgresSession.ReviewHistory.Records.Any(row => row.Id == transaction.Id))
+                    {
+                        ApplyPostgresReviewState(transaction);
+                        error = "";
+                        return true;
+                    }
+                }
+                catch (Exception recoveryEx)
+                {
+                    error = ex.Message + "；无法核对数据库提交状态，请重启后检查审核历史：" +
+                        recoveryEx.Message;
+                    return false;
+                }
+                error = ex.Message;
+                return false;
+            }
+        }
         error = "";
         var begun = false;
         IDisposable? metadataLease = null;
@@ -720,6 +778,24 @@ public partial class MainWindow
         finally { metadataLease?.Dispose(); }
     }
 
+    void ApplyPostgresReviewState(ReviewTransaction transaction)
+    {
+        var session = postgresSession ?? throw new InvalidOperationException("数据库会话不存在。");
+        var current = CloneLibraryConfig(session.Config);
+        current.TmdbToken = config.TmdbToken;
+        current.AiKey = config.AiKey;
+        current.JavinfoKey = config.JavinfoKey;
+        config = current;
+        configBaseline = CloneLibraryConfig(current);
+        metadata = session.Metadata.Records.ToDictionary(pair => pair.Key,
+            pair => pair.Value.Clone(), StringComparer.Ordinal);
+        reviewHistoryMutationVersion++;
+        reviewHistory.Clear();
+        reviewHistory.AddRange(session.ReviewHistory.Records);
+        UpdateReviewUndoButton();
+        RefreshReviewVideos(transaction.After.Keys);
+    }
+
     void UpdateReviewUndoButton()
     {
         if (reviewUndoButton is not null)
@@ -772,16 +848,26 @@ public partial class MainWindow
     {
         try
         {
-            if (!TryReadJson(ConfigPath, out LibraryConfig? diskConfig) || diskConfig?.AiReviews is null ||
-                diskConfig.Tags is null || diskConfig.AutoAmateurTags is null) return false;
-            var metadataPath = Path.Combine(DataDir, "metadata.json");
+            LibraryConfig? diskConfig;
             Dictionary<string, MovieMetadata> diskMetadata;
-            if (File.Exists(metadataPath))
+            if (postgresSession is not null)
             {
-                if (!TryReadJson(metadataPath, out Dictionary<string, MovieMetadata>? loaded) || loaded is null) return false;
-                diskMetadata = new Dictionary<string, MovieMetadata>(loaded, StringComparer.OrdinalIgnoreCase);
+                diskConfig = postgresSession.Config;
+                diskMetadata = new(postgresSession.Metadata.Records, StringComparer.OrdinalIgnoreCase);
             }
-            else diskMetadata = [];
+            else
+            {
+                if (!TryReadJson(ConfigPath, out diskConfig)) return false;
+                var metadataPath = Path.Combine(DataDir, "metadata.json");
+                if (File.Exists(metadataPath))
+                {
+                    if (!TryReadJson(metadataPath, out Dictionary<string, MovieMetadata>? loaded) || loaded is null) return false;
+                    diskMetadata = new Dictionary<string, MovieMetadata>(loaded, StringComparer.OrdinalIgnoreCase);
+                }
+                else diskMetadata = [];
+            }
+            if (diskConfig?.AiReviews is null || diskConfig.Tags is null ||
+                diskConfig.AutoAmateurTags is null) return false;
             var diskReviews = new Dictionary<string, AiReviewRecord>(diskConfig.AiReviews, StringComparer.OrdinalIgnoreCase);
             var diskTags = new Dictionary<string, List<string>>(diskConfig.Tags, StringComparer.OrdinalIgnoreCase);
             var diskAutoTags = diskConfig.AutoAmateurTags.ToHashSet(StringComparer.OrdinalIgnoreCase);

@@ -43,6 +43,27 @@ internal sealed class PostgresLibraryRuntimeSession : IAsyncDisposable
         CancellationToken cancellationToken = default) =>
         PostgresScrapeSourceBackoffStore.ReportSuccessAsync(ConnectionString,
             source, cancellationToken);
+
+    internal Task<PostgresUserStateStore.Snapshot<IReadOnlyList<ReviewSavedView>>>
+        LoadReviewViewsAsync(CancellationToken cancellationToken = default) =>
+        PostgresUserStateStore.LoadReviewViewsAsync(ConnectionString, cancellationToken);
+
+    internal async Task<IReadOnlyList<ReviewSavedView>> ChangeReviewViewsAsync(
+        Func<IReadOnlyList<ReviewSavedView>, IEnumerable<ReviewSavedView>> change,
+        CancellationToken cancellationToken = default)
+    {
+        await writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            var current = await PostgresUserStateStore.LoadReviewViewsAsync(ConnectionString,
+                cancellationToken);
+            var edited = change(current.Value).ToArray();
+            var saved = await PostgresUserStateStore.SaveReviewViewsAsync(ConnectionString,
+                current, edited, cancellationToken);
+            return saved.Value;
+        }
+        finally { writeGate.Release(); }
+    }
     internal LibraryConfig Config { get; private set; }
     internal PostgresLibraryIndexStore.Snapshot Index { get; private set; }
     internal PostgresLibraryMetadataStore.Snapshot Metadata { get; private set; }
@@ -136,17 +157,34 @@ internal sealed class PostgresLibraryRuntimeSession : IAsyncDisposable
         {
             await PostgresReviewTransactionStore.CommitAsync(ConnectionString, transaction,
                 cancellationToken);
-            var document = await PostgresLibraryDocumentStore.ReadAsync(ConnectionString,
-                "config.json", cancellationToken)
-                ?? throw new InvalidDataException("审核提交后数据库配置丢失。 ");
-            Config = JsonSerializer.Deserialize<LibraryConfig>(document.Content)
-                ?? throw new InvalidDataException("审核提交后数据库配置无效。 ");
-            Metadata = await PostgresLibraryMetadataStore.ReadAsync(ConnectionString,
-                cancellationToken);
-            ReviewHistory = await PostgresReviewTransactionStore.LoadAsync(ConnectionString,
-                cancellationToken);
+            await ReadReviewStateAsync(cancellationToken);
         }
         finally { writeGate.Release(); }
+    }
+
+    internal async Task ReloadReviewStateAsync(CancellationToken cancellationToken = default)
+    {
+        await writeGate.WaitAsync(cancellationToken);
+        try { await ReadReviewStateAsync(cancellationToken); }
+        finally { writeGate.Release(); }
+    }
+
+    private async Task ReadReviewStateAsync(CancellationToken cancellationToken)
+    {
+        var document = await PostgresLibraryDocumentStore.ReadAsync(ConnectionString,
+            "config.json", cancellationToken)
+            ?? throw new InvalidDataException("数据库配置丢失。 ");
+        var config = JsonSerializer.Deserialize<LibraryConfig>(document.Content)
+            ?? throw new InvalidDataException("数据库配置无效。 ");
+        var metadata = await PostgresLibraryMetadataStore.ReadAsync(ConnectionString,
+            cancellationToken);
+        var history = await PostgresReviewTransactionStore.LoadAsync(ConnectionString,
+            cancellationToken);
+        if (history.InvalidLines != 0)
+            throw new InvalidDataException("数据库审核历史含无效记录。 ");
+        Config = config;
+        Metadata = metadata;
+        ReviewHistory = history;
     }
 
     internal async Task<int> AddQueueAsync(IEnumerable<ScrapeQueueItem> candidates,

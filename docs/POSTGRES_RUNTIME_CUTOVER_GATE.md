@@ -6,7 +6,7 @@
 
 | 数据 | 当前正常程序入口 | 已有数据库适配器 | 剩余工作 |
 | --- | --- | --- | --- |
-| 配置、标签、分类、收藏、审核记录 | `MainWindow.LoadConfig` / `SaveConfig` | `PostgresLibraryConfigStore` | 主窗口已增加数据库会话的配置读写分支；需完成审核事务、全部直接文件入口及真实窗口验收 |
+| 配置、标签、分类、收藏、审核记录 | `MainWindow.LoadConfig` / `SaveConfig`、`MainWindow.ReviewWorkflow` | `PostgresLibraryConfigStore`、`PostgresReviewTransactionStore` | 主窗口已增加数据库会话的配置、审核事务、历史和保存视图分支；需完成全部直接文件入口及真实窗口验收。同步设置保存仍会等待数据库，后续改为异步 |
 | 视频索引与缺失状态 | `MainWindow.SaveIndexAsync`、增量扫描和缺失清理 | `PostgresLibraryIndexStore`、`PostgresLibraryRuntimeSession.SaveScannedIndexAsync` | 主窗口已增加数据库会话的缓存读取、扫描保存与旧索引恢复分支；需完成缺失清理撤销、CAS 冲突和真实窗口验收。隔离库已验证空扫描不覆盖不同根目录的旧索引 |
 | 搜刮资料 | `MetadataStore.Load/Save` 与审核事务 | `PostgresLibraryMetadataStore`、`PostgresReviewTransactionStore` | 所有资料写入、审核历史和撤销同事务 |
 | 搜刮队列与来源冷却 | `ScrapeQueueStore` 文件日志 | `PostgresScrapeQueueStore`、`PostgresScrapeSourceBackoffStore`、`PostgresScrapeWorkerLease` | 主窗口后台调度、取消、重试、重启恢复实际接线；隔离库已验证数据库会话中的加入、延期、失败、移除、来源冷却及双工作者互斥 |

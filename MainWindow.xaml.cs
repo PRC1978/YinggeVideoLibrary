@@ -375,6 +375,7 @@ public partial class MainWindow : Window
     readonly string[] playerCandidates = [@"C:\Program Files\DAUM\PotPlayer\PotPlayerMini64.exe", @"C:\Program Files\PotPlayer\PotPlayerMini64.exe", @"C:\Program Files (x86)\DAUM\PotPlayer\PotPlayerMini.exe"];
     const int ReviewManualThreshold = 80;
     const int ReviewRejectThreshold = 40;
+    readonly PostgresLibraryRuntimeSession? postgresSession;
     LibraryConfig config = new();
     LibraryConfig configBaseline = new();
     string configSource = "unknown";
@@ -483,25 +484,39 @@ public partial class MainWindow : Window
     Button? aiCategoryAction;
     readonly List<string> messages = [];
 
-    public MainWindow()
+    public MainWindow() : this(null) { }
+
+    internal MainWindow(PostgresLibraryRuntimeSession? storageSession)
     {
+        postgresSession = storageSession;
         InitializeComponent();
         SizeChanged += (_, _) => UpdateHeaderResponsive();
         InitializeFolderExternalDrop();
         Directory.CreateDirectory(DataDir);
-        var cacheMigration = TryMigrateLegacyCaches(DataDir);
+        var cacheMigration = postgresSession is null ? TryMigrateLegacyCaches(DataDir) : "";
         Directory.CreateDirectory(ThumbDir);
-        config = LoadConfig(out configSource);
+        if (postgresSession is null) config = LoadConfig(out configSource);
+        else
+        {
+            config = CloneLibraryConfig(postgresSession.Config);
+            configSource = "PostgreSQL";
+        }
         // Token brushes are shared and mutable, so applying the saved mode here
         // recolors everything InitializeComponent already built, in place.
         UiTheme.Apply(config.UiTheme);
         VideoItem.ConfigurePosterCache(config.PosterCacheLimitMb);
         var hadLegacySecrets = MigrateSecretsToWindows();
         configBaseline = CloneLibraryConfig(config);
-        if (hadLegacySecrets) { SaveConfig(); ScrubLegacyCredentialBackups(); }
+        if (hadLegacySecrets)
+        {
+            SaveConfig();
+            if (postgresSession is null) ScrubLegacyCredentialBackups();
+        }
         RecordCacheDiagnostic("config", string.IsNullOrWhiteSpace(cacheMigration)
             ? $"配置来源：{configSource}" : $"配置来源：{configSource}；{cacheMigration}");
-        metadata = MetadataStore.Load(DataDir);
+        metadata = postgresSession is null ? MetadataStore.Load(DataDir) :
+            postgresSession.Metadata.Records.ToDictionary(pair => pair.Key,
+                pair => pair.Value.Clone(), StringComparer.Ordinal);
         InitializeScrapePollingUi();
         InitializeScrapeFiltersUi();
         InitializeReviewWorkflowUi();
@@ -802,8 +817,20 @@ public partial class MainWindow : Window
     void SaveConfig(bool allowJournaledReviewTransition = false)
     {
         configSaveVersion++;
-        var merged = WriteConfigSnapshot(configBaseline, config, ConfigPath, credentialStoreReady,
-            javinfoCredentialReady, allowJournaledReviewTransition);
+        LibraryConfig merged;
+        if (postgresSession is null)
+            merged = WriteConfigSnapshot(configBaseline, config, ConfigPath,
+                credentialStoreReady, javinfoCredentialReady, allowJournaledReviewTransition);
+        else
+        {
+            if (allowJournaledReviewTransition)
+                throw new InvalidOperationException("数据库审核变更必须通过审核事务提交。");
+            // Synchronous settings handlers require a completed save before
+            // updating their visible state. The worker avoids dispatcher
+            // reentrancy; this path still needs an async UI conversion.
+            Task.Run(() => postgresSession.SaveConfigAsync(config)).GetAwaiter().GetResult();
+            merged = postgresSession.Config;
+        }
         var graphDataChanged = !GraphRelevantConfigEquals(configBaseline, merged);
         merged.TmdbToken = config.TmdbToken;
         merged.AiKey = config.AiKey;
@@ -811,7 +838,7 @@ public partial class MainWindow : Window
         config = merged;
         configBaseline = CloneLibraryConfig(merged);
         if (graphDataChanged) categoryDataVersion++;
-        configSource = "config.json";
+        configSource = postgresSession is null ? "config.json" : "PostgreSQL";
     }
 
     static LibraryConfig WriteConfigSnapshot(LibraryConfig baseline, LibraryConfig current, string path,
@@ -992,7 +1019,9 @@ public partial class MainWindow : Window
     {
         try
         {
-            var (index, source) = await Task.Run(() => ReadBestLibraryIndex(config));
+            var (index, source) = postgresSession is null
+                ? await Task.Run(() => ReadBestLibraryIndex(config))
+                : (postgresSession.Index.Index, "PostgreSQL");
             indexSource = source;
             if (isClosing) return false;
             if (index is null)
@@ -1059,6 +1088,9 @@ public partial class MainWindow : Window
         await IndexWriteGate.WaitAsync();
         try
         {
+            if (postgresSession is not null)
+                return await postgresSession.SaveScannedIndexAsync(index,
+                    config.FoldersClearedByUser && roots.Length == 0);
             return await Task.Run(() =>
             {
                 var ownsMutex = false;
@@ -1360,7 +1392,9 @@ public partial class MainWindow : Window
         {
             // A stale concurrent save must not turn a previously populated
             // window into an empty library during its background refresh.
-            var persisted = LoadConfig(out var persistedSource);
+            var persisted = postgresSession is null
+                ? LoadConfig(out _) : postgresSession.Config;
+            var persistedSource = postgresSession is null ? "config.json" : "PostgreSQL";
             if (persisted.Folders.Count > 0)
             {
                 config.Folders = persisted.Folders;
@@ -1368,7 +1402,9 @@ public partial class MainWindow : Window
             }
             else if (!persisted.FoldersClearedByUser)
             {
-                var (savedIndex, savedSource) = ReadBestLibraryIndex(config);
+                var (savedIndex, savedSource) = postgresSession is null
+                    ? ReadBestLibraryIndex(config)
+                    : (postgresSession.Index.Index, "PostgreSQL");
                 if (savedIndex is { Entries.Count: > 0 })
                 {
                     config.Folders = savedIndex.Folders.ToList();
@@ -1389,13 +1425,15 @@ public partial class MainWindow : Window
             var previous = videos;
             if (previous.Count == 0)
             {
-                previous = await Task.Run(() =>
-                {
-                    if (!TryReadLibraryIndex(IndexPath, out LibraryIndex? saved)
-                        && !TryReadLibraryIndex(IndexPath + ".bak", out saved)) return new List<VideoItem>();
-                    if (saved is null) return new List<VideoItem>();
-                    return ItemsFromIndex(saved, out _);
-                });
+                previous = postgresSession is not null
+                    ? ItemsFromIndex(postgresSession.Index.Index, out _)
+                    : await Task.Run(() =>
+                    {
+                        if (!TryReadLibraryIndex(IndexPath, out LibraryIndex? saved)
+                            && !TryReadLibraryIndex(IndexPath + ".bak", out saved)) return new List<VideoItem>();
+                        if (saved is null) return new List<VideoItem>();
+                        return ItemsFromIndex(saved, out _);
+                    });
                 if (isClosing || version != scanVersion) return;
             }
             // Every entry that the scan did not find is either gone (the folder

@@ -31,10 +31,13 @@ internal static class PostgresWindowDiagnostics
                 "postgres-window-ui-" + Guid.NewGuid().ToString("N") + ".json");
             var uiCode = await window.WriteHiddenStartupDiagnosticAsync(uiReport,
                 verifyRoles: true);
+            result["selectiveImportControls"] = window.VerifyBackupImportUiForDiagnostics() &&
+                window.SelectiveBackupImportButton.Visibility == System.Windows.Visibility.Visible &&
+                window.CancelScheduledImportButton.Visibility == System.Windows.Visibility.Visible;
             result["uiExitCode"] = uiCode;
             result["uiReport"] = uiReport;
             result["videos"] = session.Index.Index.Entries.Count;
-            result["passed"] = uiCode == 0;
+            result["passed"] = uiCode == 0 && Equals(result["selectiveImportControls"], true);
             window.Close();
             window = null;
         }

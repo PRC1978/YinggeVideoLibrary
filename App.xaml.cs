@@ -100,6 +100,11 @@ public partial class App : System.Windows.Application
                 includeLarge: true));
             return;
         }
+        if (e.Args.Length > 2 && e.Args[0] == "--self-test-postgres-selective-import")
+        {
+            Shutdown(await PostgresSelectiveImportDiagnostics.RunToFileAsync(e.Args[1], e.Args[2]));
+            return;
+        }
         if (e.Args.Length > 3 && e.Args[0] == "--diagnose-postgres-window")
         {
             Shutdown(await PostgresWindowDiagnostics.RunAsync(e.Args[1], e.Args[2], e.Args[3]));
@@ -398,11 +403,34 @@ public partial class App : System.Windows.Application
         {
             try
             {
+                string importWarning = "";
                 librarySessionLease = LibraryBackupService.AcquireSessionLease(dataDir);
                 var runtimeDirectory = System.IO.Path.Combine(AppContext.BaseDirectory, "postgres");
                 postgresRuntimeSession = await PostgresLibraryRuntimeSession.OpenAsync(
                     runtimeDirectory, dataDir);
-                string backupWarning = "";
+                if (await PostgresSelectiveImport.HasPendingAsync(
+                        postgresRuntimeSession.ConnectionString))
+                {
+                    await postgresRuntimeSession.DisposeAsync();
+                    postgresRuntimeSession = null;
+                    librarySessionLease.Dispose();
+                    librarySessionLease = null;
+                    try
+                    {
+                        await PostgresSelectiveImport.ApplyPendingAtStartupAsync(
+                            runtimeDirectory, dataDir);
+                    }
+                    catch (Exception error)
+                    {
+                        if (PostgresStorageModeGuard.Current(dataDir) !=
+                            PostgresStorageModeGuard.StorageMode.PostgreSql) throw;
+                        importWarning = "数据库选择性导入未完成，待办仍可取消或重新预览：" + error.Message;
+                    }
+                    librarySessionLease = LibraryBackupService.AcquireSessionLease(dataDir);
+                    postgresRuntimeSession = await PostgresLibraryRuntimeSession.OpenAsync(
+                        runtimeDirectory, dataDir);
+                }
+                string backupWarning = importWarning;
                 try
                 {
                     await PostgresBackupPlanStore.RunAtStartupAsync(

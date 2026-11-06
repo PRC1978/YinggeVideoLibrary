@@ -52,6 +52,7 @@ internal static partial class LibraryBackupService
     {
         public required string BackupPath { get; init; }
         public required string DestinationPath { get; init; }
+        public string? LogicalDestinationPath { get; init; }
         public required DateTimeOffset CreatedUtc { get; init; }
         public required LibraryImportScope Scopes { get; init; }
         public required LibraryImportConflictPolicy ConflictPolicy { get; init; }
@@ -71,7 +72,7 @@ internal static partial class LibraryBackupService
         public string ConfirmationText =>
             "导入来源：" + BackupPath + "\n"
             + "备份时间：" + CreatedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") + "\n"
-            + "导入目标：" + DestinationPath + "\n"
+            + "导入目标：" + (LogicalDestinationPath ?? DestinationPath) + "\n"
             + "冲突策略：" + (ConflictPolicy == LibraryImportConflictPolicy.KeepCurrent
                 ? "保留当前资料（默认）" : "优先使用备份资料") + "\n\n"
             + string.Join("\n", Sections.Select(section =>
@@ -138,7 +139,8 @@ internal static partial class LibraryBackupService
 
     internal static ImportPreview CreateImportPreview(string dataDir, string backupDirectory,
         LibraryImportScope scopes, LibraryImportConflictPolicy policy = LibraryImportConflictPolicy.KeepCurrent,
-        IReadOnlyDictionary<string, string>? manualChoices = null, bool skipUnindexedCategories = false)
+        IReadOnlyDictionary<string, string>? manualChoices = null, bool skipUnindexedCategories = false,
+        string? logicalDestination = null)
     {
         ValidateImportOptions(scopes, policy);
         var destination = Path.GetFullPath(dataDir);
@@ -150,7 +152,7 @@ internal static partial class LibraryBackupService
         var manifestPath = Path.Combine(source, ManifestName);
         var manifest = JsonSerializer.Deserialize<Manifest>(File.ReadAllText(manifestPath))
             ?? throw new InvalidDataException("导入包清单无法读取。");
-        var crossDevice = RequiresCrossDeviceMapping(destination, source, manifest);
+        var crossDevice = RequiresCrossDeviceMapping(destination, source, manifest, logicalDestination);
         var mapping = crossDevice ? ResolveCrossDeviceMap(destination, manifest, manualChoices) : null;
         IReadOnlyList<string> orphans = mapping is null ? [] : SourceUnindexedCategoryIds(source, scopes, manifest);
         if (mapping?.Complete == true)
@@ -165,14 +167,75 @@ internal static partial class LibraryBackupService
         var rows = mapping?.Rows ?? [];
         return new ImportPreview
         {
-            BackupPath = source, DestinationPath = destination, CreatedUtc = manifest.CreatedUtc,
+            BackupPath = source, DestinationPath = destination,
+            LogicalDestinationPath = logicalDestination, CreatedUtc = manifest.CreatedUtc,
             Scopes = scopes, ConflictPolicy = policy, BackupManifestSha256 = HashFile(manifestPath),
-            LiveStateSha256 = SnapshotLiveState(destination), Sections = plan.Sections,
+            LiveStateSha256 = logicalDestination is null ? SnapshotLiveState(destination)
+                : SnapshotDatabaseImportState(destination, logicalDestination), Sections = plan.Sections,
             ConflictDetails = plan.ConflictDetails, MappingRows = rows,
             UnindexedCategoryIds = orphans, SkipUnindexedCategories = skipUnindexedCategories,
             ManualChoices = new Dictionary<string, string>(manualChoices ?? new Dictionary<string, string>(),
                 StringComparer.OrdinalIgnoreCase), MappingDigest = MappingDigest(rows)
         };
+    }
+
+    // Database exports are recreated in fresh temporary directories. Their
+    // timestamps and physical directory identity cannot serve as the optimistic
+    // concurrency token. Hash the authoritative records by content instead.
+    static string SnapshotDatabaseImportState(string exportDirectory, string logicalDestination)
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData(Encoding.UTF8.GetBytes(Path.GetFullPath(logicalDestination).ToUpperInvariant()));
+        foreach (var path in Directory.EnumerateFiles(exportDirectory, "*", SearchOption.AllDirectories)
+                     .OrderBy(path => Path.GetRelativePath(exportDirectory, path), StringComparer.Ordinal))
+        {
+            var relative = Path.GetRelativePath(exportDirectory, path).Replace('\\', '/');
+            if (relative == PostgresLibraryExport.ManifestName ||
+                relative == "postgres-selective-import.json" ||
+                relative.StartsWith("posters/", StringComparison.Ordinal) ||
+                relative.StartsWith("thumbs/", StringComparison.Ordinal)) continue;
+            if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException("数据库快照包含文件链接。");
+            hash.AppendData(Encoding.UTF8.GetBytes(relative));
+            hash.AppendData(SHA256.HashData(File.ReadAllBytes(path)));
+        }
+        return Convert.ToHexString(hash.GetHashAndReset());
+    }
+
+    // The caller owns a disposable PostgreSQL export. Never apply this to the
+    // active file library; the merged export must pass PostgreSQL restore checks.
+    internal static void ApplyImportToDisposableSnapshot(string snapshotDirectory,
+        ImportPreview preview)
+    {
+        var fresh = CreateImportPreview(snapshotDirectory, preview.BackupPath,
+            preview.Scopes, preview.ConflictPolicy, preview.ManualChoices,
+            preview.SkipUnindexedCategories, preview.LogicalDestinationPath);
+        if (!fresh.MappingComplete || fresh.BackupManifestSha256 != preview.BackupManifestSha256 ||
+            fresh.LiveStateSha256 != preview.LiveStateSha256 ||
+            fresh.MappingDigest != preview.MappingDigest)
+            throw new InvalidOperationException("备份或数据库快照在预览后变化；未导入。");
+        var manifest = JsonSerializer.Deserialize<Manifest>(File.ReadAllText(Path.Combine(
+            preview.BackupPath, ManifestName))) ?? throw new InvalidDataException("导入包清单损坏。");
+        var mapping = RequiresCrossDeviceMapping(snapshotDirectory, preview.BackupPath,
+            manifest, preview.LogicalDestinationPath)
+            ? ResolveCrossDeviceMap(snapshotDirectory, manifest, preview.ManualChoices) : null;
+        var orphans = mapping is null ? [] : ValidateCrossDeviceCoveredIds(
+            preview.BackupPath, preview.Scopes, mapping, manifest);
+        using var mapped = mapping is not null
+            ? new MappedImportSource(preview.BackupPath, snapshotDirectory, mapping,
+                preview.Scopes, preview.SkipUnindexedCategories ? orphans : []) : null;
+        var plan = BuildImportPlan(snapshotDirectory, mapped?.Path ?? preview.BackupPath,
+            preview.Scopes, preview.ConflictPolicy);
+        ApplyImportPlan(snapshotDirectory, plan);
+        // The legacy file writer emits UTF-8 with BOM. PostgreSQL stores raw
+        // bytes and its JSON readers require a BOM-free UTF-8 document.
+        foreach (var name in plan.FileContents.Keys)
+        {
+            var path = Path.Combine(snapshotDirectory, name);
+            var bytes = File.ReadAllBytes(path);
+            if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+                File.WriteAllBytes(path, bytes[3..]);
+        }
     }
 
     internal static void StageImport(string dataDir, ImportPreview preview)

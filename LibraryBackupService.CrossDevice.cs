@@ -194,9 +194,10 @@ internal static partial class LibraryBackupService
         return true;
     }
 
-    static bool RequiresCrossDeviceMapping(string destination, string source, Manifest manifest)
+    static bool RequiresCrossDeviceMapping(string destination, string source, Manifest manifest,
+        string? logicalDestination = null)
     {
-        if (manifest.SourceLibraryId.Equals(LibraryId(destination), StringComparison.OrdinalIgnoreCase)
+        if (manifest.SourceLibraryId.Equals(LibraryId(logicalDestination ?? destination), StringComparison.OrdinalIgnoreCase)
             && manifest.SourceMachineId.Equals(CurrentMachineId(), StringComparison.OrdinalIgnoreCase)
             && SourceIndexPathsMatchDestination(source, destination, manifest)) return false;
         if (manifest.VideoFingerprints is null)

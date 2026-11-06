@@ -158,10 +158,19 @@ internal static class PostgresLibraryExport
     internal static async Task<Result> PublishAsync(string staging, string destination,
         CancellationToken cancellationToken = default)
     {
+        await ReSignSnapshotAsync(staging, cancellationToken);
+        Directory.Move(staging, destination);
+        return await CountSnapshotAsync(destination, cancellationToken);
+    }
+
+    internal static async Task ReSignSnapshotAsync(string staging,
+        CancellationToken cancellationToken = default)
+    {
         var files = new Dictionary<string, ExportedFile>(StringComparer.Ordinal);
         foreach (var path in EnumerateExportFiles(staging))
         {
             var name = Path.GetRelativePath(staging, path).Replace(Path.DirectorySeparatorChar, '/');
+            if (name == ManifestName) continue;
             var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
             files.Add(name, new ExportedFile(bytes.LongLength,
                 Convert.ToHexString(SHA256.HashData(bytes))));
@@ -170,8 +179,6 @@ internal static class PostgresLibraryExport
             JsonSerializer.SerializeToUtf8Bytes(new Manifest(1, files)), cancellationToken);
         if (!await VerifyOfflineAsync(staging, cancellationToken))
             throw new InvalidDataException("数据库回退包离线校验失败，未完成导出。 ");
-        Directory.Move(staging, destination);
-        return await CountSnapshotAsync(destination, cancellationToken);
     }
 
     private static async Task<Result> CountSnapshotAsync(string directory,

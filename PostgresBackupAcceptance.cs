@@ -637,6 +637,10 @@ internal static class PostgresBackupAcceptance
         return new(count, firstVideo, mediaRoot);
     }
 
+    internal static string BuildSingleVideoFixtureForSelectiveImport(string source) =>
+        BuildFixture(source, 1).VideoId;
+
+
     private static void CopyLegacyFilesForActivation(string source, string library)
     {
         Directory.CreateDirectory(library);

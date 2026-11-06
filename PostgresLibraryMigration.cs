@@ -72,7 +72,7 @@ internal static class PostgresLibraryMigration
         "scrape-source-backoff.json", "scrape-queue.json",
         "scrape-queue.state.json", "plugin-candidates.json",
         "missing-cleanup.json", "plugins.json", "airborne-extension.path",
-        "postgres-backup-plan.json",
+        "postgres-backup-plan.json", "postgres-selective-import.json",
         "scrape-queue.state.json.bak", "scrape-queue.json.bak",
         "scrape-source-backoff.json.bak"
     ];

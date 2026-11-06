@@ -15,12 +15,6 @@ public partial class MainWindow
 {
     void OpenSelectiveBackupImport(object sender, RoutedEventArgs e)
     {
-        if (postgresSession is not null)
-        {
-            MessageBox.Show(this, "数据库模式的选择性导入尚未提供安全的数据库事务流程。请使用已验证的完整数据库备份恢复入口；不会写入旧文件库。",
-                "选择性导入", MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
         var dialog = BuildSelectiveBackupImportDialog();
         dialog.Owner = this;
         dialog.ShowDialog();
@@ -51,7 +45,9 @@ public partial class MainWindow
             Text = "从备份导入所选资料", FontSize = 21, FontWeight = FontWeights.SemiBold,
             Foreground = UiTheme.TextSecondaryBrush
         });
-        header.Children.Add(ImportHint("先选择范围并预览差异。确认后排定于下次启动前导入；视频原文件不会移动。"));
+        header.Children.Add(ImportHint(postgresSession is null
+            ? "先选择范围并预览差异。确认后排定于下次启动前导入；视频原文件不会移动。"
+            : "选择旧版备份包（含 backup-manifest.json）并预览。下次启动前会在数据库副本上合并，保留回退包；视频文件不会移动。"));
         root.Children.Add(header);
 
         var body = new StackPanel();
@@ -83,6 +79,11 @@ public partial class MainWindow
         Grid.SetColumn(browse, 2);
         sourceRow.Children.Add(browse);
         var export = ImportButton("生成跨设备包");
+        if (postgresSession is not null)
+        {
+            export.IsEnabled = false;
+            export.ToolTip = "数据库模式请在原设备的文件库生成跨设备包后再选择导入。";
+        }
         export.ToolTip = "主动读取当前索引中的每部视频，计算完整内容指纹。大库可能需要数小时，可随时取消；普通定期备份不会执行这一步。";
         Grid.SetColumn(export, 3);
         sourceRow.Children.Add(export);
@@ -193,7 +194,7 @@ public partial class MainWindow
             source.IsEnabled = !value;
             recent.IsEnabled = !value;
             browse.IsEnabled = !value;
-            export.IsEnabled = !value;
+            export.IsEnabled = !value && postgresSession is null;
             foreach (var option in scopeChecks) option.IsEnabled = !value;
             skipUnindexed.IsEnabled = !value;
             keep.IsEnabled = !value;
@@ -286,8 +287,11 @@ public partial class MainWindow
                 var policy = replace.IsChecked == true
                     ? LibraryImportConflictPolicy.PreferBackup : LibraryImportConflictPolicy.KeepCurrent;
                 var choices = new Dictionary<string, string>(manualMapping, StringComparer.OrdinalIgnoreCase);
-                currentPreview = await Task.Run(() => LibraryBackupService.CreateImportPreview(
-                    DataDir, path, selected, policy, choices, skipUnindexed.IsChecked == true));
+                currentPreview = postgresSession is null
+                    ? await Task.Run(() => LibraryBackupService.CreateImportPreview(
+                        DataDir, path, selected, policy, choices, skipUnindexed.IsChecked == true))
+                    : await PostgresSelectiveImport.PreviewAsync(postgresSession.ConnectionString,
+                        DataDir, path, selected, policy, choices, skipUnindexed.IsChecked == true);
                 previewText.Text = currentPreview.ConfirmationText
                     + (!currentPreview.MappingComplete ? "\n\n请先解决上述视频匹配问题。"
                         : currentPreview.HasChanges ? "" : "\n\n所选范围没有需要导入的变化。");
@@ -328,7 +332,11 @@ public partial class MainWindow
             previewText.Text = "正在再次校验并排定离线导入…";
             try
             {
-                await Task.Run(() => LibraryBackupService.StageImport(DataDir, selectedPreview));
+                if (postgresSession is null)
+                    await Task.Run(() => LibraryBackupService.StageImport(DataDir, selectedPreview));
+                else
+                    await PostgresSelectiveImport.StageAsync(postgresSession.ConnectionString,
+                        DataDir, selectedPreview);
                 BackupInfo.Text = "选择性导入已排定。关闭所有映格窗口并重新打开，即会在载入资料前执行；此前可点击“取消待导入”。";
                 SetBusy(false);
                 dialog.DialogResult = true;
@@ -385,11 +393,20 @@ public partial class MainWindow
         }
     }
 
-    void CancelScheduledBackupImport(object sender, RoutedEventArgs e)
+    async void CancelScheduledBackupImport(object sender, RoutedEventArgs e)
     {
         if (postgresSession is not null)
         {
-            BackupInfo.Text = "数据库模式没有文件版选择性导入待办。";
+            try
+            {
+                if (!await PostgresSelectiveImport.HasPendingAsync(postgresSession.ConnectionString))
+                { BackupInfo.Text = "当前没有待执行的选择性导入。"; return; }
+                if (MessageBox.Show(this, "取消待执行的数据库选择性导入？当前资料不会改变。",
+                        "取消待导入", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                await PostgresSelectiveImport.CancelAsync(postgresSession.ConnectionString);
+                BackupInfo.Text = "已取消待导入任务；当前数据库未修改。";
+            }
+            catch (Exception ex) { BackupInfo.Text = "取消待导入失败：" + ex.Message; }
             return;
         }
         try

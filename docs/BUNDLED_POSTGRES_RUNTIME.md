@@ -28,7 +28,8 @@ Package verification must inspect the installed runtime, not just the source arc
 
 ## Remaining release gates
 
-1. Finish the database-mode selective import path and full UI interaction checks.
+1. Database selective import now passes isolated success, stale-preview rejection
+   and cancellation probes. Finish real UI interaction and larger/cross-device cases.
 2. Rehearse the Settings conversion and installed-package startup with an
    isolated library, including interrupted migration and rollback. Preserve
    the old JSON files until the database is verified.

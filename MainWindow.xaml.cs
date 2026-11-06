@@ -494,13 +494,6 @@ public partial class MainWindow : Window
             AiStorageRoutes.Register(DataDir, storageSession.ConnectionString);
         queueBridge = new ScrapeQueueBridge(DataDir, storageSession);
         InitializeComponent();
-        if (postgresSession is not null)
-        {
-            // The legacy selective importer writes JSON snapshots. Do not offer
-            // an action that cannot commit to the active database library.
-            SelectiveBackupImportButton.Visibility = Visibility.Collapsed;
-            CancelScheduledImportButton.Visibility = Visibility.Collapsed;
-        }
         SizeChanged += (_, _) => UpdateHeaderResponsive();
         InitializeFolderExternalDrop();
         Directory.CreateDirectory(DataDir);

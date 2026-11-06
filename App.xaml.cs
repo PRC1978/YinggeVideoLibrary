@@ -22,13 +22,24 @@ public partial class App : System.Windows.Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        if (postgresRuntimeSession is not null)
+        try
         {
-            postgresRuntimeSession.DisposeAsync().AsTask().GetAwaiter().GetResult();
-            postgresRuntimeSession = null;
+            if (postgresRuntimeSession is not null)
+            {
+                // WPF calls OnExit on its dispatcher thread. PostgreSQL shutdown is
+                // asynchronous; blocking that dispatcher while its continuation is
+                // queued there leaves a windowless process holding the library lock.
+                var session = postgresRuntimeSession;
+                postgresRuntimeSession = null;
+                Task.Run(async () => await session.DisposeAsync().ConfigureAwait(false))
+                    .GetAwaiter().GetResult();
+            }
         }
-        librarySessionLease?.Dispose();
-        base.OnExit(e);
+        finally
+        {
+            librarySessionLease?.Dispose();
+            base.OnExit(e);
+        }
     }
 
     protected override async void OnStartup(StartupEventArgs e)
@@ -95,6 +106,22 @@ public partial class App : System.Windows.Application
         {
             Shutdown(await BundledPostgresRuntime.RunProbeToFileAsync(e.Args[1], e.Args[2],
                 e.Args.Length > 3 && e.Args[3] == "--scale"));
+            return;
+        }
+        if (e.Args.Length > 1 && e.Args[0] == "--self-test-postgres-exit")
+        {
+            var isolatedDirectory = System.IO.Path.GetFullPath(e.Args[1]);
+            if (isolatedDirectory.Equals(System.IO.Path.GetFullPath(AppPaths.DefaultDataDirectory),
+                StringComparison.OrdinalIgnoreCase) ||
+                !System.IO.File.Exists(System.IO.Path.Combine(isolatedDirectory,
+                    "storage-postgresql.active")))
+            {
+                Shutdown(2);
+                return;
+            }
+            postgresRuntimeSession = await PostgresLibraryRuntimeSession.OpenAsync(
+                System.IO.Path.Combine(AppContext.BaseDirectory, "postgres"), isolatedDirectory);
+            Shutdown();
             return;
         }
         if (e.Args.Length > 2 && e.Args[0] == "--self-test-postgres-backup")

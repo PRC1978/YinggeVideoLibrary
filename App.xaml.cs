@@ -94,6 +94,12 @@ public partial class App : System.Windows.Application
             Shutdown(await PostgresBackupAcceptance.RunToFileAsync(e.Args[1], e.Args[2]));
             return;
         }
+        if (e.Args.Length > 2 && e.Args[0] == "--self-test-postgres-backup-scale")
+        {
+            Shutdown(await PostgresBackupAcceptance.RunToFileAsync(e.Args[1], e.Args[2],
+                includeLarge: true));
+            return;
+        }
         if (e.Args.Length > 3 && e.Args[0] == "--diagnose-postgres-window")
         {
             Shutdown(await PostgresWindowDiagnostics.RunAsync(e.Args[1], e.Args[2], e.Args[3]));

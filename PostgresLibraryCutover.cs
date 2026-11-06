@@ -41,10 +41,23 @@ internal static class PostgresLibraryCutover
             runtimeDirectory, dataDirectory, cancellationToken))
         {
             if (!hasStagedDatabase)
-                await PostgresLibraryMigration.ImportAsync(dataDirectory,
-                    cluster.ConnectionString, cancellationToken: cancellationToken,
-                    // The converter already owns .library-session.lock.
-                    sourceLeasePath: dataDirectory + ".cutover-import.lock");
+            {
+                var readerLease = dataDirectory + ".cutover-import-" +
+                    Guid.NewGuid().ToString("N") + ".lock";
+                try
+                {
+                    await PostgresLibraryMigration.ImportAsync(dataDirectory,
+                        cluster.ConnectionString, cancellationToken: cancellationToken,
+                        // The converter already owns .library-session.lock.
+                        sourceLeasePath: readerLease);
+                }
+                finally
+                {
+                    try { File.Delete(readerLease); }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
+            }
             if (!await PostgresLibraryMigration.VerifyContentAsync(dataDirectory,
                 cluster.ConnectionString, cancellationToken))
                 throw new InvalidDataException("数据库与原文件资料不一致；未启用数据库模式。已有暂存库不会被覆盖。");

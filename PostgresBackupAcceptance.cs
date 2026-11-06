@@ -176,7 +176,7 @@ internal static class PostgresBackupAcceptance
                     reopened.Config.Folders.Count == 1 &&
                     reopened.Queue.Count == 2 &&
                     await VerifyEntitiesAsync(reopened.ConnectionString, videos);
-                runtimeWritesVerified = await VerifyRuntimeWritesAsync(reopened, videos);
+                runtimeWritesVerified = await VerifyRuntimeWritesAsync(reopened, videos, library);
             }
             finally { await reopened.DisposeAsync(); }
 
@@ -195,7 +195,7 @@ internal static class PostgresBackupAcceptance
     private sealed record Fixture(int Videos, string VideoId, string MediaRoot);
 
     private static async Task<bool> VerifyRuntimeWritesAsync(
-        PostgresLibraryRuntimeSession session, Fixture fixture)
+        PostgresLibraryRuntimeSession session, Fixture fixture, string library)
     {
         var firstWorker = await session.TryAcquireScrapeWorkerAsync();
         if (firstWorker is null) return false;
@@ -507,6 +507,42 @@ internal static class PostgresBackupAcceptance
             siteUndo.Kind == "undo" && siteAfterUndo.Entries.Count == 0 &&
             siteAfterUndo.Actions.Count == 2 &&
             !File.Exists(Path.Combine(fixture.MediaRoot, "site-list-import.json"));
+        var plan = await PostgresBackupPlanStore.ChangeAsync(session.ConnectionString, current =>
+        {
+            current.Enabled = true;
+            current.Frequency = "daily";
+            current.RetentionCount = 1;
+            current.NextDueUtc = DateTimeOffset.UtcNow.AddDays(1);
+            current.Pending = true;
+            return current;
+        });
+        PostgresLibraryBackup.Info? firstBackup;
+        PostgresLibraryBackup.Info? secondBackup;
+        using (LibraryBackupService.AcquireSessionLease(library))
+        {
+            firstBackup = await PostgresBackupPlanStore.RunAtStartupAsync(session.ConnectionString,
+                library, session.Config.Folders);
+            await PostgresBackupPlanStore.ChangeAsync(session.ConnectionString, current =>
+            {
+                current.Pending = true;
+                return current;
+            });
+            secondBackup = await PostgresBackupPlanStore.RunAtStartupAsync(session.ConnectionString,
+                library, session.Config.Folders);
+        }
+        var savedPlan = await PostgresBackupPlanStore.LoadAsync(session.ConnectionString);
+        var backupScheduleVerified = plan.Pending && firstBackup is not null &&
+            secondBackup is not null && secondBackup.Directory != firstBackup.Directory &&
+            !Directory.Exists(firstBackup.Directory) && Directory.Exists(secondBackup.Directory) &&
+            await PostgresLibraryExport.VerifyOfflineAsync(secondBackup.Directory) &&
+            !savedPlan.Pending && savedPlan.Backups.Count == 1 &&
+            savedPlan.LastBackupDirectory == secondBackup.Directory;
+        if (!backupScheduleVerified)
+            throw new InvalidDataException("数据库备份轮换未通过：" +
+                $"firstExists={Directory.Exists(firstBackup!.Directory)}, " +
+                $"secondExists={Directory.Exists(secondBackup!.Directory)}, " +
+                $"tracked={savedPlan.Backups.Count}, pending={savedPlan.Pending}, " +
+                $"lastError={savedPlan.LastError}");
 
         var savedConfig = await PostgresLibraryDocumentStore.ReadAsync(session.ConnectionString,
             "config.json");
@@ -521,7 +557,7 @@ internal static class PostgresBackupAcceptance
             candidateAfter?.Revision == candidateRevision &&
             candidateAfter.Content.SequenceEqual(candidateBytes) &&
             candidateBridgeVerified && pluginStateSaved && aiBudgetVerified && aiJobsVerified &&
-            ratingVerified && titleCandidatesVerified && siteListVerified &&
+            ratingVerified && titleCandidatesVerified && siteListVerified && backupScheduleVerified &&
             staleWriteRejected && dedicatedWriterRequired && emptyScanProtected &&
             exclusiveWorker && sourcePacingVerified && reviewCommitted &&
             reviewViewsPersisted;

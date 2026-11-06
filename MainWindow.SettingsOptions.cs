@@ -37,6 +37,11 @@ public partial class MainWindow
             if (isClosing) { settingsBackupTimer.Stop(); return; }
             if (!periodicBackupEnabled || periodicBackupNextDueUtc is not { } due
                 || DateTimeOffset.UtcNow < due) return;
+            if (postgresSession is not null)
+            {
+                RefreshOfflineBackupStatus();
+                return;
+            }
             try
             {
                 LibraryBackupService.CheckAndStageDuePeriodicBackup(DataDir);
@@ -369,6 +374,11 @@ public partial class MainWindow
         };
         buttons.Children.Add(rescan);
         section.Children.Add(buttons);
+        if (postgresSession is not null)
+        {
+            AppendPostgresBackupControls(section);
+            return section;
+        }
         section.Children.Add(new TextBlock { Text = "定期一致性备份", FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 17, 0, 0) });
         section.Children.Add(SettingsHint("到期后标记为待执行；关闭所有映格窗口并重新打开时，会在载入资料库前完成一致性备份和校验。"));
@@ -513,6 +523,11 @@ public partial class MainWindow
 
     void RefreshOfflineBackupStatus()
     {
+        if (postgresSession is not null)
+        {
+            _ = RefreshPostgresBackupStatusAsync();
+            return;
+        }
         if (settingsOfflineBackupStatus is not null)
             settingsOfflineBackupStatus.Text = DescribeOfflineBackupStatus();
     }

@@ -10,9 +10,15 @@ namespace YinggeVideoLibrary;
 public partial class App : System.Windows.Application
 {
     System.IO.FileStream? librarySessionLease;
+    PostgresLibraryRuntimeSession? postgresRuntimeSession;
 
     protected override void OnExit(ExitEventArgs e)
     {
+        if (postgresRuntimeSession is not null)
+        {
+            postgresRuntimeSession.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            postgresRuntimeSession = null;
+        }
         librarySessionLease?.Dispose();
         base.OnExit(e);
     }
@@ -86,6 +92,11 @@ public partial class App : System.Windows.Application
         if (e.Args.Length > 2 && e.Args[0] == "--self-test-postgres-backup")
         {
             Shutdown(await PostgresBackupAcceptance.RunToFileAsync(e.Args[1], e.Args[2]));
+            return;
+        }
+        if (e.Args.Length > 3 && e.Args[0] == "--diagnose-postgres-window")
+        {
+            Shutdown(await PostgresWindowDiagnostics.RunAsync(e.Args[1], e.Args[2], e.Args[3]));
             return;
         }
         if (e.Args.Length > 1 && e.Args[0] == "--self-test-cloud-account")
@@ -329,9 +340,53 @@ public partial class App : System.Windows.Application
         // them in the background so a failed prune can never delay or block startup.
         _ = Task.Run(() => UpdateBackupJanitor.TryRun(System.IO.Path.GetDirectoryName(Environment.ProcessPath)));
         var dataDir = AppPaths.DataDirectory;
-        if (!PostgresStorageModeGuard.LegacyFilesMayOpen(dataDir))
+        var storageMode = PostgresStorageModeGuard.Current(dataDir);
+        if (storageMode == PostgresStorageModeGuard.StorageMode.PostgreSql)
         {
-            System.Windows.MessageBox.Show("这个视频库已标记为 PostgreSQL 存储。当前版本仍使用文件存储，已停止启动以避免两份资料分叉。请使用支持该存储模式的版本或经核验的回退流程。",
+            try
+            {
+                librarySessionLease = LibraryBackupService.AcquireSessionLease(dataDir);
+                var runtimeDirectory = System.IO.Path.Combine(AppContext.BaseDirectory, "postgres");
+                postgresRuntimeSession = await PostgresLibraryRuntimeSession.OpenAsync(
+                    runtimeDirectory, dataDir);
+                string backupWarning = "";
+                try
+                {
+                    await PostgresBackupPlanStore.RunAtStartupAsync(
+                        postgresRuntimeSession.ConnectionString, dataDir,
+                        postgresRuntimeSession.Config.Folders);
+                }
+                catch (Exception error) { backupWarning = "数据库备份未完成，待办已保留：" + error.Message; }
+                var databaseWindow = new MainWindow(postgresRuntimeSession);
+                MainWindow = databaseWindow;
+                databaseWindow.ReconcileStartupRegistration();
+                databaseWindow.ApplyStartupWindowPreferences(
+                    e.Args.Contains("--auto-start", StringComparer.OrdinalIgnoreCase));
+                if (backupWarning.Length > 0)
+                    databaseWindow.Loaded += (_, _) => databaseWindow.Dispatcher.BeginInvoke(new Action(() =>
+                        System.Windows.MessageBox.Show(databaseWindow, backupWarning,
+                            "映格视频库 · 数据库备份", MessageBoxButton.OK, MessageBoxImage.Warning)));
+                databaseWindow.Show();
+                return;
+            }
+            catch (Exception error)
+            {
+                if (postgresRuntimeSession is not null)
+                {
+                    await postgresRuntimeSession.DisposeAsync();
+                    postgresRuntimeSession = null;
+                }
+                librarySessionLease?.Dispose();
+                librarySessionLease = null;
+                System.Windows.MessageBox.Show("PostgreSQL 视频库未能安全载入；旧文件库未被打开。\n" + error.Message,
+                    "映格视频库 · 存储模式", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Shutdown(1);
+                return;
+            }
+        }
+        if (storageMode != PostgresStorageModeGuard.StorageMode.LegacyFiles)
+        {
+            System.Windows.MessageBox.Show("无法确认视频库的存储标记或恢复状态，已停止启动以避免资料分叉。请核对数据库状态与备份后再重试。",
                 "映格视频库 · 存储模式", MessageBoxButton.OK, MessageBoxImage.Warning);
             Shutdown(1);
             return;

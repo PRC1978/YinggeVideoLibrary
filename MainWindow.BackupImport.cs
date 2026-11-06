@@ -15,6 +15,12 @@ public partial class MainWindow
 {
     void OpenSelectiveBackupImport(object sender, RoutedEventArgs e)
     {
+        if (postgresSession is not null)
+        {
+            MessageBox.Show(this, "数据库模式的选择性导入尚未提供安全的数据库事务流程。请使用已验证的完整数据库备份恢复入口；不会写入旧文件库。",
+                "选择性导入", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
         var dialog = BuildSelectiveBackupImportDialog();
         dialog.Owner = this;
         dialog.ShowDialog();
@@ -381,6 +387,11 @@ public partial class MainWindow
 
     void CancelScheduledBackupImport(object sender, RoutedEventArgs e)
     {
+        if (postgresSession is not null)
+        {
+            BackupInfo.Text = "数据库模式没有文件版选择性导入待办。";
+            return;
+        }
         try
         {
             if (!LibraryBackupService.HasPendingImport(DataDir))

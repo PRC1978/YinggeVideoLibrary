@@ -494,6 +494,13 @@ public partial class MainWindow : Window
             AiStorageRoutes.Register(DataDir, storageSession.ConnectionString);
         queueBridge = new ScrapeQueueBridge(DataDir, storageSession);
         InitializeComponent();
+        if (postgresSession is not null)
+        {
+            // The legacy selective importer writes JSON snapshots. Do not offer
+            // an action that cannot commit to the active database library.
+            SelectiveBackupImportButton.Visibility = Visibility.Collapsed;
+            CancelScheduledImportButton.Visibility = Visibility.Collapsed;
+        }
         SizeChanged += (_, _) => UpdateHeaderResponsive();
         InitializeFolderExternalDrop();
         Directory.CreateDirectory(DataDir);
@@ -4750,16 +4757,20 @@ public partial class MainWindow : Window
         try { var secret = AiKeyBox.Password.Trim(); WindowsCredentialStore.Write("AiKey", secret); config.AiEndpoint = AiEndpointBox.Text.Trim(); config.AiModel = AiModelBox.Text.Trim(); config.AiKey = secret; ReadAiQueueSettings(); SaveConfig(); MessageBox.Show(this, "AI 设置已保存；密钥存于 Windows 凭据管理器。", "映格视频库"); }
         catch (Exception ex) { MessageBox.Show(this, "保存 AI 设置失败：" + ex.Message, "映格视频库", MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
-    void BackupLibrary(object sender, RoutedEventArgs e)
+    async void BackupLibrary(object sender, RoutedEventArgs e)
     {
         try
         {
-            if (PostgresStorageModeGuard.Current(DataDir) !=
-                PostgresStorageModeGuard.StorageMode.LegacyFiles)
+            if (postgresSession is not null)
             {
-                BackupInfo.Text = "数据库模式请使用数据库备份；此按钮不会写入文件模式的待办任务。";
+                await PostgresBackupPlanStore.ChangeAsync(postgresSession.ConnectionString,
+                    plan => { plan.Pending = true; return plan; });
+                BackupInfo.Text = "数据库一致性备份已排定。关闭所有窗口后，下次启动会先完成备份和校验。";
+                RefreshOfflineBackupStatus();
                 return;
             }
+            if (!PostgresStorageModeGuard.LegacyFilesMayOpen(DataDir))
+                throw new InvalidOperationException("存储模式已改变，请重新打开视频库。");
             LibraryBackupService.StageOfflineBackup(DataDir);
             BackupInfo.Text = "一致性备份已排定。关闭所有映格窗口并重新打开后，会在载入资料前创建并校验备份。";
             RefreshOfflineBackupStatus();
@@ -4771,12 +4782,25 @@ public partial class MainWindow : Window
     {
         try
         {
-            if (PostgresStorageModeGuard.Current(DataDir) !=
-                PostgresStorageModeGuard.StorageMode.LegacyFiles)
+            if (postgresSession is not null)
             {
-                BackupInfo.Text = "数据库模式请使用数据库恢复；此按钮不会排定文件模式的恢复。";
+                var plan = await PostgresBackupPlanStore.LoadAsync(postgresSession.ConnectionString);
+                if (plan.LastBackupDirectory.Length == 0)
+                { BackupInfo.Text = "没有已完成的数据库备份。"; return; }
+                var target = DataDir + ".restored-" + DateTimeOffset.Now.ToString("yyyyMMdd-HHmmss");
+                if (MessageBox.Show(this,
+                    $"将已验证备份恢复到新的独立视频库：\n{target}\n\n当前视频库不会被覆盖。完成后可核对新库再切换。继续？",
+                    "恢复数据库备份", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                { BackupInfo.Text = "已取消恢复，当前数据库未修改。"; return; }
+                BackupInfo.Text = "正在校验并恢复到独立视频库…";
+                await PostgresLibraryBackupCoordinator.RestoreToFreshPrivateLibraryAsync(
+                    Path.Combine(AppContext.BaseDirectory, "postgres"),
+                    plan.LastBackupDirectory, target);
+                BackupInfo.Text = "数据库备份已恢复到：" + target + "；当前视频库未修改。";
                 return;
             }
+            if (!PostgresStorageModeGuard.LegacyFilesMayOpen(DataDir))
+                throw new InvalidOperationException("存储模式已改变，请重新打开视频库。");
             var latest = LibraryBackupService.LatestBackup(DataDir);
             if (latest is null) { BackupInfo.Text = "没有找到备份。"; return; }
             BackupInfo.Text = "正在校验备份并比较当前资料…";

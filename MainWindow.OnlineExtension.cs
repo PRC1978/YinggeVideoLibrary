@@ -120,16 +120,23 @@ public partial class MainWindow
     // The result is a read-only SOURCE folder: it is copied by
     // AirborneExtensionStore before anything is loaded, never passed to
     // AddBrowserExtensionAsync directly.
-    static string? FindAirborneExtensionQuick()
+    string? FindAirborneExtensionQuick()
     {
         var preference = Path.Combine(DataDir, "airborne-extension.path");
         try
         {
-            if (File.Exists(preference))
+            string? selected = null;
+            if (postgresSession is not null)
             {
-                var selected = File.ReadAllText(preference).Trim();
-                if (ReadAirborneManifest(selected) is not null) return selected;
+                var saved = Task.Run(() => PostgresLibraryDocumentStore.ReadAsync(
+                    postgresSession.ConnectionString, "airborne-extension.path")).GetAwaiter().GetResult();
+                if (saved is not null) selected = System.Text.Encoding.UTF8.GetString(saved.Content).Trim();
             }
+            else if (File.Exists(preference))
+            {
+                selected = File.ReadAllText(preference).Trim();
+            }
+            if (selected is not null && ReadAirborneManifest(selected) is not null) return selected;
         }
         catch { /* A stale preference must not prevent finding Edge's copy. */ }
 
@@ -234,8 +241,18 @@ public partial class MainWindow
         }
         try
         {
-            Directory.CreateDirectory(DataDir);
-            File.WriteAllText(Path.Combine(DataDir, "airborne-extension.path"), folder);
+            if (postgresSession is null)
+            {
+                Directory.CreateDirectory(DataDir);
+                File.WriteAllText(Path.Combine(DataDir, "airborne-extension.path"), folder);
+            }
+            else
+            {
+                var name = "airborne-extension.path";
+                var baseline = await PostgresLibraryDocumentStore.ReadAsync(postgresSession.ConnectionString, name);
+                await PostgresLibraryDocumentStore.SaveAsync(postgresSession.ConnectionString,
+                    name, System.Text.Encoding.UTF8.GetBytes(folder), baseline?.Revision);
+            }
         }
         catch (Exception ex) { ExtensionInfo.Text += " 目录偏好无法保存：" + ex.Message; }
         return true;

@@ -27,7 +27,7 @@ public partial class MainWindow
             config.TmdbToken = WindowsCredentialStore.Read("TmdbToken") ?? "";
             config.AiKey = WindowsCredentialStore.Read("AiKey") ?? "";
             // Old recovery files can contain the same plaintext secrets.
-            ScrubLegacyCredentialBackups();
+            if (postgresSession is null) ScrubLegacyCredentialBackups();
             credentialStoreReady = true;
             return legacy;
         }

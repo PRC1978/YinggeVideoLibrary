@@ -45,6 +45,14 @@ internal static class PortableUpdateWorker
             catch (ArgumentException) { /* The old process has already exited. */ }
             previousExited = true;
 
+            // The 1.6.8 updater can download only the new EXE. Its worker is
+            // this new binary, so stop here when the installed directory lacks
+            // the database runtime. Otherwise the update would appear to work
+            // while the library silently remained in file mode.
+            if (!testOnly && newVersion >= new Version(1, 6, 9) &&
+                !HasBundledPostgres(Path.GetDirectoryName(target)!))
+                throw new InvalidDataException("此版本需要 PostgreSQL 组件。请下载完整安装包升级；旧版程序与资料未修改");
+
             if (!PublishedExecutable.TryGetBinaryVersion(target, out var stillInstalled)
                 || stillInstalled != oldVersion)
                 throw new InvalidDataException("等待旧版退出期间，目标程序已变化");
@@ -85,6 +93,15 @@ internal static class PortableUpdateWorker
         }
     }
 
+    internal static bool HasBundledPostgres(string applicationDirectory)
+    {
+        var runtime = Path.Combine(applicationDirectory, "postgres");
+        return File.Exists(Path.Combine(runtime, "bin", "postgres.exe")) &&
+            File.Exists(Path.Combine(runtime, "bin", "pg_ctl.exe")) &&
+            File.Exists(Path.Combine(runtime, "bin", "initdb.exe")) &&
+            File.Exists(Path.Combine(runtime, "share", "postgres.bki"));
+    }
+
     internal static int SelfTest(string destination)
     {
         var directory = Path.Combine(Path.GetTempPath(), "YinggeUpdateTest-" + Guid.NewGuid().ToString("N"));
@@ -93,6 +110,18 @@ internal static class PortableUpdateWorker
         try
         {
             Directory.CreateDirectory(directory);
+            if (HasBundledPostgres(directory))
+                throw new InvalidDataException("缺少数据库组件时仍允许便携替换");
+            foreach (var relative in new[] { "postgres/bin/postgres.exe",
+                "postgres/bin/pg_ctl.exe", "postgres/bin/initdb.exe",
+                "postgres/share/postgres.bki" })
+            {
+                var path = Path.Combine(directory, relative.Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                File.WriteAllBytes(path, []);
+            }
+            if (!HasBundledPostgres(directory))
+                throw new InvalidDataException("完整数据库组件未被识别");
             var oldFile = Path.Combine(directory, "映格视频库.exe");
             var newFile = Path.Combine(directory, "downloaded.exe");
             File.WriteAllText(oldFile, "old-version");
@@ -155,11 +184,11 @@ internal static class PortableUpdateWorker
         finally
         {
             try { Registry.CurrentUser.DeleteSubKeyTree(testUninstallKey, false); } catch { }
-            if (Directory.Exists(directory))
-            {
-                foreach (var file in Directory.EnumerateFiles(directory)) File.Delete(file);
-                Directory.Delete(directory);
-            }
+            if (Directory.Exists(directory) &&
+                Path.GetFullPath(directory).StartsWith(Path.GetFullPath(Path.GetTempPath()),
+                    StringComparison.OrdinalIgnoreCase) &&
+                Path.GetFileName(directory).StartsWith("YinggeUpdateTest-", StringComparison.Ordinal))
+                Directory.Delete(directory, recursive: true);
         }
     }
 

@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text;
 using System.Text.Json;
 
 namespace YinggeVideoLibrary;
@@ -112,5 +113,97 @@ internal static class PostgresSelectiveImportDiagnostics
             "config.json") ?? throw new InvalidDataException("诊断库缺少配置。");
         return JsonSerializer.Deserialize<LibraryConfig>(snapshot.Content)
             ?? throw new InvalidDataException("诊断库配置损坏。");
+    }
+
+    internal static async Task<int> RunCrossDeviceToFileAsync(string runtimeDirectory,
+        string outputPath)
+    {
+        var root = Path.Combine(Path.GetTempPath(),
+            "YinggePgCrossDeviceProbe-" + Guid.NewGuid().ToString("N"));
+        var report = new Dictionary<string, object?>
+        {
+            ["passed"] = false, ["realLibraryRead"] = false, ["probeDirectory"] = root
+        };
+        try
+        {
+            var source = Path.Combine(root, "source");
+            var target = Path.Combine(root, "target");
+            var sourceVideos = Path.Combine(root, "source-videos");
+            var targetVideos = Path.Combine(root, "target-videos");
+            foreach (var path in new[] { source, target, sourceVideos, targetVideos })
+                Directory.CreateDirectory(path);
+            var sourceVideo = Path.Combine(sourceVideos, "sample.mp4");
+            var targetVideo = Path.Combine(targetVideos, "sample.mp4");
+            File.WriteAllBytes(sourceVideo, Encoding.UTF8.GetBytes("isolated-cross-device-video"));
+            File.Copy(sourceVideo, targetVideo);
+            var sourceId = LibraryRelocationService.IdForPath(sourceVideo);
+            var targetId = LibraryRelocationService.IdForPath(targetVideo);
+            report["differentPathIds"] = sourceId != targetId;
+            WriteFixture(source, sourceVideos, sourceVideo, sourceId, "来源标签");
+            WriteFixture(target, targetVideos, targetVideo, targetId, "目标标签");
+            var package = LibraryBackupService.CreateCrossDevicePackage(source);
+            report["packageVerified"] = LibraryBackupService.Verify(package).IsValid;
+            await using (var cluster = await PostgresPrivateCluster.OpenAsync(runtimeDirectory, target))
+            {
+                await PostgresLibraryMigration.ImportAsync(target, cluster.ConnectionString);
+                var activation = Path.Combine(root, "activation-backup");
+                await PostgresLibraryBackup.CreateAsync(cluster.ConnectionString, target, activation);
+                await PostgresStorageModeActivation.ActivateAsync(cluster.ConnectionString,
+                    target, activation);
+                var preview = await PostgresSelectiveImport.PreviewAsync(cluster.ConnectionString,
+                    target, package, LibraryImportScope.Tags,
+                    LibraryImportConflictPolicy.PreferBackup, null, false);
+                report["fingerprintMapped"] = preview.MappingComplete && preview.HasChanges &&
+                    preview.MappingRows.Any(row => row.OldVideoId == sourceId &&
+                        string.Equals(row.TargetPath, targetVideo, StringComparison.OrdinalIgnoreCase));
+                await PostgresSelectiveImport.StageAsync(cluster.ConnectionString, target, preview);
+                report["pendingSaved"] = await PostgresSelectiveImport.HasPendingAsync(
+                    cluster.ConnectionString);
+            }
+            report["applied"] = await PostgresSelectiveImport.ApplyPendingAtStartupAsync(
+                runtimeDirectory, target);
+            await using (var reopened = await PostgresLibraryRuntimeSession.OpenAsync(
+                runtimeDirectory, target))
+            {
+                report["targetTagMapped"] = reopened.Config.Tags.TryGetValue(targetId,
+                    out var tags) && tags.SequenceEqual(["来源标签"]);
+                report["sourceIdNotImported"] = !reopened.Config.Tags.ContainsKey(sourceId);
+                report["targetIndexPreserved"] = reopened.Index.Index.Entries.Count == 1 &&
+                    string.Equals(reopened.Index.Index.Entries[0].Path, targetVideo,
+                        StringComparison.OrdinalIgnoreCase);
+                report["pendingRemoved"] = !await PostgresSelectiveImport.HasPendingAsync(
+                    reopened.ConnectionString);
+            }
+            report["videoBytesUnchanged"] = File.ReadAllBytes(sourceVideo)
+                .SequenceEqual(File.ReadAllBytes(targetVideo));
+            report["passed"] = new[] { "differentPathIds", "packageVerified",
+                "fingerprintMapped", "pendingSaved", "applied", "targetTagMapped",
+                "sourceIdNotImported", "targetIndexPreserved", "pendingRemoved",
+                "videoBytesUnchanged" }.All(key => Equals(report[key], true));
+        }
+        catch (Exception error) { report["error"] = error.ToString(); }
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
+        await File.WriteAllBytesAsync(outputPath, JsonSerializer.SerializeToUtf8Bytes(report));
+        return Equals(report["passed"], true) ? 0 : 1;
+    }
+
+    private static void WriteFixture(string dataDirectory, string videoRoot,
+        string videoPath, string videoId, string tag)
+    {
+        File.WriteAllText(Path.Combine(dataDirectory, "config.json"),
+            JsonSerializer.Serialize(new LibraryConfig
+            {
+                Folders = [videoRoot], Tags = new() { [videoId] = [tag] }
+            }));
+        File.WriteAllText(Path.Combine(dataDirectory, "library-index.json"),
+            JsonSerializer.Serialize(new LibraryIndex
+            {
+                Folders = [videoRoot], Entries = [new IndexEntry
+                {
+                    Path = videoPath, Size = new FileInfo(videoPath).Length,
+                    ModifiedTicks = new FileInfo(videoPath).LastWriteTime.Ticks
+                }]
+            }));
+        File.WriteAllText(Path.Combine(dataDirectory, "metadata.json"), "{}");
     }
 }

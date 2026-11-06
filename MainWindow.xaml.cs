@@ -1025,6 +1025,9 @@ public partial class MainWindow : Window
                 ? await Task.Run(() => ReadBestLibraryIndex(config))
                 : (postgresSession.Index.Index, "PostgreSQL");
             indexSource = source;
+            if (postgresSession is not null)
+                postgresMissingUndoable = await PostgresMissingCleanupStore.HasUndoableAsync(
+                    postgresSession.ConnectionString);
             if (isClosing) return false;
             if (index is null)
             {

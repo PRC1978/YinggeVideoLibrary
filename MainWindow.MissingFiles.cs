@@ -17,6 +17,8 @@ public partial class MainWindow
     // 0 = all, 1 = only missing, 2 = only roots that could not be read.
     int availabilityFilter;
     bool cleanupRecoveryDone;
+    bool postgresMissingUndoable;
+    bool postgresMissingOperationInFlight;
 
     int MissingFileCount => videos.Count(item => item.IsMissing);
     int UnavailableRootCount => videos.Count(item => item.IsUnavailable);
@@ -54,8 +56,10 @@ public partial class MainWindow
                 ? "所有索引记录都能在磁盘上找到对应文件。"
                 : $"不在本地 {missing} 条（文件已不存在）· 位置暂不可用 {unavailable} 条（扫描根未读取，未计入清理）";
         }
-        if (MissingCleanupButton is not null) MissingCleanupButton.IsEnabled = missing > 0;
-        if (MissingUndoButton is not null) MissingUndoButton.IsEnabled = MissingCleanupStore.HasUndoable(DataDir);
+        if (MissingCleanupButton is not null)
+            MissingCleanupButton.IsEnabled = missing > 0 && !postgresMissingOperationInFlight;
+        if (MissingUndoButton is not null) MissingUndoButton.IsEnabled = !postgresMissingOperationInFlight &&
+            (postgresSession is null ? MissingCleanupStore.HasUndoable(DataDir) : postgresMissingUndoable);
     }
 
     static readonly Brush ChipIdleBackground = UiTheme.SurfaceBrush;
@@ -123,6 +127,11 @@ public partial class MainWindow
 
     async Task PerformMissingCleanupAsync(List<VideoItem> targets)
     {
+        if (postgresSession is not null)
+        {
+            await RunPostgresMissingOperationAsync(() => PerformPostgresMissingCleanupAsync(targets));
+            return;
+        }
         var entries = targets.Select(item => new MissingCleanupEntry
         {
             Path = item.Path, Size = item.Size, ModifiedTicks = item.Modified.Ticks
@@ -185,6 +194,11 @@ public partial class MainWindow
 
     async void UndoMissingCleanup(object sender, RoutedEventArgs e)
     {
+        if (postgresSession is not null)
+        {
+            await RunPostgresMissingOperationAsync(UndoPostgresMissingCleanupAsync);
+            return;
+        }
         var added = new List<VideoItem>();
         var undoIndexPreserved = false;
         var outcome = await MissingCleanupCoordinator.UndoAsync(DataDir, async entries =>
@@ -251,6 +265,7 @@ public partial class MainWindow
     // write keeps the pending marker so the next start retries.
     async Task RecoverInterruptedCleanupAsync()
     {
+        if (postgresSession is not null) return; // PostgreSQL index and history commit atomically.
         var outcome = await MissingCleanupCoordinator.RecoverAsync(DataDir, async pending =>
         {
             var restored = 0;
@@ -280,5 +295,111 @@ public partial class MainWindow
         });
         if (outcome == CleanupWriteOutcome.IndexFailed)
             Log("上次清理未完成，但索引写入失败；下次启动会再次尝试恢复。");
+    }
+
+    async Task PerformPostgresMissingCleanupAsync(List<VideoItem> targets)
+    {
+        var entries = targets.Select(item => new MissingCleanupEntry
+        { Path = item.Path, Size = item.Size, ModifiedTicks = item.Modified.Ticks }).ToArray();
+        try
+        {
+            await PostgresMissingCleanupStore.CleanupAsync(postgresSession!, entries,
+                NormalizeRoots(config.Folders));
+        }
+        catch (Exception ex)
+        {
+            Log("数据库清理未提交：" + ex.Message);
+            MessageBox.Show(this, "数据库清理未提交，索引记录保持原样：" + ex.Message,
+                "清理不在本地记录", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        foreach (var item in targets)
+        {
+            videos.Remove(item);
+            selectedVideoIds.Remove(item.Id);
+        }
+        postgresMissingUndoable = true;
+        Log($"已清除 {targets.Count} 条不在本地的数据库索引记录；未删除任何文件。");
+        TaskStatusText.Text = $"已清除 {targets.Count} 条不在本地的记录";
+        await RefreshPostgresCleanupStateAsync();
+        RenderCards();
+        UpdateAvailabilityChips();
+    }
+
+    async Task RunPostgresMissingOperationAsync(Func<Task> operation)
+    {
+        if (postgresMissingOperationInFlight) return;
+        postgresMissingOperationInFlight = true;
+        if (MissingCleanupButton is not null) MissingCleanupButton.IsEnabled = false;
+        if (MissingUndoButton is not null) MissingUndoButton.IsEnabled = false;
+        try { await operation(); }
+        catch (Exception ex)
+        {
+            Log("数据库清理操作已停止；状态需要重新载入：" + ex.Message);
+            MessageBox.Show(this, "操作状态未能刷新。请重启程序后核对数据库记录。",
+                "数据库状态", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            postgresMissingOperationInFlight = false;
+            if (MissingCleanupButton is not null) MissingCleanupButton.IsEnabled = MissingFileCount > 0;
+            if (MissingUndoButton is not null) MissingUndoButton.IsEnabled = postgresMissingUndoable;
+        }
+    }
+
+    async Task UndoPostgresMissingCleanupAsync()
+    {
+        MissingCleanupRecord? record;
+        try
+        {
+            record = await PostgresMissingCleanupStore.UndoAsync(postgresSession!,
+                NormalizeRoots(config.Folders));
+        }
+        catch (Exception ex)
+        {
+            Log("数据库撤销清理未提交：" + ex.Message);
+            MessageBox.Show(this, "撤销未提交，索引记录保持原样：" + ex.Message,
+                "撤销清理", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        if (record is null)
+        {
+            postgresMissingUndoable = false;
+            MessageBox.Show(this, "没有可撤销的清理记录。", "撤销清理",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            UpdateAvailabilityChips();
+            return;
+        }
+        var added = new List<VideoItem>();
+        foreach (var entry in record.Entries)
+        {
+            if (videos.Any(item => string.Equals(item.Path, entry.Path,
+                    StringComparison.OrdinalIgnoreCase))) continue;
+            var item = RestoredVideo(entry);
+            videos.Add(item);
+            added.Add(item);
+        }
+        ApplySavedFields(added);
+        Log($"已撤销数据库清理，恢复 {added.Count} 条索引记录。");
+        TaskStatusText.Text = $"已恢复 {added.Count} 条记录";
+        await RefreshPostgresCleanupStateAsync();
+        RenderCards();
+        UpdateAvailabilityChips();
+    }
+
+    async Task RefreshPostgresCleanupStateAsync()
+    {
+        try
+        {
+            await postgresSession!.ReloadIndexAsync();
+            postgresMissingUndoable = await PostgresMissingCleanupStore.HasUndoableAsync(
+                postgresSession.ConnectionString);
+        }
+        catch (Exception ex)
+        {
+            Log("数据库清理已提交，但重新读取状态失败：" + ex.Message);
+            MessageBox.Show(this, "操作已保存到数据库，但状态未能重新读取。请重启程序后继续操作。",
+                "数据库状态", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 }

@@ -135,6 +135,13 @@ internal sealed class PostgresLibraryRuntimeSession : IAsyncDisposable
         finally { writeGate.Release(); }
     }
 
+    internal async Task ReloadIndexAsync(CancellationToken cancellationToken = default)
+    {
+        await writeGate.WaitAsync(cancellationToken);
+        try { Index = await PostgresLibraryIndexStore.ReadAsync(ConnectionString, cancellationToken); }
+        finally { writeGate.Release(); }
+    }
+
     internal async Task SaveMetadataAsync(IReadOnlyDictionary<string, MovieMetadata> edited,
         CancellationToken cancellationToken = default)
     {

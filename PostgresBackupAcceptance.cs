@@ -38,7 +38,7 @@ internal static class PostgresBackupAcceptance
         bool NewerDatabaseRefused, bool InterruptedRestoreKeptOldData, bool InterruptedRestoreCleaned,
         bool FailedActivationLeftNoMarker, bool FailedRestoreReverted, bool SentinelBlocksBothModes,
         bool FailedAfterMarkerRestoredOriginal, bool PartialAssetSwapReverted,
-        bool MissingStagingTableRejected);
+        bool MissingStagingTableRejected, bool PendingCleanupBlocksActivation);
 
     internal static async Task<Dictionary<string, object?>> RunAsync(string runtimeDirectory,
         string probeRoot, bool includeLarge = true)
@@ -73,7 +73,8 @@ internal static class PostgresBackupAcceptance
                 failures.InterruptedRestoreCleaned && failures.FailedActivationLeftNoMarker &&
                 failures.FailedRestoreReverted && failures.SentinelBlocksBothModes &&
                 failures.FailedAfterMarkerRestoredOriginal && failures.PartialAssetSwapReverted &&
-                failures.MissingStagingTableRejected;
+                failures.MissingStagingTableRejected &&
+                failures.PendingCleanupBlocksActivation;
         }
         catch (Exception ex)
         {
@@ -247,6 +248,46 @@ internal static class PostgresBackupAcceptance
             !unconfiguredEmptyScan.Written &&
             session.Index.Revision == beforeEmptyScan;
 
+        var firstEntry = session.Index.Index.Entries[0];
+        var missingIndex = new LibraryIndex { Folders = session.Index.Index.Folders,
+            Entries = session.Index.Index.Entries.Select(entry => new IndexEntry
+            { Path = entry.Path, Size = entry.Size, ModifiedTicks = entry.ModifiedTicks,
+                Missing = entry.Path == firstEntry.Path || entry.Missing }).ToList() };
+        await session.SaveIndexAsync(missingIndex);
+        var cleanupRecord = await PostgresMissingCleanupStore.CleanupAsync(session,
+            [new MissingCleanupEntry { Path = firstEntry.Path, Size = firstEntry.Size,
+                ModifiedTicks = firstEntry.ModifiedTicks }], session.Config.Folders);
+        await session.ReloadIndexAsync();
+        var cleanupAtomic = session.Index.Index.Entries.Count == fixture.Videos - 1 &&
+            await PostgresMissingCleanupStore.HasUndoableAsync(session.ConnectionString);
+        var undone = await PostgresMissingCleanupStore.UndoAsync(session, session.Config.Folders);
+        await session.ReloadIndexAsync();
+        cleanupAtomic &= undone?.Id == cleanupRecord.Id &&
+            session.Index.Index.Entries.Count == fixture.Videos &&
+            session.Index.Index.Entries.Single(entry => entry.Path == firstEntry.Path).Missing &&
+            !await PostgresMissingCleanupStore.HasUndoableAsync(session.ConnectionString);
+        var externallyChanged = new LibraryIndex { Folders = session.Index.Index.Folders,
+            Entries = session.Index.Index.Entries.Select(entry => new IndexEntry
+            { Path = entry.Path, Size = entry.Size + (entry.Path == firstEntry.Path ? 1 : 0),
+                ModifiedTicks = entry.ModifiedTicks, Missing = entry.Missing }).ToList() };
+        await PostgresLibraryIndexStore.SaveAsync(session.ConnectionString, externallyChanged,
+            session.Index.Revision);
+        var staleCleanupRejected = false;
+        try
+        {
+            await PostgresMissingCleanupStore.CleanupAsync(session,
+                [new MissingCleanupEntry { Path = firstEntry.Path, Size = firstEntry.Size,
+                    ModifiedTicks = firstEntry.ModifiedTicks }], session.Config.Folders);
+        }
+        catch (InvalidOperationException) { staleCleanupRejected = true; }
+        var afterRejected = await PostgresLibraryIndexStore.ReadAsync(session.ConnectionString);
+        cleanupAtomic &= staleCleanupRejected &&
+            afterRejected.Index.Entries.Count == fixture.Videos &&
+            afterRejected.Index.Entries.Single(entry => entry.Path == firstEntry.Path).Size == firstEntry.Size + 1 &&
+            !await PostgresMissingCleanupStore.HasUndoableAsync(session.ConnectionString);
+        await session.ReloadIndexAsync();
+        await session.SaveIndexAsync(index);
+
         var metadata = session.Metadata.Records.ToDictionary(pair => pair.Key,
             pair => pair.Value.Clone(), StringComparer.Ordinal);
         metadata[fixture.VideoId].Title = "数据库会话写入测试";
@@ -329,7 +370,7 @@ internal static class PostgresBackupAcceptance
             session.Metadata.Records[fixture.VideoId].Title == "数据库会话写入测试" &&
             added == 1 && rescheduled && retryPersisted && markedFailed &&
             failedPersisted && removedQueueItem && session.Queue.Count == 2 &&
-            bridgeReadsDatabase &&
+            bridgeReadsDatabase && cleanupAtomic &&
             session.Roles.State.Profiles[0].Name == "人物甲·会话写入" &&
             candidateAfter?.Revision == candidateRevision &&
             candidateAfter.Content.SequenceEqual(candidateBytes) &&
@@ -782,10 +823,36 @@ internal static class PostgresBackupAcceptance
                     "DROP SCHEMA yingge_restore_missing_table CASCADE");
             }
 
+            Log(probeRoot, "failure 13");
+            var pendingState = new MissingCleanupState { PendingId = "pending-probe",
+                History = [new MissingCleanupRecord { Id = "pending-probe",
+                    StartedAt = DateTimeOffset.UtcNow,
+                    Entries = [new MissingCleanupEntry { Path = Path.Combine(fixture.MediaRoot,
+                        "video-000000.mp4"), Size = 1024, ModifiedTicks = DateTime.UtcNow.Ticks }] }] };
+            var priorCleanup = await PostgresLibraryDocumentStore.ReadAsync(
+                cluster.ConnectionString, MissingCleanupStore.FileName);
+            await PostgresLibraryDocumentStore.SaveAsync(cluster.ConnectionString,
+                MissingCleanupStore.FileName, JsonSerializer.SerializeToUtf8Bytes(pendingState),
+                priorCleanup?.Revision);
+            var pendingBackup = Path.Combine(probeRoot, "failure-pending-cleanup-backup");
+            await PostgresLibraryBackup.CreateAsync(cluster.ConnectionString, library, pendingBackup);
+            var markerBeforePending = await File.ReadAllBytesAsync(markerPath);
+            var pendingCleanupBlocks = false;
+            try
+            {
+                await PostgresStorageModeActivation.RewriteAfterRestoreAsync(
+                    cluster.ConnectionString, library, pendingBackup);
+            }
+            catch (InvalidOperationException)
+            {
+                pendingCleanupBlocks = (await File.ReadAllBytesAsync(markerPath))
+                    .SequenceEqual(markerBeforePending);
+            }
+
             return new(interruptedClean, spaceRejected, corruptRejected, oldPackageRejected,
                 oldUpgraded, newerRefused, interruptedRestore, cleanedOk, markerlessRejected,
                 reverted, sentinelBlocks, markerReverted, assetSwapReverted,
-                missingTableRejected);
+                missingTableRejected, pendingCleanupBlocks);
         }
         finally
         {

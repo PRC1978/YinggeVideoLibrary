@@ -51,6 +51,8 @@ internal static class PostgresStorageModeActivation
             if (!await PostgresLibraryMigration.VerifyContentAsync(backupDirectory, connectionString,
                     cancellationToken))
                 throw new InvalidDataException("数据库内容与备份不一致，拒绝切换存储模式。 ");
+            await PostgresMissingCleanupStore.EnsureReadyForActivationAsync(connectionString,
+                cancellationToken);
 
             var manifestBytes = await File.ReadAllBytesAsync(Path.Combine(backupDirectory,
                 PostgresLibraryExport.ManifestName), cancellationToken);

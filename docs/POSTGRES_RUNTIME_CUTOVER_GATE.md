@@ -7,7 +7,7 @@
 | 数据 | 当前正常程序入口 | 已有数据库适配器 | 剩余工作 |
 | --- | --- | --- | --- |
 | 配置、标签、分类、收藏、审核记录 | `MainWindow.LoadConfig` / `SaveConfig`、`MainWindow.ReviewWorkflow` | `PostgresLibraryConfigStore`、`PostgresReviewTransactionStore` | 主窗口已增加数据库会话的配置、审核事务、历史和保存视图分支；需完成全部直接文件入口及真实窗口验收。同步设置保存仍会等待数据库，后续改为异步 |
-| 视频索引与缺失状态 | `MainWindow.SaveIndexAsync`、增量扫描和缺失清理 | `PostgresLibraryIndexStore`、`PostgresLibraryRuntimeSession.SaveScannedIndexAsync` | 主窗口已增加数据库会话的缓存读取、扫描保存与旧索引恢复分支；需完成缺失清理撤销、CAS 冲突和真实窗口验收。隔离库已验证空扫描不覆盖不同根目录的旧索引 |
+| 视频索引与缺失状态 | `MainWindow.SaveIndexAsync`、增量扫描和缺失清理 | `PostgresLibraryIndexStore`、`PostgresLibraryRuntimeSession.SaveScannedIndexAsync`、`PostgresMissingCleanupStore` | 数据库会话下的缺失清理和撤销已用同一事务写索引及历史；激活前拒绝未完成的旧清理。仍需真实窗口操作及大库验收。隔离库已验证空扫描不覆盖不同根目录的旧索引 |
 | 搜刮资料 | `MetadataStore.Load/Save` 与审核事务 | `PostgresLibraryMetadataStore`、`PostgresReviewTransactionStore` | 所有资料写入、审核历史和撤销同事务 |
 | 搜刮队列与来源冷却 | `MainWindow.ScrapeQueue` / `TitleScrapeQueue` | `ScrapeQueueBridge`、`PostgresScrapeQueueStore`、`PostgresScrapeSourceBackoffStore`、`PostgresScrapeWorkerLease` | 主窗口队列的加入、取消、重试、轮询和来源冷却已通过模式入口；仍需数据库模式的真实窗口操作、重启恢复与故障注入验收。诊断探针保持文件模式 |
 | 人物与关系 | `RoleProfileStore` 文件 | `PostgresRoleProfileStore` | 自动搜刮、手工编辑、作品关联与撤销接线 |

@@ -168,8 +168,8 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="RadioButton">
-                        <Grid><Border IsHitTestVisible="False" Background="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}" CornerRadius="12" Effect="{Binding SoftShadow, Source={x:Static local:UiThemeState.Instance}}"/><Border x:Name="ThemeCard" Background="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"
-                                BorderBrush="{Binding BorderBrushToken, Source={x:Static local:UiThemeState.Instance}}"
+
+                        <Grid><Border IsHitTestVisible="False" Background="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}" CornerRadius="12" Effect="{Binding SoftShadow, Source={x:Static local:UiThemeState.Instance}}"/><Border IsHitTestVisible="False" Background="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}" CornerRadius="12" Effect="{Binding SoftHighlight, Source={x:Static local:UiThemeState.Instance}}"/><Border x:Name="ThemeCard" Background="{Binding CardRaisedSurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"                                BorderBrush="{Binding BorderBrushToken, Source={x:Static local:UiThemeState.Instance}}"
                                 BorderThickness="1" CornerRadius="12" Padding="9" Margin="0,0,8,8">
                             <ContentPresenter HorizontalAlignment="Stretch"/>
                         </Border></Grid>
@@ -186,7 +186,13 @@
                                 </MultiTrigger.Conditions>
                                 <Setter TargetName="ThemeCard" Property="BorderBrush" Value="{Binding BorderStrongBrush, Source={x:Static local:UiThemeState.Instance}}"/>
                             </MultiTrigger>
-                        </ControlTemplate.Triggers>
+
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ThemeCard" Property="Background" Value="{Binding CardPressedSurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="ThemeCard" Property="Background" Value="{Binding CardDisabledSurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"/>
+                            </Trigger>                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -238,6 +244,7 @@
             <Setter Property="Foreground" Value="{Binding TextPrimaryBrush, Source={x:Static local:UiThemeState.Instance}}"/>
             <Setter Property="BorderBrush" Value="{Binding BorderBrushToken, Source={x:Static local:UiThemeState.Instance}}"/>
             <Setter Property="Padding" Value="10,5"/>
+
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>

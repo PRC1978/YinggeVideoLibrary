@@ -160,6 +160,10 @@ public partial class MainWindow
                         UpdateLayout();
                         await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
                         UpdateLayout();
+                        if (page == "categories" && width == 1240 && height == 780 &&
+                            sphereGraphCard is { IsVisible: true } card &&
+                            card.TranslatePoint(new System.Windows.Point(0, card.ActualHeight), this).Y > height)
+                            throw new InvalidOperationException($"{mode} 分类关系图卡片超出窗口底部");
                         if (page == "all" && Cards.VisibleCardCount > 0)
                             measuredCardWidths.Add((mode, UiTheme.Num(UiTheme.CardWidth),
                                 ((FrameworkElement)Cards.Children[0]).ActualWidth));
@@ -209,9 +213,38 @@ public partial class MainWindow
                                 ? ((FrameworkElement)Cards.Children[0]).ActualWidth : (double?)null,
                             sphereNodeCount = page == "categories" ? sphereMapSurface?.NodeCount : null,
                             sphereEveryNodeLinked = page == "categories" ? sphereMapSurface?.EveryNodeLinked : null,
+                            graphViewportTop = page == "categories" && sphereGraphViewport is not null
+                                ? sphereGraphViewport.TranslatePoint(new System.Windows.Point(0, 0), this).Y : (double?)null,
+                            graphViewportBottom = page == "categories" && sphereGraphViewport is not null
+                                ? sphereGraphViewport.TranslatePoint(new System.Windows.Point(0, sphereGraphViewport.ActualHeight), this).Y : (double?)null,
+                            graphCardBottom = page == "categories" && sphereGraphCard is not null
+                                ? sphereGraphCard.TranslatePoint(new System.Windows.Point(0, sphereGraphCard.ActualHeight), this).Y : (double?)null,
                         });
                     }
                 }
+            }
+            // Exercise the live inspector and the same node-selection method
+            // used by graph hits, chips and the navigator.
+            UiTheme.Apply(UiTheme.Tech);
+            ApplyInterfaceMode();
+            Width = 1240;
+            Height = 780;
+            ShowView("categories");
+            UpdateLayout();
+            var inspectedPath = GetSphereGraphIndexForUi()?.VideosByPath.Values
+                .SelectMany(item => item.CategoryValues)
+                .FirstOrDefault(path => !string.IsNullOrWhiteSpace(path));
+            if (inspectedPath is not null)
+            {
+                SelectSphereCategory(inspectedPath);
+                await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Loaded);
+                if (Math.Abs(sphereZoom - 1.2) > .001 ||
+                    sphereSelectionSources?.Text.Contains("fixture", StringComparison.OrdinalIgnoreCase) != true)
+                    throw new InvalidOperationException("节点单次选择未到 120% 或详情未读取隔离库来源");
+                ShowView("all");
+                ShowView("categories");
+                if (Math.Abs(sphereZoom - 1) > .001)
+                    throw new InvalidOperationException("重进分类页未恢复 100% 适应视图");
             }
             // Invariants: classic mode must keep the original nav set and the
             // status page; redesigned modes must expose review + plugins nav.
@@ -291,7 +324,7 @@ public partial class MainWindow
             var expand = (System.Windows.Controls.Button)navBar.Children[1];
             var navList = (System.Windows.Controls.ListBox)navPanel.Children[1];
             expand.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
-            if (navList.Height < 400) throw new InvalidOperationException("节点导航未能展开");
+            if (navList.Height < 240) throw new InvalidOperationException("节点导航未能展开");
             // Probe why implicit stock-control styles do or do not land.
             var combo = ScrapeSourceBox;
             var probe = new

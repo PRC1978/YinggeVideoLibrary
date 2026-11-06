@@ -5,6 +5,11 @@ using System.Windows.Media.Effects;
 using Brush = System.Windows.Media.Brush;
 using Color = System.Windows.Media.Color;
 using FontFamily = System.Windows.Media.FontFamily;
+// UseWindowsForms pulls System.Drawing into the global usings. These three
+// names exist in both namespaces, so alias the WPF ones explicitly.
+using Brushes = System.Windows.Media.Brushes;
+using Pen = System.Windows.Media.Pen;
+using Point = System.Windows.Point;
 
 namespace YinggeVideoLibrary;
 
@@ -372,6 +377,15 @@ public sealed class UiThemeState : INotifyPropertyChanged
     public double CardWidth => UiTheme.Num(UiTheme.CardWidth);
     public double CardHeight => UiTheme.Num(UiTheme.CardHeight);
     public double CardRadius => UiTheme.Num(UiTheme.CardRadius);
+    // R08: CornerRadius cannot bind from a double, so expose the typed value.
+    // NotifyAll() on every Apply() refreshes these bindings.
+    public CornerRadius CardCornerRadius => new(UiTheme.Num(UiTheme.CardRadius));
+    // R06/T04: three paired emboss states for interactive cards. Outside
+    // Neumorphism all three resolve to the plain surface, so no other theme
+    // changes appearance and SoftHighlight stays null.
+    public Brush CardRaisedSurfaceBrush => IsNeumorphism ? RaisedSurfaceBrush : SurfaceBrush;
+    public Brush CardPressedSurfaceBrush => IsNeumorphism ? PressedSurfaceBrush : SurfaceBrush;
+    public Brush CardDisabledSurfaceBrush => IsNeumorphism ? SurfaceAltBrush : SurfaceBrush;
     public double CardGap => UiTheme.Num(UiTheme.CardGap);
     public Thickness CardMargin => new(0, 0, CardGap, CardGap + 5);
     public double ControlHeight => UiTheme.Num(UiTheme.ControlHeight);
@@ -386,6 +400,41 @@ public sealed class UiThemeState : INotifyPropertyChanged
     public bool IsNeumorphism => UiTheme.Current == UiTheme.Neumorphism;
     public bool IsGlass => UiTheme.Current == UiTheme.Glass;
     public bool IsCinema => UiTheme.Current == UiTheme.Cinema;
+
+    public bool IsLineField => UiTheme.Current == UiTheme.LineField;
+
+    // R07: the quantized-line-field calibration mark. Four countable pen
+    // weights (0.5 / 1 / 2 / 4), a detection frame and an evenly spaced
+    // coordinate ruler. No blur, no shadow, no static logo.
+    static readonly Brush lineFieldMotif = CreateLineFieldMotif();
+    public Brush LineFieldMotifBrush => IsLineField ? lineFieldMotif : Brushes.Transparent;
+
+    static Brush CreateLineFieldMotif()
+    {
+        var ink = new SolidColorBrush(Color.FromArgb(210, 30, 58, 138));
+        var faint = new SolidColorBrush(Color.FromArgb(110, 30, 58, 138));
+        var group = new DrawingGroup();
+        group.Children.Add(new GeometryDrawing(null, new Pen(faint, 1),
+            new RectangleGeometry(new Rect(6, 6, 168, 96))));
+        double[] weights = [0.5, 1, 2, 4];
+        for (var i = 0; i < weights.Length; i++)
+        {
+            var x = 26.0 + i * 38;
+            group.Children.Add(new GeometryDrawing(null, new Pen(ink, weights[i]),
+                new LineGeometry(new Point(x, 22), new Point(x, 76))));
+        }
+        for (var x = 12.0; x <= 168; x += 12)
+            group.Children.Add(new GeometryDrawing(null, new Pen(faint, 0.75),
+                new LineGeometry(new Point(x, 88), new Point(x, x % 24 == 0 ? 98 : 94))));
+        var brush = new DrawingBrush(group)
+        {
+            Viewbox = new Rect(0, 0, 180, 108), ViewboxUnits = BrushMappingMode.Absolute,
+            Stretch = Stretch.None, TileMode = TileMode.None,
+            AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top
+        };
+        brush.Freeze();
+        return brush;
+    }
     public Brush PanelEdgeBrush => IsNeumorphism
         ? new LinearGradientBrush(Color.FromRgb(255, 255, 255), Color.FromRgb(174, 187, 203), 135)
         : IsGlass

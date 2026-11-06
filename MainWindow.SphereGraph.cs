@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -744,8 +744,18 @@ public partial class MainWindow
         }
     }
 
+    // T05/T06/T17: the inspector + node navigator live in their own column
+    // so their height no longer stacks on top of the graph canvas.
+    const double SphereInspectorColumnWidth = 300;
+
     SphereMapSurface? sphereMapSurface;
-    string sphereGraphBuildProfile = "";
+    Border? sphereGraphCard;
+
+    Border? sphereSelectionBar;
+    TextBlock? sphereSelectionTitle;
+    TextBlock? sphereSelectionMeta;
+    TextBlock? sphereSelectionSources;
+    TextBlock? sphereSelectionChildren;    string sphereGraphBuildProfile = "";
     string categoryRenderProfile = "";
     string sphereIndexWarmProfile = "未完成";
     SphereGraphIndex? sphereGraphIndex;
@@ -1390,6 +1400,12 @@ public partial class MainWindow
             var hit = surface.HitPath(e.GetPosition(surface));
             if (sphereMouseDownPath is not null && string.Equals(hit, sphereMouseDownPath, StringComparison.OrdinalIgnoreCase))
             {
+                // R02: NavigateSphereNode -> SelectSphereCategory already
+                // schedules CenterSphereGraphOn once (Dispatcher, Loaded).
+                // Calling it again here doubled the 1.2x zoom on a single
+                // click (100% -> 144%) and could hit a stale path after a tag
+                // node rebuilt the graph. One click = one centre, same as the
+                // chip / node-list selection path.
                 NavigateSphereNode(hit!);
                 e.Handled = true;
             }
@@ -1437,7 +1453,7 @@ public partial class MainWindow
         sphereGraphCanvas = canvas;
         var scroll = new ScrollViewer
         {
-            Height = sphereManualViewportHeight ?? Math.Clamp(ActualHeight * .62, 320, 690),
+            Height = sphereManualViewportHeight ?? Math.Clamp(ActualHeight * .38, 240, 420),
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
             CanContentScroll = false, PanningMode = PanningMode.None,
@@ -1457,8 +1473,10 @@ public partial class MainWindow
         scroll.PreviewMouseMove += SphereGraphMouseMove;
         scroll.PreviewMouseUp += SphereGraphMouseUp;
         scroll.LostMouseCapture += (_, _) => EndSpherePan();
-        SizeChangedEventHandler resizeWindow = (_, _) => scroll.Height = sphereManualViewportHeight ?? Math.Clamp(ActualHeight * .62, 320, 690);
-        scroll.Loaded += (_, _) => { SizeChanged += resizeWindow; scroll.Height = sphereManualViewportHeight ?? Math.Clamp(ActualHeight * .62, 320, 690); UpdateSphereViewport(); };
+
+        void ResizeGraph() => scroll.Height = sphereManualViewportHeight ?? Math.Clamp(ActualHeight * .38, 240, 420);
+        SizeChangedEventHandler resizeWindow = (_, _) => ResizeGraph();
+        scroll.Loaded += (_, _) => { SizeChanged += resizeWindow; ResizeGraph(); UpdateSphereViewport(); Dispatcher.BeginInvoke(new Action(ResetSphereGraphView), System.Windows.Threading.DispatcherPriority.Loaded); };
         scroll.Unloaded += (_, _) => SizeChanged -= resizeWindow;
 
         var header = new DockPanel { Margin = new Thickness(10, 0, 10, 10), LastChildFill = true };
@@ -1526,17 +1544,75 @@ public partial class MainWindow
         };
         resizeHandle.Children.Add(thumb);
 
-        var panel = new StackPanel();
-        panel.Children.Add(header);
-        panel.Children.Add(tagBar);
-        panel.Children.Add(scroll);
-        panel.Children.Add(resizeHandle);
-        panel.Children.Add(navigator);
+
+        sphereSelectionTitle = new TextBlock { FontSize = 13.5, FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextPrimaryBrush, TextTrimming = TextTrimming.CharacterEllipsis };
+        sphereSelectionMeta = new TextBlock { FontSize = 11.5, Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 2, 0, 0) };
+        sphereSelectionSources = new TextBlock { Text = "来源：—", FontSize = 11.5, Foreground = UiTheme.TextSecondaryBrush, Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap };
+        sphereSelectionChildren = new TextBlock { Text = "子分类：—", FontSize = 11.5, Foreground = UiTheme.TextSecondaryBrush, TextWrapping = TextWrapping.Wrap };
+        sphereSelectionTitle.Text = "未选中节点";
+        sphereSelectionMeta.Text = "点击画布节点或节点列表查看来源、子分类与操作";
+        var clearSelection = new Button { Content = "清除选择", Style = (Style)FindResource("Action"), Padding = new Thickness(9, 3, 9, 3), Margin = new Thickness(0, 7, 8, 0), HorizontalAlignment = HorizontalAlignment.Left };
+        clearSelection.Click += (_, _) => SelectSphereCategory("");
+        var fitView = new Button { Content = "适应视图", Style = (Style)FindResource("Action"), Padding = new Thickness(9, 3, 9, 3), Margin = new Thickness(0, 7, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
+        fitView.Click += (_, _) => ResetSphereGraphView();
+        var inspectorActions = new StackPanel { Orientation = Orientation.Horizontal };
+        inspectorActions.Children.Add(clearSelection);
+        inspectorActions.Children.Add(fitView);
+        // T06: a resident inspector with sources / sub-categories / actions.
+        // All four lines are computed from the live graph index and saved
+        // metadata; no placeholder content is displayed.
+        sphereSelectionBar = new Border
+        {
+            Background = UiTheme.AccentSoftBackgroundBrush, CornerRadius = new CornerRadius(12), Padding = new Thickness(12, 9, 12, 9),
+            Margin = new Thickness(10, 0, 10, 8), Visibility = Visibility.Visible,
+            Child = new StackPanel { Children = { sphereSelectionTitle, sphereSelectionMeta, sphereSelectionSources, sphereSelectionChildren, inspectorActions } }
+        };
+        // T05/T06/T17: two columns — the graph keeps its own height while the
+        // resident inspector and the node navigator sit to its right. This is
+        // the "canvas + side inspector" shape required by Atlas, and it keeps
+        // the whole card inside a 1240x780 window without scrolling.
+        var top = new StackPanel();
+        top.Children.Add(header);
+        top.Children.Add(tagBar);
+        var left = new StackPanel();
+        left.Children.Add(scroll);
+        left.Children.Add(resizeHandle);
+        var right = new StackPanel { Margin = new Thickness(8, 0, 0, 0) };
+        right.Children.Add(sphereSelectionBar);
+        right.Children.Add(navigator);
+        var panel = new Grid();
+        panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(0) });
+        panel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        panel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(SphereInspectorColumnWidth) });
+        // Header and tag chips span both columns; keeping them inside the
+        // narrow left column wrapped them into several rows and pushed the
+        // canvas below the window bottom.
+        Grid.SetRow(top, 0); Grid.SetColumn(top, 0); Grid.SetColumnSpan(top, 2);
+        Grid.SetRow(left, 1); Grid.SetColumn(left, 0);
+        Grid.SetRow(right, 1); Grid.SetColumn(right, 1);
+        panel.Children.Add(top);
+        panel.Children.Add(left);
+        panel.Children.Add(right);
+        void ArrangeColumns()
+        {
+            var stacked = ActualWidth < 1050;
+            panel.ColumnDefinitions[1].Width = stacked ? new GridLength(0) : new GridLength(SphereInspectorColumnWidth);
+            panel.RowDefinitions[2].Height = stacked ? GridLength.Auto : new GridLength(0);
+            Grid.SetRow(right, stacked ? 2 : 1);
+            Grid.SetColumn(right, stacked ? 0 : 1);
+            Grid.SetColumnSpan(right, stacked ? 2 : 1);
+        }
+        SizeChangedEventHandler arrangeColumns = (_, _) => ArrangeColumns();
+        panel.Loaded += (_, _) => { SizeChanged += arrangeColumns; ArrangeColumns(); };
+        panel.Unloaded += (_, _) => SizeChanged -= arrangeColumns;
         if (nodes.Count > 500)
         {
             sphereGraphBuildProfile = $"节点布局 {layoutMs:F1} ms，绘制层 {surfaceMs:F1} ms（关系准备 {sphereMapSurface.AssociationBuildMs:F1} ms、底图 {sphereMapSurface.BaseLayerBuildMs:F1} ms），导航 {navigatorMs:F1} ms，总计 {graphClock.Elapsed.TotalMilliseconds:F1} ms";
         }
-        return new Border { Background = UiTheme.SurfaceBrush, BorderBrush = UiTheme.AccentSoftBackgroundBrush, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(20), Padding = new Thickness(10), Margin = new Thickness(0, 5, 0, 16), Child = panel };
+        sphereGraphCard = new Border { Background = UiTheme.SurfaceBrush, BorderBrush = UiTheme.AccentSoftBackgroundBrush, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(20), Padding = new Thickness(10), Margin = new Thickness(0, 5, 0, 16), Child = panel };
+        return sphereGraphCard;
     }
 
     static void AddAncestors(string? path, Dictionary<string, int> counts, bool increment,
@@ -1795,8 +1871,11 @@ public partial class MainWindow
         var search = new TextBox { Text = sphereNavSearch, Width = 240, Height = 29, Margin = new Thickness(12, 0, 0, 0), ToolTip = "输入分类或标签名，定位关系图节点" };
         bar.Children.Add(search);
         panel.Children.Add(bar);
-        var list = new ListBox { Height = sphereNavHeight ?? (sphereNavExpanded ? 420 : 290),
-            MinHeight = 180, BorderThickness = new Thickness(0), Background = Brushes.Transparent };
+        // T05: the whole graph card must fit inside a 1240x780 window without
+        // scrolling to see its bottom edge. Keep the viewport and the node
+        // navigator compact by default; manual resize still allows more room.
+        var list = new ListBox { Height = sphereNavHeight ?? (sphereNavExpanded ? 240 : 160),
+            MinHeight = 120, BorderThickness = new Thickness(0), Background = Brushes.Transparent };
         ScrollViewer.SetVerticalScrollBarVisibility(list, ScrollBarVisibility.Auto);
         VirtualizingStackPanel.SetIsVirtualizing(list, true);
         VirtualizingStackPanel.SetVirtualizationMode(list, VirtualizationMode.Recycling);
@@ -1804,7 +1883,7 @@ public partial class MainWindow
         expand.Click += (_, _) =>
         {
             sphereNavExpanded = !sphereNavExpanded;
-            sphereNavHeight = sphereNavExpanded ? 420 : 290;
+            sphereNavHeight = sphereNavExpanded ? 240 : 160;
             list.Height = sphereNavHeight.Value;
             expand.Content = sphereNavExpanded ? "收起导航" : "放大导航";
         };
@@ -1824,8 +1903,8 @@ public partial class MainWindow
         };
         resizeHandle.DragDelta += (_, e) =>
         {
-            sphereNavHeight = Math.Clamp(list.Height + e.VerticalChange, 180, 800);
-            sphereNavExpanded = sphereNavHeight > 290;
+            sphereNavHeight = Math.Clamp(list.Height + e.VerticalChange, 120, 600);
+            sphereNavExpanded = sphereNavHeight > 160;
             list.Height = sphereNavHeight.Value;
             expand.Content = sphereNavExpanded ? "收起导航" : "放大导航";
         };
@@ -1879,6 +1958,48 @@ public partial class MainWindow
         SelectSphereCategory(path);
     }
 
+    // T06: real aggregates for the inspector. Sources come from saved scrape
+    // metadata, sub-categories from the graph index's category paths.
+    string DescribeSphereSources(string path)
+    {
+        if (path.Length == 0) return "来源：—";
+        var index = GetSphereGraphIndexForUi();
+        if (index is null) return "来源：索引尚未就绪";
+        var ids = index.VideosByPath.Values
+            .Where(s => s.CategoryValues.Any(c => c.Equals(path, StringComparison.OrdinalIgnoreCase) ||
+                                                c.StartsWith(path + "/", StringComparison.OrdinalIgnoreCase)))
+            .Select(s => s.Video.Id).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var sources = ids.Select(id => metadata.TryGetValue(id, out var record) ? record.Source : "")
+            .Where(s => !string.IsNullOrWhiteSpace(s)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return sources.Count == 0
+            ? $"来源：{ids.Count} 部视频 · 暂无搜刮来源记录"
+            : $"来源：{string.Join(" / ", sources.Take(3))}{(sources.Count > 3 ? " …" : "")} · {ids.Count} 部视频";
+    }
+
+    string DescribeSphereChildren(string path)
+    {
+        if (path.Length == 0) return "子分类：—";
+        var index = GetSphereGraphIndexForUi();
+        if (index is null) return "子分类：索引尚未就绪";
+        var children = index.AllCategoryCounts.Keys
+            .Where(k => k.StartsWith(path + "/", StringComparison.OrdinalIgnoreCase))
+            .Select(k => k[(path.Length + 1)..].Split('/')[0])
+            .Where(k => k.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return children.Count == 0 ? "子分类：无" : "子分类：" + string.Join("、", children.Take(4));
+    }
+
+    void CenterSphereGraphOn(string path)
+    {
+        if (sphereMapSurface is null || sphereGraphViewport is null || sphereGraphCanvas is null) return;
+        sphereZoom = Math.Max(sphereZoom, 1.2);
+        var point = sphereMapSurface.ProjectedPoint(path);
+        var scale = sphereFitScale * sphereZoom;
+        spherePanOffset = new System.Windows.Vector(
+            (sphereGraphCanvas.Width / 2 - point.X) * scale,
+            (sphereGraphCanvas.Height / 2 - point.Y) * scale);
+        UpdateSphereViewport();
+    }
+
     void SelectSphereCategory(string path)
     {
         selectedCategory = path.Length == 0 ? "全部" : path;
@@ -1888,6 +2009,23 @@ public partial class MainWindow
         {
             sphereMapSurface.SelectedPath = path;
             sphereMapSurface.InvalidateVisual();
+        }
+
+        if (path.Length > 0)
+            Dispatcher.BeginInvoke(new Action(() => CenterSphereGraphOn(path)), System.Windows.Threading.DispatcherPriority.Loaded);
+        if (sphereSelectionBar is not null)
+        {
+            // T06: the inspector is resident. With no selection it shows
+            // guidance, so the three sections never disappear.
+            sphereSelectionBar.Visibility = Visibility.Visible;
+            var selected = path.Length > 0;
+            sphereSelectionTitle!.Text = selected ? path : "未选中节点";
+            var count = selected && GetSphereGraphIndexForUi()?.AllCategoryCounts.TryGetValue(path, out var n) == true ? n : 0;
+            sphereSelectionMeta!.Text = selected
+                ? $"{count} 部视频 · 来源、子分类与操作见下方"
+                : "点击画布节点或节点列表查看来源、子分类与操作";
+            if (sphereSelectionSources is not null) sphereSelectionSources.Text = DescribeSphereSources(path);
+            if (sphereSelectionChildren is not null) sphereSelectionChildren.Text = DescribeSphereChildren(path);
         }
         foreach (var (name, chip) in sphereCategoryChips)
         {

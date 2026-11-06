@@ -494,6 +494,11 @@ public partial class MainWindow : Window
             AiStorageRoutes.Register(DataDir, storageSession.ConnectionString);
         queueBridge = new ScrapeQueueBridge(DataDir, storageSession);
         InitializeComponent();
+
+        // R09: StartupVeil is part of the first rendered frame, so a cold
+        // start no longer shows a bare white content area. Remove it as soon
+        // as the real content has been presented.
+        ContentRendered += (_, _) => StartupVeil.Visibility = Visibility.Collapsed;
         SizeChanged += (_, _) => UpdateHeaderResponsive();
         InitializeFolderExternalDrop();
         Directory.CreateDirectory(DataDir);
@@ -1646,6 +1651,12 @@ public partial class MainWindow : Window
         var changedView = view != target;
         if (changedView) pageIndex = 0;
         view = target;
+        // R04: RenderCategories() early-returns when the cached graph is still
+        // valid, so pan/zoom/rotation used to survive a round trip to another
+        // page. Re-entering the category page must restore the fitted view.
+        // Safe before the graph exists: ResetSphereGraphView only writes fields
+        // and UpdateSphereViewport guards on a null viewport.
+        if (changedView && target == "categories") ResetSphereGraphView();
         if (target != "categories") { sphereGraphTimer.Stop(); CancelSphereGraphIndexBuild(); }
         var titles = new Dictionary<string, (string, string, string)> {
             ["all"] = ("我的视频", "把喜欢的影像，放在一个顺手的地方。", "全部视频"),
@@ -1871,7 +1882,12 @@ public partial class MainWindow : Window
         PageJumpBox.ToolTip = $"输入 1 到 {pages} 的页码，按 Enter 跳转";
         PreviousPage.IsEnabled = pageIndex > 0;
         NextPage.IsEnabled = pageIndex + 1 < pages;
-        EmptyPanel.Visibility = list.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        // R01: the category page owns its own empty state (graph / node list).
+        // The full-list branch above already excludes categories, but the
+        // categories branch has no early return, so this paginated tail runs
+        // for it too. Re-opening the library onboarding card here put a second
+        // "视频库还是空的" panel below the category content on an empty library.
+        EmptyPanel.Visibility = list.Count == 0 && view != "categories" ? Visibility.Visible : Visibility.Collapsed;
         EmptyTitle.Text = query.Length > 0 ? "没有找到匹配的视频"
             : preservedMismatchedIndexCount > 0 && videos.Count == 0 ? "当前文件夹没有视频"
             : view == "favorites" ? "还没有收藏的视频" : "视频库还是空的";
@@ -2538,9 +2554,6 @@ public partial class MainWindow : Window
         aiCategoryAction = null;
         CategoryPanel.Children.Clear();
         sphereCategoryChips.Clear();
-        CategoryPanel.Children.Add(new TextBlock { Text = "分类工作台", FontSize = 19, FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextSecondaryBrush, Margin = new Thickness(0, 0, 0, 4) });
-        CategoryPanel.Children.Add(new TextBlock { Text = "点击节点筛选，拖动视频归类；左键拖空白处或右键拖动平移，中键横纵拖动旋转三维图，滚轮缩放。", Foreground = UiTheme.TextTertiaryBrush, FontSize = 12, Margin = new Thickness(0, 0, 0, 14) });
-        CategoryPanel.Children.Add(BuildGraphMoveActions());
         var graphIndex = GetSphereGraphIndexForUi();
         if (graphIndex is null)
         {
@@ -2568,6 +2581,7 @@ public partial class MainWindow : Window
         // the category shortcuts and searchable list immediately below it so
         // the graph is visible without scrolling past several tool rows.
         CategoryPanel.Children.Add(BuildSphereCategoryGraphV2(graphIndex));
+        CategoryPanel.Children.Add(BuildGraphMoveActions());
         // Preserve the configured shortcuts; the complete set of nested
         // categories below uses a searchable, recycled list.
         foreach (var name in new[] { "全部", "未分类" }.Concat(config.CategoryNames).Distinct())
@@ -2616,7 +2630,9 @@ public partial class MainWindow : Window
         void SetCategoryListExpanded(bool expanded)
         {
             categoryListExpanded = expanded;
-            categoryList.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+            categoryList.Visibility = Visibility.Visible;
+            categoryList.Height = expanded ? 200 : 112;
+            UpdateCategoryList();
             revealCategories.Content = expanded ? "收起列表" : "展开列表";
         }
         void UpdateCategoryList()
@@ -3745,7 +3761,7 @@ public partial class MainWindow : Window
                 UiTheme.IsClassicMode ? Visibility.Visible : Visibility.Collapsed;
             ReviewNav.Visibility = PluginsNav.Visibility = UiTheme.IsClassicMode ? Visibility.Collapsed : Visibility.Visible;
         }
-        ApplySidebarPresentation();
+        UpdateHeaderResponsive();
     }
     void ToggleHeader(object sender, RoutedEventArgs e)
     {
@@ -4822,10 +4838,21 @@ public partial class MainWindow : Window
                     navigated.Scheme is "https" or "http") onlineUrl = args.Uri;
                 OnlineInfo.Text = "正在加载：" + args.Uri;
             };
-            OnlineWeb.CoreWebView2.NavigationCompleted += (_, args) => OnlineInfo.Text = args.IsSuccess
-                ? "页面已加载 · " + (airborneWebViewId is not null ? "小电视空降助手已启用" : "空降助手未加载，点击“空降助手设置”查看")
-                : "页面加载失败，可点击“在 Edge 中打开”。";
-            OnlineWeb.CoreWebView2.ProcessFailed += (_, _) => OnlineInfo.Text = "网页内核进程异常，可切换到 Edge 打开。";
+            OnlineWeb.CoreWebView2.NavigationCompleted += (_, args) =>
+            {
+                // R10: keep the veil until the first page has actually painted,
+                // not merely until the browser core object exists (which left
+                // a blank white surface for another second).
+                OnlineLoading.Visibility = Visibility.Collapsed;
+                OnlineInfo.Text = args.IsSuccess
+                    ? "页面已加载 · " + (airborneWebViewId is not null ? "小电视空降助手已启用" : "空降助手未加载，点击“空降助手设置”查看")
+                    : "页面加载失败，可点击“在 Edge 中打开”。";
+            };
+            OnlineWeb.CoreWebView2.ProcessFailed += (_, _) =>
+            {
+                OnlineLoading.Visibility = Visibility.Collapsed;
+                OnlineInfo.Text = "网页内核进程异常，可切换到 Edge 打开。";
+            };
             OnlineWeb.CoreWebView2.NewWindowRequested += (_, args) =>
             {
                 args.Handled = true;
@@ -4834,7 +4861,13 @@ public partial class MainWindow : Window
             if (config.EnableExtension) await EnsureAirborneExtensionAsync();
             OnlineWeb.CoreWebView2.Navigate(onlineUrl); onlineReady = true;
         }
-        catch (Exception ex) { OnlineInfo.Text = "内嵌浏览器初始化失败，请使用“在 Edge 中打开”：" + ex.Message; }
+        catch (Exception ex)
+        {
+            OnlineLoading.Visibility = Visibility.Collapsed;
+            OnlineInfo.Text = "内嵌浏览器初始化失败，请使用“在 Edge 中打开”：" + ex.Message;
+        }
+        // R10: the veil is dismissed by NavigationCompleted / ProcessFailed /
+        // catch above, i.e. when the first page (or a failure) is known.
         finally { onlineInitializing = false; }
     }
     void NavigateOnline(string url) { onlineUrl = url; if (OnlineWeb.CoreWebView2 is not null) OnlineWeb.CoreWebView2.Navigate(url); else _ = InitializeOnlineAsync(); }

@@ -7,6 +7,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
+    <!-- The installer ships the single-file publish output. WPF native DLLs
+         must be inside that executable or the installed app cannot start. -->
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <DefaultItemExcludes>$(DefaultItemExcludes);artifacts\**</DefaultItemExcludes>
     <AssemblyName>映格视频库</AssemblyName>
     <Version>1.6.8</Version>

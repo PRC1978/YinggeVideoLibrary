@@ -47,8 +47,11 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 
 [Files]
 Source: "{#PortableSource}"; DestDir: "{app}"; Flags: ignoreversion
-#ifdef BundlePostgres
-; Opt-in until runtime startup, migration and restore are fully validated.
+#ifndef BundlePostgres
+  #define BundlePostgres 1
+#endif
+#if BundlePostgres
+; The private database runtime is bundled for offline library conversion.
 ; Prepare the pinned EDB archive with scripts/prepare-postgres-runtime.ps1 first.
 ; Database files must remain in the user's data directory, never under {app}.
 Source: "artifacts\postgres-runtime\*"; DestDir: "{app}\postgres"; Flags: recursesubdirs createallsubdirs ignoreversion

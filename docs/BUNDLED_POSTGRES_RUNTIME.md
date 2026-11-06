@@ -18,10 +18,11 @@ unmarked libraries remain file-backed until the user stages conversion in Settin
   `18.6`; 1,586 files / 147,931,946 bytes including its manifest. No user data
   was accessed. The preparation script was rerun and returned `Already staged`.
 
-The Inno Setup source has an **opt-in** `BundlePostgres` preprocessor flag.
-Any release that offers database conversion **must** compile with this flag;
-otherwise the Settings action refuses to stage conversion and an already
-converted library fails closed at startup. The runtime is installed under
+The Inno Setup source now bundles PostgreSQL by default. A release that offers
+database conversion must keep `BundlePostgres=1`; otherwise the Settings action
+refuses to stage conversion and an already converted library fails closed at
+startup. The project sets `IncludeNativeLibrariesForSelfExtract=true` so the
+published executable includes WPF native components. The runtime is installed under
 `{app}\postgres`; each private database remains under the user's data directory.
 Package verification must inspect the installed runtime, not just the source archive.
 
@@ -31,8 +32,8 @@ Package verification must inspect the installed runtime, not just the source arc
 2. Rehearse the Settings conversion and installed-package startup with an
    isolated library, including interrupted migration and rollback. Preserve
    the old JSON files until the database is verified.
-3. Compile and install an isolated package with `BundlePostgres` enabled;
-   verify its runtime files, upgrade behavior and uninstall behavior.
+3. Repeat the isolated package upgrade probe after the final selective-import
+   and UI changes; the previous probe passed for the current database runtime.
 4. Define major-version upgrade handling with a logical backup/restore. Do not
    start a new PostgreSQL major version on an old cluster's data directory.
 

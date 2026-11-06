@@ -1,7 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using MenuItem = System.Windows.Controls.MenuItem;
-using MessageBox = System.Windows.MessageBox;
+using MessageBox = YinggeVideoLibrary.ThemeMessageBox;
 using Button = System.Windows.Controls.Button;
 using StackPanel = System.Windows.Controls.StackPanel;
 

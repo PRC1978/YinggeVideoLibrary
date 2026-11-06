@@ -1,6 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
-using MessageBox = System.Windows.MessageBox;
+using MessageBox = YinggeVideoLibrary.ThemeMessageBox;
 
 namespace YinggeVideoLibrary;
 

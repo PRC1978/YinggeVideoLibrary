@@ -66,8 +66,9 @@ public partial class MainWindow
         var section = new StackPanel { Name = "SettingsAppearanceOptions", Margin = new Thickness(0, 16, 0, 8) };
         section.Children.Add(new TextBlock { Text = "界面模式", FontWeight = FontWeights.SemiBold,
             Foreground = UiTheme.TextPrimaryBrush });
-        section.Children.Add(SettingsHint("选择喜欢的外观。点击预览卡片即可切换，重启后仍会保留。"));
+        section.Children.Add(SettingsHint("五种常用布局分别适合浏览、观影、批量整理、查看关系和沉浸浏览。点击预览立即切换。"));
         var themeRow = new WrapPanel();
+        var extraThemeRow = new WrapPanel();
         foreach (var (id, label, hint) in UiTheme.Modes)
         {
             var choice = new System.Windows.Controls.RadioButton
@@ -104,7 +105,7 @@ public partial class MainWindow
             {
                 if (config.UiTheme == id) return;
                 config.UiTheme = id;
-                UiTheme.Apply(id);
+                UiTheme.Apply(id, config.UiColorMode);
                 // Structural chrome (nav set, review page host, status cards)
                 // follows the mode immediately; the current page is kept.
                 ApplyInterfaceMode();
@@ -121,9 +122,46 @@ public partial class MainWindow
                 SaveConfig();
             };
             themeModeButtons.Add(choice);
-            themeRow.Children.Add(choice);
+            if (PresentationRegistry.Find(id) is null) extraThemeRow.Children.Add(choice);
+            else themeRow.Children.Add(choice);
         }
         section.Children.Add(themeRow);
+        section.Children.Add(new Expander
+        {
+            Header = "更多配色与实验风格",
+            Content = extraThemeRow,
+            Margin = new Thickness(0, 3, 0, 8),
+            IsExpanded = PresentationRegistry.Find(UiTheme.Normalize(config.UiTheme)) is null
+        });
+        section.Children.Add(new TextBlock { Text = "明暗模式", FontWeight = FontWeights.SemiBold,
+            Foreground = UiTheme.TextPrimaryBrush, Margin = new Thickness(0, 7, 0, 5) });
+        var colorModeRow = new WrapPanel { Margin = new Thickness(0, 0, 0, 9) };
+        var colorModeButtons = new List<System.Windows.Controls.RadioButton>();
+        foreach (var (mode, label) in new[]
+        {
+            (UiColorMode.Native, "沿用原色"), (UiColorMode.Light, "浅色"),
+            (UiColorMode.Dark, "深色"), (UiColorMode.HighContrast, "高对比")
+        })
+        {
+            var choice = new System.Windows.Controls.RadioButton
+            {
+                Content = label, Tag = mode, GroupName = "UiColorMode",
+                IsChecked = UiColorMode.Normalize(config.UiColorMode) == mode,
+                Margin = new Thickness(0, 0, 18, 5), Foreground = UiTheme.TextPrimaryBrush
+            };
+            choice.Checked += (_, _) =>
+            {
+                if (config.UiColorMode == mode) return;
+                config.UiColorMode = mode;
+                UiTheme.Apply(config.UiTheme, mode);
+                lastCategoryRenderVersion = -1;
+                ShowView(view);
+                SaveConfig();
+            };
+            colorModeButtons.Add(choice);
+            colorModeRow.Children.Add(choice);
+        }
+        section.Children.Add(colorModeRow);
         var restoreTheme = new System.Windows.Controls.Button
         {
             Content = "恢复原版主题", Style = (Style)FindResource("Action"),
@@ -133,11 +171,14 @@ public partial class MainWindow
         restoreTheme.Click += (_, _) =>
         {
             config.UiTheme = UiTheme.Classic;
+            config.UiColorMode = UiColorMode.Native;
             config.UiMotion = UiMotion.Balanced;
             ++themeLayoutVersion;
-            UiTheme.Apply(UiTheme.Classic);
+            UiTheme.Apply(UiTheme.Classic, UiColorMode.Native);
             foreach (var choice in themeModeButtons)
                 choice.IsChecked = Equals(choice.Tag, UiTheme.Classic);
+            foreach (var choice in colorModeButtons)
+                choice.IsChecked = Equals(choice.Tag, UiColorMode.Native);
             ApplyInterfaceMode();
             SaveConfig();
             ShowView("settings");
@@ -203,6 +244,7 @@ public partial class MainWindow
             UiTheme.Contrast => ("#E8F2E4", "#C7DCC4", "#F8FFF5", "#275E3E"),
             UiTheme.Neumorphism => ("#E0E5EC", "#D3DAE4", "#E0E5EC", "#6652BD"),
             UiTheme.Glass => ("#0B1322", "#14FFFFFF", "#33517A", "#E4B863"),
+            UiTheme.Atlas => ("#FAFAF8", "#EEEEEB", "#FFFFFF", "#2152E7"),
             UiTheme.LineField => ("#FAFAF8", "#EEEEEB", "#FFFFFF", "#2152E7"),
             UiTheme.Editorial => ("#F5F1E9", "#EDE8DD", "#FAF7F0", "#62563F"),
             UiTheme.Tech => ("#EFF5FF", "#DDEAFF", "#FFFFFF", "#4169E1"),
@@ -211,11 +253,53 @@ public partial class MainWindow
         static SolidColorBrush Swatch(string hex) => new((Color)System.Windows.Media.ColorConverter.ConvertFromString(hex));
         var preview = new Grid { Width = 105, Height = 57, Background = Swatch(background) };
         preview.Children.Add(new Border { Width = 13, Background = Swatch(sidebar), HorizontalAlignment = System.Windows.HorizontalAlignment.Left });
-        var cards = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3, Margin = new Thickness(21, 11, 7, 8) };
-        for (var i = 0; i < 3; i++)
-            cards.Children.Add(new Border { Background = Swatch(card), BorderBrush = Swatch(sidebar),
-                BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(3), Margin = new Thickness(2, 0, 2, 0) });
-        preview.Children.Add(cards);
+        var scene = new Grid { Margin = new Thickness(21, 7, 6, 6) };
+        if (id == UiTheme.Cinema)
+        {
+            var belt = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3, Margin = new Thickness(0, 3, 0, 12) };
+            foreach (var height in new[] { 23d, 33d, 23d })
+                belt.Children.Add(new Border { Background = Swatch(card), Height = height,
+                    VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 2, 0) });
+            scene.Children.Add(belt);
+            scene.Children.Add(new Border { Background = Swatch(accent), Height = 3,
+                VerticalAlignment = VerticalAlignment.Bottom });
+        }
+        else if (id == UiTheme.Compact)
+        {
+            var rows = new StackPanel();
+            for (var i = 0; i < 5; i++)
+                rows.Children.Add(new Border { Background = Swatch(i % 2 == 0 ? card : background),
+                    BorderBrush = Swatch(sidebar), BorderThickness = new Thickness(0, 0, 0, 1), Height = 8 });
+            scene.Children.Add(rows);
+        }
+        else if (id == UiTheme.Atlas)
+        {
+            scene.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
+            scene.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            scene.Children.Add(new TextBlock { Text = "●──●\n  ╲ │\n   ●", Foreground = Swatch(accent),
+                FontSize = 10, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
+            var inspector = new Border { Background = Swatch(card), BorderBrush = Swatch(sidebar),
+                BorderThickness = new Thickness(1), Margin = new Thickness(2, 0, 0, 0) };
+            Grid.SetColumn(inspector, 1);
+            scene.Children.Add(inspector);
+        }
+        else if (id == UiTheme.Glass)
+        {
+            scene.Children.Add(new Border { Background = Swatch(accent), Width = 32, Height = 32,
+                CornerRadius = new CornerRadius(16), HorizontalAlignment = System.Windows.HorizontalAlignment.Right });
+            scene.Children.Add(new Border { Background = Swatch(card), Width = 55, Height = 28,
+                CornerRadius = new CornerRadius(8), HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Center, Opacity = .72 });
+        }
+        else
+        {
+            var cards = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3, Margin = new Thickness(0, 4, 0, 2) };
+            for (var i = 0; i < 3; i++)
+                cards.Children.Add(new Border { Background = Swatch(card), BorderBrush = Swatch(sidebar),
+                    BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(3), Margin = new Thickness(2, 0, 2, 0) });
+            scene.Children.Add(cards);
+        }
+        preview.Children.Add(scene);
         preview.Children.Add(new Border { Background = Swatch(accent), Width = 4, Height = 23,
             HorizontalAlignment = System.Windows.HorizontalAlignment.Left, Margin = new Thickness(4, 0, 0, 0) });
         var content = new StackPanel();
@@ -227,7 +311,7 @@ public partial class MainWindow
             {
                 UiTheme.Classic => "熟悉的原版布局", UiTheme.Tech => "明亮清爽", UiTheme.Cinema => "灰阶光影与衬线标题",
                 UiTheme.Compact => "同屏更多内容", UiTheme.Neumorphism => "柔和立体光影",
-                UiTheme.Glass => "深墨夜景与香槟金",
+                UiTheme.Glass => "分层沉浸面板", UiTheme.Atlas => "画布与关系详情",
                 UiTheme.LineField => "纸白与蓝色线条", UiTheme.Editorial => "温暖的档案纸感", _ => "文字更清楚"
             }, FontSize = 11, Foreground = UiTheme.TextTertiaryBrush, TextTrimming = TextTrimming.CharacterEllipsis });
         content.ToolTip = hint;
@@ -390,7 +474,7 @@ public partial class MainWindow
             {
                 if (!Directory.Exists(Path.Combine(AppContext.BaseDirectory, "postgres")))
                     throw new InvalidDataException("当前安装包不含 PostgreSQL 运行时，无法转换。");
-                if (System.Windows.MessageBox.Show(this,
+                if (YinggeVideoLibrary.ThemeMessageBox.Show(this,
                     "下次启动会在载入视频前转换当前视频库，并生成独立完整备份。转换期间请勿打开另一份映格。旧资料文件会保留。继续排定？",
                     "转换为 PostgreSQL", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
                     return;
@@ -400,7 +484,7 @@ public partial class MainWindow
             }
             catch (Exception error)
             {
-                System.Windows.MessageBox.Show(this, error.Message, "无法排定数据库转换",
+                YinggeVideoLibrary.ThemeMessageBox.Show(this, error.Message, "无法排定数据库转换",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         };
@@ -620,7 +704,7 @@ public partial class MainWindow
 
     async Task ClearCandidateCacheAsync(Button button)
     {
-        if (System.Windows.MessageBox.Show(this, "删除本地候选搜索缓存？已保存的影片资料、审核记录和缩略图不会被删除。", "清理候选结果缓存",
+        if (YinggeVideoLibrary.ThemeMessageBox.Show(this, "删除本地候选搜索缓存？已保存的影片资料、审核记录和缩略图不会被删除。", "清理候选结果缓存",
                 MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
         button.IsEnabled = false;
         try

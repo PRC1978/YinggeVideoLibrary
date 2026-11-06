@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -12,7 +12,7 @@ using ListBox = System.Windows.Controls.ListBox;
 using ComboBox = System.Windows.Controls.ComboBox;
 using Image = System.Windows.Controls.Image;
 using Color = System.Windows.Media.Color;
-using MessageBox = System.Windows.MessageBox;
+using MessageBox = YinggeVideoLibrary.ThemeMessageBox;
 using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
 using TextBox = System.Windows.Controls.TextBox;
 
@@ -57,8 +57,10 @@ internal sealed partial class RoleProfilesView : Grid
     int workPage;
     int listRevision;
     bool saving;
+    bool profilesLoaded;
     const int WorksPerPage = 40;
     internal int VerifiedOptionCountForDiagnostics => verifiedOptions.Count;
+    internal int LoadedProfileCountForDiagnostics => profilesLoaded ? state.Profiles.Count : -1;
     internal int DisplayedWorkCountForDiagnostics =>
         SelectedProfile() is { } selected ? Math.Min(WorksPerPage,
             Math.Max(0, selected.Works.Count - workPage * WorksPerPage)) : 0;
@@ -326,7 +328,7 @@ internal sealed partial class RoleProfilesView : Grid
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
         right.Child = scroller;
         Children.Add(root);
-        if (preloadForDiagnostics) RefreshList();
+        if (preloadForDiagnostics) { RefreshList(); profilesLoaded = true; }
         else
         {
             root.IsEnabled = false;
@@ -341,6 +343,7 @@ internal sealed partial class RoleProfilesView : Grid
                     videosById = videoMap;
                     root.IsEnabled = true;
                     RefreshList();
+                    profilesLoaded = true;
                 }
                 catch (Exception ex)
                 {

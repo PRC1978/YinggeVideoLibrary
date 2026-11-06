@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -6,7 +6,7 @@ using Brush = System.Windows.Media.Brush;
 using Brushes = System.Windows.Media.Brushes;
 using Button = System.Windows.Controls.Button;
 using Color = System.Windows.Media.Color;
-using MessageBox = System.Windows.MessageBox;
+using MessageBox = YinggeVideoLibrary.ThemeMessageBox;
 
 namespace YinggeVideoLibrary;
 

@@ -3,7 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using Button = System.Windows.Controls.Button;
 using Binding = System.Windows.Data.Binding;
-using MessageBox = System.Windows.MessageBox;
+using MessageBox = YinggeVideoLibrary.ThemeMessageBox;
 using Orientation = System.Windows.Controls.Orientation;
 
 namespace YinggeVideoLibrary;

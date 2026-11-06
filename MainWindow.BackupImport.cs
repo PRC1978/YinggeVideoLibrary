@@ -1,4 +1,4 @@
-﻿using System.Windows;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Button = System.Windows.Controls.Button;
@@ -7,7 +7,7 @@ using TextBox = System.Windows.Controls.TextBox;
 using RadioButton = System.Windows.Controls.RadioButton;
 using Color = System.Windows.Media.Color;
 using Brushes = System.Windows.Media.Brushes;
-using MessageBox = System.Windows.MessageBox;
+using MessageBox = YinggeVideoLibrary.ThemeMessageBox;
 
 namespace YinggeVideoLibrary;
 

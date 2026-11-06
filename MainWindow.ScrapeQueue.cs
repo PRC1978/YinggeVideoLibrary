@@ -6,7 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using Button = System.Windows.Controls.Button;
 using Color = System.Windows.Media.Color;
-using MessageBox = System.Windows.MessageBox;
+using MessageBox = YinggeVideoLibrary.ThemeMessageBox;
 
 namespace YinggeVideoLibrary;
 

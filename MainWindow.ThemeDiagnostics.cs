@@ -75,7 +75,7 @@ public partial class MainWindow
             var measuredCardWidths = new List<(string Mode, double Expected, double Actual)>();
             foreach (var (mode, label, _) in UiTheme.Modes)
             {
-                UiTheme.Apply(mode);
+                UiTheme.Apply(mode, UiColorMode.Native);
                 ApplyInterfaceMode();
                 // Classic is a pixel-faithful compatibility option. New modes
                 // require even their subdued text to remain legible on every
@@ -138,6 +138,24 @@ public partial class MainWindow
                         }
                         ShowView(page);
                         if (page is not ("all" or "categories") &&
+                            (CompactRows.Visibility == Visibility.Visible ||
+                             CinemaLayout.Visibility == Visibility.Visible))
+                            throw new InvalidOperationException($"{mode}/{page} 页仍显示视频库专属布局");
+                        if (page == "roles" && embeddedRoles is not null)
+                        {
+                            UpdateLayout();
+                            await Dispatcher.InvokeAsync(() => { },
+                                System.Windows.Threading.DispatcherPriority.Loaded);
+                            for (var attempt = 0; attempt < 200 &&
+                                embeddedRoles.LoadedProfileCountForDiagnostics < 0; attempt++)
+                                await Task.Delay(50);
+                            if (embeddedRoles.LoadedProfileCountForDiagnostics < 0)
+                                throw new InvalidOperationException($"人物档案未在截图前完成加载；视图已加载={embeddedRoles.IsLoaded}、可见={embeddedRoles.IsVisible}");
+                            if (File.Exists(Path.Combine(DataDir, RoleProfileStore.FileName)) &&
+                                embeddedRoles.LoadedProfileCountForDiagnostics == 0)
+                                throw new InvalidOperationException("隔离库的人物页意外为空");
+                        }
+                        if (page is not ("all" or "categories") &&
                             (MissingFilterButton.Visibility == Visibility.Visible ||
                              UnavailableFilterButton.Visibility == Visibility.Visible))
                             throw new InvalidOperationException($"{page} 页仍显示视频缺失筛选按钮");
@@ -156,6 +174,17 @@ public partial class MainWindow
                         if (page == "all" && categoryCardPopulationCompletion is { } population)
                             cardPopulationTimedOut = await Task.WhenAny(population.Task,
                                 Task.Delay(TimeSpan.FromSeconds(3))) != population.Task;
+                        if (page == "all" && mode == UiTheme.Cinema)
+                        {
+                            ScheduleVisiblePosters();
+                            var posterSamples = pageItems.Where(item => !string.IsNullOrWhiteSpace(item.Poster))
+                                .Take(5).ToArray();
+                            for (var attempt = 0; attempt < 60 &&
+                                posterSamples.Any(item => item.PosterSource is null); attempt++)
+                                await Task.Delay(50);
+                            if (posterSamples.Length > 0 && posterSamples.Any(item => item.PosterSource is null))
+                                throw new InvalidOperationException("影院主题海报未在三秒内完成解码");
+                        }
                         LibraryScroll.ScrollToTop();
                         UpdateLayout();
                         await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
@@ -167,6 +196,15 @@ public partial class MainWindow
                         if (page == "all" && Cards.VisibleCardCount > 0)
                             measuredCardWidths.Add((mode, UiTheme.Num(UiTheme.CardWidth),
                                 ((FrameworkElement)Cards.Children[0]).ActualWidth));
+                        if (page == "all" && videos.Count > 0 && mode == UiTheme.Compact &&
+                            (CompactRows.Visibility != Visibility.Visible || CompactRows.Items.Count == 0 ||
+                             Cards.Visibility != Visibility.Collapsed))
+                            throw new InvalidOperationException("紧凑主题没有切换到独立列表行");
+                        if (page == "all" && videos.Count > 0 && mode == UiTheme.Cinema &&
+                            (CinemaLayout.Visibility != Visibility.Visible || CinemaBeltCards.Items.Count == 0 ||
+                             CinemaFilmstrip.Items.Count != CinemaBeltCards.Items.Count ||
+                             Cards.Visibility != Visibility.Collapsed))
+                            throw new InvalidOperationException("影院主题的海报带或影片索引没有显示");
                         var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
                         bitmap.Render(this);
                         var encoder = new PngBitmapEncoder();
@@ -211,6 +249,15 @@ public partial class MainWindow
                             cardPopulationTimedOut,
                             cardWidthActual = page == "all" && Cards.VisibleCardCount > 0
                                 ? ((FrameworkElement)Cards.Children[0]).ActualWidth : (double?)null,
+                            presentationSkeleton = PresentationRegistry.Find(mode)?.Skeleton.ToString(),
+                            compactRowCount = page == "all" && mode == UiTheme.Compact
+                                ? CompactRows.Items.Count : (int?)null,
+                            compactCardsHidden = page == "all" && mode == UiTheme.Compact
+                                ? Cards.Visibility == Visibility.Collapsed : (bool?)null,
+                            cinemaPosterCount = page == "all" && mode == UiTheme.Cinema
+                                ? CinemaBeltCards.Items.Count : (int?)null,
+                            cinemaFilmstripCount = page == "all" && mode == UiTheme.Cinema
+                                ? CinemaFilmstrip.Items.Count : (int?)null,
                             sphereNodeCount = page == "categories" ? sphereMapSurface?.NodeCount : null,
                             sphereEveryNodeLinked = page == "categories" ? sphereMapSurface?.EveryNodeLinked : null,
                             graphViewportTop = page == "categories" && sphereGraphViewport is not null
@@ -223,6 +270,53 @@ public partial class MainWindow
                     }
                 }
             }
+            // Color mode is orthogonal to the presentation contract. Capture
+            // each combination and verify that switching it never changes the
+            // card geometry or the presentation selected for the same theme.
+            foreach (var contract in PresentationRegistry.Core)
+            {
+                double? nativeWidth = null;
+                foreach (var colorMode in new[] { UiColorMode.Native, UiColorMode.Light,
+                    UiColorMode.Dark, UiColorMode.HighContrast })
+                {
+                    UiTheme.Apply(contract.Id, colorMode);
+                    ApplyInterfaceMode();
+                    Width = 1240;
+                    Height = 780;
+                    ShowView("all");
+                    await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                    UpdateLayout();
+                    var cardWidth = UiTheme.Num(UiTheme.CardWidth);
+                    nativeWidth ??= cardWidth;
+                    if (Math.Abs(cardWidth - nativeWidth.Value) > .01 ||
+                        PresentationRegistry.Find(UiTheme.Current) != contract)
+                        throw new InvalidOperationException($"{contract.Id} 明暗切换改变了结构或密度");
+                    var pageColor = UiTheme.Brush(UiTheme.PageBackground).Color;
+                    if (pageColor.A < 255)
+                    {
+                        var baseChannel = UiTheme.IsDarkPalette ? 0 : 255;
+                        var alpha = pageColor.A / 255d;
+                        pageColor = Color.FromRgb(
+                            (byte)Math.Round(pageColor.R * alpha + baseChannel * (1 - alpha)),
+                            (byte)Math.Round(pageColor.G * alpha + baseChannel * (1 - alpha)),
+                            (byte)Math.Round(pageColor.B * alpha + baseChannel * (1 - alpha)));
+                    }
+                    var contrast = ThemeContrast(UiTheme.Brush(UiTheme.TextPrimary).Color, pageColor);
+                    if (contrast < 4.5)
+                        throw new InvalidOperationException($"{contract.Id}/{colorMode} 正文对比度不足：{contrast:0.00}:1");
+                    var bitmap = new RenderTargetBitmap(1240, 780, 96, 96, PixelFormats.Pbgra32);
+                    bitmap.Render(this);
+                    var encoder = new PngBitmapEncoder();
+                    encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                    using var output = File.Create(Path.Combine(outputDirectory,
+                        $"mode-{contract.Id}-{colorMode}.png"));
+                    encoder.Save(output);
+                    report.Add(new { mode = contract.Id, colorMode,
+                        skeleton = contract.Skeleton.ToString(), cardWidth,
+                        primaryOnPageContrast = contrast });
+                }
+            }
+            UiTheme.Apply(UiTheme.Classic, UiColorMode.Native);
             // Exercise the live inspector and the same node-selection method
             // used by graph hits, chips and the navigator.
             UiTheme.Apply(UiTheme.Tech);
@@ -335,6 +429,37 @@ public partial class MainWindow
                 comboStyleIsNull = combo.Style is null,
                 appResourceComboStyle = TryFindResource(typeof(System.Windows.Controls.ComboBox))?.ToString(),
             };
+            var contrastAudit = new List<object>();
+            foreach (var contract in PresentationRegistry.Core)
+            foreach (var colorMode in new[] { UiColorMode.Native, UiColorMode.Light,
+                UiColorMode.Dark, UiColorMode.HighContrast })
+            {
+                UiTheme.Apply(contract.Id, colorMode);
+                var opaquePage = OpaqueOver(UiTheme.Brush(UiTheme.PageBackground).Color,
+                    UiTheme.IsDarkPalette ? Colors.Black : Colors.White);
+                var pairs = new List<(string Foreground, string Background)>();
+                foreach (var background in new[] { UiTheme.PageBackground, UiTheme.Surface, UiTheme.SurfaceAlt })
+                    foreach (var foreground in new[] { UiTheme.TextPrimary, UiTheme.TextSecondary,
+                        UiTheme.TextTertiary })
+                        pairs.Add((foreground, background));
+                pairs.Add((UiTheme.AccentForeground, UiTheme.Accent));
+                pairs.Add((UiTheme.AccentSoftForeground, UiTheme.AccentSoftBackground));
+                pairs.Add((UiTheme.SelectionForeground, UiTheme.SelectionBackground));
+                foreach (var foreground in new[] { UiTheme.Warning, UiTheme.Danger, UiTheme.Success })
+                    pairs.Add((foreground, UiTheme.Surface));
+                foreach (var (foreground, background) in pairs)
+                {
+                    var effectiveBackground = OpaqueOver(UiTheme.Brush(background).Color, opaquePage);
+                    var effectiveForeground = OpaqueOver(UiTheme.Brush(foreground).Color, effectiveBackground);
+                    var ratio = ThemeContrast(effectiveForeground, effectiveBackground);
+                    contrastAudit.Add(new { theme = contract.Id, colorMode, foreground, background,
+                        foregroundHex = effectiveForeground.ToString(),
+                        backgroundHex = effectiveBackground.ToString(), ratio,
+                        passesNormalText = ratio >= 4.5 });
+                }
+            }
+            File.WriteAllText(Path.Combine(outputDirectory, "contrast-raw.json"),
+                JsonSerializer.Serialize(contrastAudit, new JsonSerializerOptions { WriteIndented = true }));
             File.WriteAllText(Path.Combine(outputDirectory, "theme-layout.json"),
                 JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
             File.WriteAllText(Path.Combine(outputDirectory, "style-probe.json"),
@@ -363,5 +488,14 @@ public partial class MainWindow
         var a = Luminance(foreground);
         var b = Luminance(background);
         return (Math.Max(a, b) + 0.05) / (Math.Min(a, b) + 0.05);
+    }
+
+    static Color OpaqueOver(Color foreground, Color background)
+    {
+        var alpha = foreground.A / 255d;
+        return Color.FromRgb(
+            (byte)Math.Round(foreground.R * alpha + background.R * (1 - alpha)),
+            (byte)Math.Round(foreground.G * alpha + background.G * (1 - alpha)),
+            (byte)Math.Round(foreground.B * alpha + background.B * (1 - alpha)));
     }
 }

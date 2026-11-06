@@ -33,21 +33,26 @@ public static class UiTheme
     public const string Glass = "glass";
     public const string LineField = "line-field";
     public const string Editorial = "editorial";
+    public const string Atlas = PresentationRegistry.Atlas;
 
     public static readonly (string Id, string Label, string Hint)[] Modes =
     [
         (Classic, "原版界面", "恢复原有配色与导航，保留当前功能"),
-        (Tech, "科技浅色", "清爽浅色底，钴蓝品牌色"),
         (Cinema, "深色影院", "黑色电影：灰阶光影、衬线标题、猩红点缀"),
         (Compact, "紧凑高密度", "同屏更多内容，文字保持可读"),
+        (Atlas, "关系图谱", "画布与常驻详情并列，围绕分类关系浏览"),
+        (Glass, "雾面玻璃", "深墨夜景、无色玻璃与香槟金光点"),
+        (Tech, "科技浅色", "清爽浅色底，钴蓝品牌色"),
         (Contrast, "高对比护眼", "高对比文字，明显焦点框"),
         (Neumorphism, "新拟物派", "柔和灰底、圆角与双向光影"),
-        (Glass, "雾面玻璃", "深墨夜景、无色玻璃与香槟金光点"),
         (LineField, "量化线场", "纸白底、钴蓝线条、清晰的资料层级"),
         (Editorial, "纸感档案", "暖纸色、克制分隔与作品优先"),
     ];
 
     public static string Current { get; private set; } = Classic;
+    public static string CurrentColorMode { get; private set; } = UiColorMode.Native;
+    public static bool IsDarkPalette => CurrentColorMode == UiColorMode.Dark ||
+        CurrentColorMode == UiColorMode.Native && Current is Cinema or Glass;
     public static bool IsClassicMode => Current == Classic;
 
     public static string Normalize(string? id) =>
@@ -202,7 +207,7 @@ public static class UiTheme
             "#29181B", "#FFFFFF",
             "#D4AF37", "#F05A69", "#71B89C",
             "#A8A8A8", "#3E3E3E", "#C9000000"),
-            new Density(13.5, 12, 11, 29, 17, 188, 256, 8, 88, 54, 38, 48, 38, 20)),
+            new Density(13.5, 12, 11, 29, 17, 170, 208, 8, 88, 54, 38, 48, 38, 16)),
         // 紧凑高密度：小字号小卡片，同屏更多内容。
         [Compact] = (new Palette(
             "#F2F3F5", "#FFFFFF", "#FFFFFF", "#F6F7F9", "#D9DCE1", "#B4BAC4",
@@ -254,6 +259,9 @@ public static class UiTheme
 
     static UiTheme()
     {
+        // Atlas starts from the proven line-field palette. Its composition is
+        // governed independently by PresentationRegistry.
+        themes[Atlas] = themes[LineField];
         // Create every token brush once so later Apply() calls only mutate colors.
         var first = themes[Classic].Colors;
         foreach (var token in new[]
@@ -305,11 +313,13 @@ public static class UiTheme
     /// pick them up via UiThemeState PropertyChanged. The live set (C# callers)
     /// is mutated in place — C# assignments stay valid across switches. The
     /// visual tree is never rebuilt.</summary>
-    public static void Apply(string? id)
+    public static void Apply(string? id, string? colorMode = null)
     {
         var normalized = Normalize(id);
         Current = normalized;
+        CurrentColorMode = UiColorMode.Normalize(colorMode ?? CurrentColorMode);
         var (colors, density) = themes[normalized];
+        colors = ResolveColors(normalized, CurrentColorMode, colors);
         foreach (var token in brushes.Keys.ToArray())
         {
             var color = Pick(colors, token);
@@ -319,6 +329,34 @@ public static class UiTheme
         }
         ApplyDensity(density);
         UiThemeState.NotifyAll();
+    }
+
+    static Palette ResolveColors(string id, string mode, Palette native)
+    {
+        if (mode == UiColorMode.Native) return native;
+        if (mode == UiColorMode.HighContrast) return themes[Contrast].Colors;
+        if (mode == UiColorMode.Light)
+        {
+            var light = themes[Classic].Colors;
+            var accent = id switch
+            {
+                Cinema => "#A21D36", Glass => "#765214", Atlas => "#2152D4",
+                _ => native.Accent
+            };
+            return light with { Accent = accent, AccentHover = accent,
+                TextTertiary = "#536176", Warning = "#865000",
+                AccentSoftForeground = "#25456B", AccentAlt = accent,
+                FocusRing = accent };
+        }
+        var dark = themes[Cinema].Colors;
+        var darkAccent = id switch
+        {
+            Glass => "#E4B863", Cinema => native.Accent,
+            Atlas => "#9BB3FF", _ => "#93AAFF"
+        };
+        return dark with { Accent = darkAccent, AccentHover = darkAccent,
+            AccentForeground = "#111111", AccentSoftForeground = darkAccent,
+            AccentAlt = darkAccent, FocusRing = darkAccent };
     }
 
     static void ApplyDensity(Density density)
@@ -384,19 +422,48 @@ public sealed class UiThemeState : INotifyPropertyChanged
     // Neumorphism all three resolve to the plain surface, so no other theme
     // changes appearance and SoftHighlight stays null.
     public Brush CardRaisedSurfaceBrush => IsNeumorphism ? RaisedSurfaceBrush : SurfaceBrush;
+    public Brush PosterSurfaceBrush => IsGlass
+        ? new LinearGradientBrush(Color.FromArgb(52, 255, 255, 255),
+            Color.FromArgb(18, 255, 255, 255), 115)
+        : PosterFallbackBrush;
+    public Brush PosterFallbackForegroundBrush => IsGlass && !UiTheme.IsDarkPalette
+        ? TextPrimaryBrush : Brushes.White;
+    public Thickness GlassCardBorderThickness => IsGlass ? new Thickness(1) : new Thickness(0);
     public Brush CardPressedSurfaceBrush => IsNeumorphism ? PressedSurfaceBrush : SurfaceBrush;
     public Brush CardDisabledSurfaceBrush => IsNeumorphism ? SurfaceAltBrush : SurfaceBrush;
     public double CardGap => UiTheme.Num(UiTheme.CardGap);
     public Thickness CardMargin => new(0, 0, CardGap, CardGap + 5);
     public double ControlHeight => UiTheme.Num(UiTheme.ControlHeight);
+    // Six semantic type roles. System-installed faces have explicit fallbacks;
+    // switching the presentation updates all bound text without rebuilding it.
+    public FontFamily DisplayFontFamily => UiTheme.Current switch
+    {
+        UiTheme.Cinema => new FontFamily("SimSun, Microsoft YaHei UI"),
+        UiTheme.Atlas => new FontFamily("Segoe UI, Microsoft YaHei UI"),
+        _ => HeadingFontFamily
+    };
     public FontFamily HeadingFontFamily => UiTheme.Current switch
     {
         UiTheme.Editorial => new FontFamily("SimSun"),
         UiTheme.Cinema => new FontFamily("SimSun"),
-        UiTheme.LineField => new FontFamily("Segoe UI"),
+        UiTheme.LineField or UiTheme.Atlas => new FontFamily("Segoe UI, Microsoft YaHei UI"),
         _ => new FontFamily("Microsoft YaHei UI")
     };
-    public FontFamily MetricFontFamily => new("Segoe UI");
+    public FontFamily BodyFontFamily => UiTheme.Current switch
+    {
+        UiTheme.Cinema => new FontFamily("Microsoft YaHei UI, Segoe UI"),
+        UiTheme.Compact => new FontFamily("Segoe UI, Microsoft YaHei UI"),
+        UiTheme.Atlas => new FontFamily("Segoe UI, Microsoft YaHei UI"),
+        _ => new FontFamily("Microsoft YaHei UI, Segoe UI")
+    };
+    public FontFamily DataFontFamily => UiTheme.Current switch
+    {
+        UiTheme.Compact or UiTheme.Atlas => new FontFamily("Consolas, Segoe UI"),
+        _ => new FontFamily("Segoe UI, Microsoft YaHei UI")
+    };
+    public FontFamily MonoFontFamily => new("Consolas, Cascadia Mono");
+    public FontFamily CaptionFontFamily => BodyFontFamily;
+    public FontFamily MetricFontFamily => DataFontFamily;
     public bool IsNeumorphism => UiTheme.Current == UiTheme.Neumorphism;
     public bool IsGlass => UiTheme.Current == UiTheme.Glass;
     public bool IsCinema => UiTheme.Current == UiTheme.Cinema;
@@ -455,11 +522,12 @@ public sealed class UiThemeState : INotifyPropertyChanged
         : IsGlass
             ? new SolidColorBrush(Color.FromArgb(67, 255, 255, 255))
             : SelectionBackgroundBrush;
-    public Brush PageBackdropBrush => IsGlass ? new LinearGradientBrush(
+    public Brush PageBackdropBrush => IsGlass && UiTheme.IsDarkPalette ? new LinearGradientBrush(
         Color.FromRgb(6, 10, 19), Color.FromRgb(11, 19, 34), 26) : PageBackgroundBrush;
     public Brush MainContentBackdropBrush => IsGlass
-        ? GlassSceneBrush
-        : IsCinema ? new LinearGradientBrush(Color.FromRgb(10, 10, 10), Color.FromRgb(22, 22, 22), 155)
+        ? UiTheme.IsDarkPalette ? GlassSceneBrush : new LinearGradientBrush(
+            UiTheme.PageBackgroundBrush.Color, UiTheme.SurfaceAltBrush.Color, 35)
+        : IsCinema && UiTheme.IsDarkPalette ? new LinearGradientBrush(Color.FromRgb(10, 10, 10), Color.FromRgb(22, 22, 22), 155)
         : new LinearGradientBrush(UiTheme.PageBackgroundBrush.Color,
             UiTheme.SurfaceAltBrush.Color, 45);
     // The glass surface needs a scene to refract. These soft light wells sit

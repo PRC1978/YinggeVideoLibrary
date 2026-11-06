@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
@@ -80,7 +80,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            System.Windows.MessageBox.Show(this, ex.Message, "项目许可",
+            YinggeVideoLibrary.ThemeMessageBox.Show(this, ex.Message, "项目许可",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }

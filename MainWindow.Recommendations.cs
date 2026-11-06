@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
@@ -10,7 +10,7 @@ using Button = System.Windows.Controls.Button;
 using Image = System.Windows.Controls.Image;
 using Binding = System.Windows.Data.Binding;
 using Orientation = System.Windows.Controls.Orientation;
-using MessageBox = System.Windows.MessageBox;
+using MessageBox = YinggeVideoLibrary.ThemeMessageBox;
 using Brushes = System.Windows.Media.Brushes;
 using ColorConverter = System.Windows.Media.ColorConverter;
 

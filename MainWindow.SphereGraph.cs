@@ -176,7 +176,7 @@ public partial class MainWindow
             IReadOnlyDictionary<string, int>? rootTagCategories = null, bool forceMode = false)
         {
             this.forceMode = forceMode;
-            var dark = UiTheme.Current == UiTheme.Cinema;
+            var dark = UiTheme.IsDarkPalette;
             Backdrop = FrozenBrush(dark ? Color.FromRgb(15, 21, 33) : Color.FromRgb(247, 250, 255));
             NodeBrush = FrozenBrush(dark ? Color.FromRgb(108, 157, 239) : Color.FromRgb(78, 124, 222));
             NodeLightBrush = FrozenBrush(dark ? Color.FromRgb(65, 86, 119) : Color.FromRgb(151, 181, 242));

@@ -1,4 +1,4 @@
-﻿using System.Configuration;
+using System.Configuration;
 using System.Data;
 using System.Windows;
 
@@ -187,6 +187,11 @@ public partial class App : System.Windows.Application
         if (e.Args.Length > 1 && e.Args[0] == "--ui-fixture")
         {
             Shutdown(UiFixtureGenerator.Run(e.Args));
+            return;
+        }
+        if (e.Args.Length > 1 && e.Args[0] == "--diagnose-ui-dialog")
+        {
+            Shutdown(ThemeMessageBoxDiagnostics.Run(e.Args[1]));
             return;
         }
         if (e.Args.Length > 1 && e.Args[0] == "--diagnose-ui-search")
@@ -392,7 +397,7 @@ public partial class App : System.Windows.Application
             }
             catch (Exception error)
             {
-                System.Windows.MessageBox.Show("旧版缓存迁移未完成，尚未创建空数据库。\n" + error.Message,
+                YinggeVideoLibrary.ThemeMessageBox.Show("旧版缓存迁移未完成，尚未创建空数据库。\n" + error.Message,
                     "映格视频库 · 旧库迁移", MessageBoxButton.OK, MessageBoxImage.Warning);
                 Shutdown(1);
                 return;
@@ -409,7 +414,7 @@ public partial class App : System.Windows.Application
             }
             catch (Exception error)
             {
-                System.Windows.MessageBox.Show("新视频库的 PostgreSQL 初始化未完成。为避免写入两种存储，本次不载入视频库。\n" +
+                YinggeVideoLibrary.ThemeMessageBox.Show("新视频库的 PostgreSQL 初始化未完成。为避免写入两种存储，本次不载入视频库。\n" +
                     error.Message, "映格视频库 · 数据库初始化", MessageBoxButton.OK, MessageBoxImage.Warning);
                 Shutdown(1);
                 return;
@@ -440,12 +445,12 @@ public partial class App : System.Windows.Application
                         Shutdown(1);
                         return;
                     }
-                    System.Windows.MessageBox.Show("数据库转换未开始，已取消待办并继续载入原文件库。\n" + error.Message,
+                    YinggeVideoLibrary.ThemeMessageBox.Show("数据库转换未开始，已取消待办并继续载入原文件库。\n" + error.Message,
                         "映格视频库 · 数据库转换", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
                 else
                 {
-                    System.Windows.MessageBox.Show("数据库转换已停止；旧资料文件未删除。为防止资料分叉，本次不载入视频库。\n" + error.Message,
+                    YinggeVideoLibrary.ThemeMessageBox.Show("数据库转换已停止；旧资料文件未删除。为防止资料分叉，本次不载入视频库。\n" + error.Message,
                         "映格视频库 · 数据库转换", MessageBoxButton.OK, MessageBoxImage.Warning);
                     Shutdown(1);
                     return;
@@ -499,7 +504,7 @@ public partial class App : System.Windows.Application
                     e.Args.Contains("--auto-start", StringComparer.OrdinalIgnoreCase));
                 if (backupWarning.Length > 0)
                     databaseWindow.Loaded += (_, _) => databaseWindow.Dispatcher.BeginInvoke(new Action(() =>
-                        System.Windows.MessageBox.Show(databaseWindow, backupWarning,
+                        YinggeVideoLibrary.ThemeMessageBox.Show(databaseWindow, backupWarning,
                             "映格视频库 · 数据库备份", MessageBoxButton.OK, MessageBoxImage.Warning)));
                 databaseWindow.Show();
                 return;
@@ -513,7 +518,7 @@ public partial class App : System.Windows.Application
                 }
                 librarySessionLease?.Dispose();
                 librarySessionLease = null;
-                System.Windows.MessageBox.Show("PostgreSQL 视频库未能安全载入；旧文件库未被打开。\n" + error.Message,
+                YinggeVideoLibrary.ThemeMessageBox.Show("PostgreSQL 视频库未能安全载入；旧文件库未被打开。\n" + error.Message,
                     "映格视频库 · 存储模式", MessageBoxButton.OK, MessageBoxImage.Warning);
                 Shutdown(1);
                 return;
@@ -521,42 +526,42 @@ public partial class App : System.Windows.Application
         }
         if (storageMode != PostgresStorageModeGuard.StorageMode.LegacyFiles)
         {
-            System.Windows.MessageBox.Show("无法确认视频库的存储标记或恢复状态，已停止启动以避免资料分叉。请核对数据库状态与备份后再重试。",
+            YinggeVideoLibrary.ThemeMessageBox.Show("无法确认视频库的存储标记或恢复状态，已停止启动以避免资料分叉。请核对数据库状态与备份后再重试。",
                 "映格视频库 · 存储模式", MessageBoxButton.OK, MessageBoxImage.Warning);
             Shutdown(1);
             return;
         }
         if (!LibraryRelocationService.ApplyPendingAtStartup(dataDir, out var restoreError))
         {
-            System.Windows.MessageBox.Show("恢复已停止，视频库尚未加载。\n" + restoreError,
+            YinggeVideoLibrary.ThemeMessageBox.Show("恢复已停止，视频库尚未加载。\n" + restoreError,
                 "映格视频库 · 备份恢复", MessageBoxButton.OK, MessageBoxImage.Warning);
             Shutdown(1);
             return;
         }
         if (!ReviewTransactionStore.RecoverPendingAtStartup(dataDir, out var reviewRecoveryError))
         {
-            System.Windows.MessageBox.Show("审核操作恢复已停止，视频库尚未加载。\n" + reviewRecoveryError,
+            YinggeVideoLibrary.ThemeMessageBox.Show("审核操作恢复已停止，视频库尚未加载。\n" + reviewRecoveryError,
                 "映格视频库 · 审核恢复", MessageBoxButton.OK, MessageBoxImage.Warning);
             Shutdown(1);
             return;
         }
         if (!DuplicateMetadataTransactionStore.RecoverPendingAtStartup(dataDir, out var duplicateRecoveryError))
         {
-            System.Windows.MessageBox.Show("重复视频资料合并恢复已停止，视频库尚未加载。\n" + duplicateRecoveryError,
+            YinggeVideoLibrary.ThemeMessageBox.Show("重复视频资料合并恢复已停止，视频库尚未加载。\n" + duplicateRecoveryError,
                 "映格视频库 · 资料恢复", MessageBoxButton.OK, MessageBoxImage.Warning);
             Shutdown(1);
             return;
         }
         if (!LibraryBackupService.ApplyPendingImportAtStartup(dataDir, out var importError))
         {
-            System.Windows.MessageBox.Show("选择性导入已停止，视频库尚未加载。\n" + importError,
+            YinggeVideoLibrary.ThemeMessageBox.Show("选择性导入已停止，视频库尚未加载。\n" + importError,
                 "映格视频库 · 数据导入", MessageBoxButton.OK, MessageBoxImage.Warning);
             Shutdown(1);
             return;
         }
         if (!LibraryBackupService.ApplyPendingOfflineBackupAtStartup(dataDir, out var backupError))
         {
-            System.Windows.MessageBox.Show(backupError, "映格视频库 · 一致性备份",
+            YinggeVideoLibrary.ThemeMessageBox.Show(backupError, "映格视频库 · 一致性备份",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             Shutdown(1);
             return;
@@ -585,7 +590,7 @@ public partial class App : System.Windows.Application
             }
             catch (Exception error)
             {
-                System.Windows.MessageBox.Show("自动转换为 PostgreSQL 未完成。旧资料文件未删除；为避免两种存储分叉，本次不载入视频库。\n" +
+                YinggeVideoLibrary.ThemeMessageBox.Show("自动转换为 PostgreSQL 未完成。旧资料文件未删除；为避免两种存储分叉，本次不载入视频库。\n" +
                     error.Message, "映格视频库 · 数据库转换", MessageBoxButton.OK, MessageBoxImage.Warning);
                 Shutdown(1);
                 return;
@@ -594,7 +599,7 @@ public partial class App : System.Windows.Application
         try { librarySessionLease = LibraryBackupService.AcquireSessionLease(dataDir); }
         catch (Exception ex)
         {
-            System.Windows.MessageBox.Show("无法锁定共享视频库数据，请稍后重试。\n" + ex.Message,
+            YinggeVideoLibrary.ThemeMessageBox.Show("无法锁定共享视频库数据，请稍后重试。\n" + ex.Message,
                 "映格视频库 · 数据保护", MessageBoxButton.OK, MessageBoxImage.Warning);
             Shutdown(1);
             return;
@@ -603,7 +608,7 @@ public partial class App : System.Windows.Application
         {
             librarySessionLease?.Dispose();
             librarySessionLease = null;
-            System.Windows.MessageBox.Show("视频库存储模式已切换，当前文件版已停止启动。",
+            YinggeVideoLibrary.ThemeMessageBox.Show("视频库存储模式已切换，当前文件版已停止启动。",
                 "映格视频库 · 存储模式", MessageBoxButton.OK, MessageBoxImage.Warning);
             Shutdown(1);
             return;
@@ -614,7 +619,7 @@ public partial class App : System.Windows.Application
         window.ApplyStartupWindowPreferences(e.Args.Contains("--auto-start", StringComparer.OrdinalIgnoreCase));
         if (!string.IsNullOrWhiteSpace(backupError))
             window.Loaded += (_, _) => window.Dispatcher.BeginInvoke(new Action(() =>
-                System.Windows.MessageBox.Show(window,
+                YinggeVideoLibrary.ThemeMessageBox.Show(window,
                     backupError + "\n备份安排已保留，下次启动会重试；也可以在设置中取消。",
                     "映格视频库 · 一致性备份", MessageBoxButton.OK, MessageBoxImage.Warning)));
         window.Show();

@@ -81,10 +81,16 @@ public partial class MainWindow
         // Short windows need to show the first review or video row without
         // spending most of the viewport on empty page chrome.
         var shortWindow = !UiTheme.IsClassicMode && ActualHeight > 0 && ActualHeight < 650;
+        var dense = UiTheme.Current == UiTheme.Compact;
+        BrandEyebrow.Visibility = dense ? Visibility.Collapsed : Visibility.Visible;
+        PageSubtitle.Visibility = dense ? Visibility.Collapsed : Visibility.Visible;
+        HeaderContent.Margin = dense ? new Thickness(0) : new Thickness(0, 8, 0, 0);
 
         var onlineLeft = SidebarColumn.Width.Value <= 28 ? 48 : 28;
         HeaderArea.Margin = view == "online" ? new Thickness(onlineLeft, 18, 28, 12)
             : UiTheme.IsClassicMode ? new Thickness(48, 42, 48, 25)
+            : UiTheme.Current == UiTheme.Cinema ? new Thickness(48, 10, 48, 8)
+            : dense ? new Thickness(48, 10, 48, 8)
             : shortWindow ? new Thickness(48, 12, 48, 8)
             : new Thickness(48, 26, 48, 16);
         ReviewPanel.Padding = shortWindow ? new Thickness(18) : new Thickness(24);
@@ -131,6 +137,7 @@ public partial class MainWindow
         if (classic && view is "review") view = "scrape";
         else if (classic && view is "roles") view = "all";
         else if (!classic && view is "status") view = "all";
+        else if (UiTheme.Current == UiTheme.Atlas && view == "all") view = "categories";
         ShowView(view);
     }
 
@@ -161,6 +168,8 @@ public partial class MainWindow
     void UpdateLibrarySegments()
     {
         if (librarySegments is null) return;
+        librarySegments.Margin = UiTheme.Current == UiTheme.Cinema
+            ? new Thickness(0, 0, 0, 4) : new Thickness(0, 0, 0, 12);
         librarySegments.Visibility = !UiTheme.IsClassicMode && view is "all" or "recent" or "favorites"
             ? Visibility.Visible : Visibility.Collapsed;
         foreach (var child in librarySegments.Children.OfType<System.Windows.Controls.Button>())

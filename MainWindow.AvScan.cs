@@ -5,7 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Microsoft.Win32;
-using MessageBox = System.Windows.MessageBox;
+using MessageBox = YinggeVideoLibrary.ThemeMessageBox;
 using Image = System.Windows.Controls.Image;
 using TextBox = System.Windows.Controls.TextBox;
 using Button = System.Windows.Controls.Button;

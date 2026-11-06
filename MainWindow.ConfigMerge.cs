@@ -98,6 +98,7 @@ public partial class MainWindow
         ,CardPageSize = source.CardPageSize
         ,PosterCacheLimitMb = source.PosterCacheLimitMb
         ,UiTheme = source.UiTheme
+        ,UiColorMode = source.UiColorMode
         ,UiMotion = source.UiMotion
     };
 
@@ -203,6 +204,8 @@ public partial class MainWindow
             PosterCacheLimitMb = VideoItem.NormalizePosterCacheLimitMiB(
                 MergeScalar(baseline.PosterCacheLimitMb, current.PosterCacheLimitMb, latest.PosterCacheLimitMb)),
             UiTheme = UiTheme.Normalize(MergeScalar(baseline.UiTheme, current.UiTheme, latest.UiTheme)),
+            UiColorMode = global::YinggeVideoLibrary.UiColorMode.Normalize(
+                MergeScalar(baseline.UiColorMode, current.UiColorMode, latest.UiColorMode)),
             UiMotion = global::YinggeVideoLibrary.UiMotion.Normalize(MergeScalar(baseline.UiMotion, current.UiMotion, latest.UiMotion)),
             Player = MergeScalar(baseline.Player, current.Player, latest.Player) ?? "",
             AutoCategorize = MergeScalar(baseline.AutoCategorize, current.AutoCategorize, latest.AutoCategorize),

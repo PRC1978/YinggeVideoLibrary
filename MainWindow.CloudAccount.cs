@@ -9,7 +9,7 @@ using System.Windows.Controls;
 using Yingge.Cloud.Client;
 using Yingge.Cloud.Protocol;
 using Button = System.Windows.Controls.Button;
-using MessageBox = System.Windows.MessageBox;
+using MessageBox = YinggeVideoLibrary.ThemeMessageBox;
 using TextBox = System.Windows.Controls.TextBox;
 
 namespace YinggeVideoLibrary;

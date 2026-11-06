@@ -80,7 +80,8 @@ internal static class UiFixtureGenerator
             return 2;
         }
 
-        var result = Seed(dataDir, videoCount, categoryCount, posterCount);
+        var result = Seed(dataDir, videoCount, categoryCount, posterCount,
+            args.Length > 5 && args[5] == "--playable");
         Console.Out.WriteLine($"隔离数据目录：{result.DataDirectory}");
         Console.Out.WriteLine($"视频条目：{result.VideoCount}");
         Console.Out.WriteLine($"分类叶子：{result.CategoryLeafCount}，分类节点（含祖先）：{result.CategoryNodeCount}");
@@ -96,7 +97,8 @@ internal static class UiFixtureGenerator
     /// Deterministic, idempotent (overwrite) fixture write. Same arguments always
     /// produce byte-identical content so repeated measurements are comparable.
     /// </summary>
-    internal static UiFixtureResult Seed(string dataDir, int videoCount, int categoryCount, int posterCount = 0)
+    internal static UiFixtureResult Seed(string dataDir, int videoCount, int categoryCount,
+        int posterCount = 0, bool playable = false)
     {
         var clock = Stopwatch.StartNew();
         Directory.CreateDirectory(dataDir);
@@ -134,14 +136,23 @@ internal static class UiFixtureGenerator
             var collection = (position / RootCount) % CollectionsPerRoot;
             var folder = System.IO.Path.Combine(root, $"作品集-{collection:000}");
             var title = BuildTitle(position);
-            var path = System.IO.Path.Combine(folder, title + ".mp4");
+            var playableEntry = playable && (position < Math.Min(videoCount, 30) ||
+                position >= Math.Max(0, videoCount - 30));
+            var path = System.IO.Path.Combine(folder, title + (playableEntry ? ".avi" : ".mp4"));
+            if (playableEntry)
+            {
+                FixtureVideoWriter.WriteAvi(path);
+                File.SetLastWriteTime(path, baseTime);
+            }
             var id = MainWindow.FixtureIdFor(path);
             index.Entries.Add(new IndexEntry
             {
                 Path = path,
                 // Deterministic pseudo size so "按大小排序" has real work to do.
-                Size = 700_000_000L + position % 977 * 1_048_576L + position % 1024 * 4096L,
-                ModifiedTicks = baseTime.AddMinutes(position).Ticks
+                Size = playableEntry ? new FileInfo(path).Length
+                    : 700_000_000L + position % 977 * 1_048_576L + position % 1024 * 4096L,
+                ModifiedTicks = playableEntry ? File.GetLastWriteTime(path).Ticks
+                    : baseTime.AddMinutes(position).Ticks
             });
             config.Categories[id] = leaves[position % leaves.Count];
             config.Tags[id] = [TagPool[position % TagPool.Length], TagPool[(position / TagPool.Length) % TagPool.Length]];
@@ -155,7 +166,8 @@ internal static class UiFixtureGenerator
                 Source = "fixture",
                 // Fixed timestamp keeps the file byte-identical across runs.
                 ScrapedAt = baseTime,
-                Poster = position < posterCount ? WriteFixturePoster(posterDir, position) : null
+                Poster = position < posterCount || playable && position >= videoCount - posterCount
+                    ? WriteFixturePoster(posterDir, position) : null
             };
         }
 
@@ -180,6 +192,28 @@ internal static class UiFixtureGenerator
         var configBytes = WriteJson(System.IO.Path.Combine(dataDir, "config.json"), config, jsonOptions);
         var indexBytes = WriteJson(System.IO.Path.Combine(dataDir, "library-index.json"), index, jsonOptions);
         var metadataBytes = WriteJson(System.IO.Path.Combine(dataDir, "metadata.json"), metadata, metadataJsonOptions);
+        var fixtureRoles = new RoleProfileStore.State
+        {
+            Revision = "fixture-1",
+            Profiles =
+            [
+                new() { Id = "f1a00000000000000000000000000001", Name = "林远舟", Role = "导演",
+                    PersonKind = RolePersonKind.Director,
+                    Biography = "隔离测试人物；用于验收人物页的真实数据布局。",
+                    UpdatedUtc = new DateTimeOffset(baseTime) },
+                new() { Id = "f1a00000000000000000000000000002", Name = "周景行", Role = "主演",
+                    PersonKind = RolePersonKind.MaleActor,
+                    Biography = "隔离测试人物；不对应真实演职人员。",
+                    UpdatedUtc = new DateTimeOffset(baseTime) },
+                new() { Id = "f1a00000000000000000000000000003", Name = "叶知夏", Role = "主演",
+                    PersonKind = RolePersonKind.FemaleActor,
+                    Biography = "隔离测试人物；不对应真实演职人员。",
+                    UpdatedUtc = new DateTimeOffset(baseTime) }
+            ]
+        };
+        var roleFixturePath = System.IO.Path.Combine(dataDir, RoleProfileStore.FileName);
+        WriteJson(roleFixturePath, fixtureRoles, jsonOptions);
+        RoleProfileStore.VerifyFile(roleFixturePath);
 
         clock.Stop();
         return new UiFixtureResult

@@ -295,7 +295,7 @@ public partial class MainWindow
         catch (Exception error)
         {
             Log($"{label}失败，当前更改可撤销：{error.Message}");
-            System.Windows.MessageBox.Show(this, $"{label}未能完成或保存。当前修改仍显示在视频库中，可点击“撤销批量操作”。\n{error.Message}", "映格视频库");
+            YinggeVideoLibrary.ThemeMessageBox.Show(this, $"{label}未能完成或保存。当前修改仍显示在视频库中，可点击“撤销批量操作”。\n{error.Message}", "映格视频库");
         }
         finally
         {
@@ -337,7 +337,7 @@ public partial class MainWindow
         catch (Exception error)
         {
             Log($"撤销保存失败：{error.Message}");
-            System.Windows.MessageBox.Show(this, $"撤销结果未能保存。请重试。\n{error.Message}", "映格视频库");
+            YinggeVideoLibrary.ThemeMessageBox.Show(this, $"撤销结果未能保存。请重试。\n{error.Message}", "映格视频库");
         }
         finally
         {

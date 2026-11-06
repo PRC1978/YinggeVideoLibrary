@@ -1,4 +1,4 @@
-﻿using System.Windows;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -84,7 +84,7 @@ public partial class MainWindow
         var path = BuildChildCategoryPath(parent, input.Text);
         if (path is null)
         {
-            System.Windows.MessageBox.Show(owner, "子分类名称须在 40 个字符以内，不能包含斜杠、控制字符或保留名称。", "名称无效",
+            YinggeVideoLibrary.ThemeMessageBox.Show(owner, "子分类名称须在 40 个字符以内，不能包含斜杠、控制字符或保留名称。", "名称无效",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return null;
         }
@@ -95,7 +95,7 @@ public partial class MainWindow
     {
         if (selectedCategory is "全部" or "未分类")
         {
-            System.Windows.MessageBox.Show(this, "先在分类列表或球形图中选择父分类，再新建子分类。",
+            YinggeVideoLibrary.ThemeMessageBox.Show(this, "先在分类列表或球形图中选择父分类，再新建子分类。",
                 "请选择父分类", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }

@@ -17,7 +17,7 @@ using System.Windows.Media.Animation;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Win32;
 using Forms = System.Windows.Forms;
-using MessageBox = System.Windows.MessageBox;
+using MessageBox = YinggeVideoLibrary.ThemeMessageBox;
 using Brushes = System.Windows.Media.Brushes;
 using Color = System.Windows.Media.Color;
 using Button = System.Windows.Controls.Button;
@@ -137,6 +137,7 @@ public sealed class LibraryConfig
     // Existing users (config written before this key existed) stay on classic
     // until they explicitly pick a new mode in Settings -> Appearance.
     [JsonPropertyName("uiTheme")] public string UiTheme { get; set; } = global::YinggeVideoLibrary.UiTheme.Classic;
+    [JsonPropertyName("uiColorMode")] public string UiColorMode { get; set; } = global::YinggeVideoLibrary.UiColorMode.Native;
     [JsonPropertyName("uiMotion")] public string UiMotion { get; set; } = global::YinggeVideoLibrary.UiMotion.Balanced;
 }
 
@@ -512,7 +513,7 @@ public partial class MainWindow : Window
         }
         // Token brushes are shared and mutable, so applying the saved mode here
         // recolors everything InitializeComponent already built, in place.
-        UiTheme.Apply(config.UiTheme);
+        UiTheme.Apply(config.UiTheme, config.UiColorMode);
         VideoItem.ConfigurePosterCache(config.PosterCacheLimitMb);
         var hadLegacySecrets = MigrateSecretsToWindows();
         configBaseline = CloneLibraryConfig(config);
@@ -712,6 +713,7 @@ public partial class MainWindow : Window
                 .ToDictionary(pair => pair.Key, pair => ScrapeSourcePolicy.Normalize(pair.Value,
                     loaded.ScrapeRequestIntervalSeconds), StringComparer.OrdinalIgnoreCase);
             loaded.CardPageSize = loaded.CardPageSize is 30 or 60 or 90 ? loaded.CardPageSize : 60;
+            loaded.UiColorMode = global::YinggeVideoLibrary.UiColorMode.Normalize(loaded.UiColorMode);
             loaded.UiMotion = global::YinggeVideoLibrary.UiMotion.Normalize(loaded.UiMotion);
             loaded.PosterCacheLimitMb = VideoItem.NormalizePosterCacheLimitMiB(loaded.PosterCacheLimitMb);
             loaded.Folders = loaded.Folders.Where(folder => !string.IsNullOrWhiteSpace(folder)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -1716,6 +1718,11 @@ public partial class MainWindow : Window
         OnlinePanel.Visibility = target == "online" ? Visibility.Visible : Visibility.Collapsed;
         if (target == "online") _ = InitializeOnlineAsync();
         Cards.Visibility = target is "folders" or "status" or "scrape" or "settings" or "online" or "recommendations" or "plugins" or "review" or "roles" ? Visibility.Collapsed : Visibility.Visible;
+        if (target is not ("all" or "recent" or "favorites" or "categories"))
+        {
+            CompactRows.Visibility = Visibility.Collapsed;
+            CinemaLayout.Visibility = Visibility.Collapsed;
+        }
         EmptyPanel.Visibility = Visibility.Collapsed;
         Pager.Visibility = Visibility.Collapsed;
         CategoryPanel.Visibility = target == "categories" ? Visibility.Visible : Visibility.Collapsed;
@@ -1847,7 +1854,17 @@ public partial class MainWindow : Window
         UpdateAvailabilityChips();
         UpdateSearchSummary(query, list.Count);
         var resultSummary = query.Length == 0 ? $"{list.Count} 部视频" : $"{list.Count} 部视频 · 模糊匹配";
-        var full = config.ShowAll;
+        var compactRows = UiTheme.Current == UiTheme.Compact && view is "all" or "recent" or "favorites" or "categories";
+        var cinemaBelt = UiTheme.Current == UiTheme.Cinema && view is "all" or "recent" or "favorites" or "categories";
+        Cards.Visibility = compactRows || cinemaBelt ? Visibility.Collapsed : Visibility.Visible;
+        CompactRows.Visibility = compactRows ? Visibility.Visible : Visibility.Collapsed;
+        CinemaLayout.Visibility = cinemaBelt ? Visibility.Visible : Visibility.Collapsed;
+        if (!compactRows) CompactRows.ItemsSource = null;
+        if (!cinemaBelt) { CinemaBeltCards.ItemsSource = null; CinemaFilmstrip.ItemsSource = null; }
+        // The dense workbench has a purpose-built 25 px row presentation.
+        // Keep its 60/90-item page bound; the normal full-list virtualization
+        // remains available in every other presentation.
+        var full = config.ShowAll && !compactRows && !cinemaBelt;
         AllListPanel.Visibility = full ? Visibility.Visible : Visibility.Collapsed;
         LibraryScroll.Visibility = full ? Visibility.Collapsed : Visibility.Visible;
         if (full)
@@ -1863,11 +1880,53 @@ public partial class MainWindow : Window
             if (view == "categories") { CategoryPanel.Visibility = Visibility.Visible; RenderCategories(); LibraryScroll.Visibility = Visibility.Visible; AllListPanel.Visibility = Visibility.Collapsed; }
             else { Dispatcher.BeginInvoke(() => ScheduleVirtualPosters(0, 5)); UpdateSelectionToolbar(); return; }
         }
-        var pageSize = config.CardPageSize is 30 or 60 or 90 ? config.CardPageSize : 60;
+        var pageSize = cinemaBelt ? 12 : config.CardPageSize is 30 or 60 or 90 ? config.CardPageSize : 60;
         var pages = Math.Max(1, (list.Count + pageSize - 1) / pageSize);
         pageIndex = Math.Clamp(pageIndex, 0, pages - 1);
         var visible = list.Skip(pageIndex * pageSize).Take(pageSize).ToList();
         pageItems = visible;
+        if (cinemaBelt)
+        {
+            categoryCardTargets = null;
+            categoryCardItems = null;
+            Cards.ItemsSource = null;
+            CinemaBeltCards.ItemsSource = visible;
+            CinemaFilmstrip.ItemsSource = visible;
+            CinemaBeltScroll.ScrollToHorizontalOffset(0);
+            Dispatcher.BeginInvoke(() => SelectCinemaPoster(0),
+                System.Windows.Threading.DispatcherPriority.Loaded);
+            CountText.Text = resultSummary;
+            Pager.Visibility = pages > 1 ? Visibility.Visible : Visibility.Collapsed;
+            PageIndicator.Text = $"第 {pageIndex + 1} / {pages} 页";
+            PageJumpBox.Text = (pageIndex + 1).ToString();
+            PageJumpBox.ToolTip = $"输入 1 到 {pages} 的页码，按 Enter 跳转";
+            PreviousPage.IsEnabled = pageIndex > 0;
+            NextPage.IsEnabled = pageIndex + 1 < pages;
+            EmptyPanel.Visibility = list.Count == 0 && view != "categories" ? Visibility.Visible : Visibility.Collapsed;
+            if (view == "categories") RenderCategories();
+            currentPosterStart = -1;
+            ScheduleVisiblePosters();
+            UpdateSelectionToolbar();
+            return;
+        }
+        if (compactRows)
+        {
+            categoryCardTargets = null;
+            categoryCardItems = null;
+            Cards.ItemsSource = null;
+            CompactRows.ItemsSource = visible;
+            CountText.Text = resultSummary;
+            Pager.Visibility = pages > 1 ? Visibility.Visible : Visibility.Collapsed;
+            PageIndicator.Text = $"第 {pageIndex + 1} / {pages} 页";
+            PageJumpBox.Text = (pageIndex + 1).ToString();
+            PageJumpBox.ToolTip = $"输入 1 到 {pages} 的页码，按 Enter 跳转";
+            PreviousPage.IsEnabled = pageIndex > 0;
+            NextPage.IsEnabled = pageIndex + 1 < pages;
+            EmptyPanel.Visibility = list.Count == 0 && view != "categories" ? Visibility.Visible : Visibility.Collapsed;
+            if (view == "categories") RenderCategories();
+            UpdateSelectionToolbar();
+            return;
+        }
         // Realize the whole page over successive dispatcher turns. A single
         // 60-card binding/layout pass can block input for hundreds of ms.
         categoryCardTargets = visible;

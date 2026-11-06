@@ -11,6 +11,9 @@
 #ifndef PackageDefaultDir
   #define PackageDefaultDir "{localappdata}\Programs\YinggeVideoLibrary"
 #endif
+#ifndef PackageGroupName
+  #define PackageGroupName "映格视频库"
+#endif
 
 [Setup]
 AppId={#PackageAppId}
@@ -22,7 +25,7 @@ AppSupportURL=https://github.com/PRC1978/YinggeVideoLibrary/issues
 AppUpdatesURL=https://github.com/PRC1978/YinggeVideoLibrary/releases
 LicenseFile=LICENSE
 DefaultDirName={#PackageDefaultDir}
-DefaultGroupName=映格视频库
+DefaultGroupName={#PackageGroupName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
@@ -65,8 +68,8 @@ Source: "third-party\Microsoft.NETCore.App.Runtime.win-x64\9.0.17\THIRD-PARTY-NO
 Source: "third-party\Microsoft.WindowsDesktop.App.Runtime.win-x64\9.0.17\LICENSE"; DestDir: "{app}\third-party\Microsoft.WindowsDesktop.App.Runtime.win-x64\9.0.17"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\映格视频库"; Filename: "{app}\映格视频库.exe"; IconFilename: "{app}\yingge-icon-v3.ico"
-Name: "{autodesktop}\映格视频库"; Filename: "{app}\映格视频库.exe"; IconFilename: "{app}\yingge-icon-v3.ico"; Tasks: desktopicon
+Name: "{group}\{#PackageGroupName}"; Filename: "{app}\映格视频库.exe"; IconFilename: "{app}\yingge-icon-v3.ico"
+Name: "{autodesktop}\{#PackageGroupName}"; Filename: "{app}\映格视频库.exe"; IconFilename: "{app}\yingge-icon-v3.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\映格视频库.exe"; Description: "启动映格视频库"; Flags: nowait postinstall skipifsilent

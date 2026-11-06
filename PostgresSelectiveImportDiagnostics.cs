@@ -5,7 +5,8 @@ namespace YinggeVideoLibrary;
 
 internal static class PostgresSelectiveImportDiagnostics
 {
-    internal static async Task<int> RunToFileAsync(string runtimeDirectory, string outputPath)
+    internal static async Task<int> RunToFileAsync(string runtimeDirectory, string outputPath,
+        int videoCount = 1)
     {
         var root = Path.Combine(Path.GetTempPath(),
             "YinggePgSelectiveProbe-" + Guid.NewGuid().ToString("N"));
@@ -18,7 +19,8 @@ internal static class PostgresSelectiveImportDiagnostics
             Directory.CreateDirectory(root);
             var library = Path.Combine(root, "library");
             var source = library;
-            var videoId = PostgresBackupAcceptance.BuildSingleVideoFixtureForSelectiveImport(source);
+            var videoId = PostgresBackupAcceptance.BuildFixtureForSelectiveImport(source,
+                videoCount);
             // The general PostgreSQL fixture deliberately includes malformed
             // opaque candidate/job bytes to test byte preservation. A legacy
             // backup validates those optional files, so omit them here.
@@ -56,7 +58,7 @@ internal static class PostgresSelectiveImportDiagnostics
             {
                 report["tagRestored"] = reopened.Config.Tags.TryGetValue(videoId, out var tags) &&
                     tags.Contains("标签甲") && tags.Contains("标签乙");
-                report["indexPreserved"] = reopened.Index.Index.Entries.Count == 1;
+                report["indexPreserved"] = reopened.Index.Index.Entries.Count == videoCount;
                 report["pendingRemoved"] = !await PostgresSelectiveImport.HasPendingAsync(
                     reopened.ConnectionString);
                 report["rollbackRetained"] = Directory.Exists(Path.Combine(library,

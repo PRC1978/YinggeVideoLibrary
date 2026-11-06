@@ -224,6 +224,27 @@ internal static class PostgresBackupAcceptance
         roles.Profiles[0].Name = "人物甲·会话写入";
         await session.SaveRolesAsync(roles);
 
+        var candidateBefore = await session.ReadDocumentAsync("plugin-candidates.json");
+        if (candidateBefore is null) return false;
+        var candidateBytes = JsonSerializer.SerializeToUtf8Bytes(new { videos = new { },
+            runtimeProbe = "updated" });
+        var candidateRevision = await session.SaveDocumentAsync("plugin-candidates.json",
+            candidateBytes, candidateBefore.Revision);
+        var candidateAfter = await session.ReadDocumentAsync("plugin-candidates.json");
+        var staleWriteRejected = false;
+        try
+        {
+            await session.SaveDocumentAsync("plugin-candidates.json", candidateBytes,
+                candidateBefore.Revision);
+        }
+        catch (InvalidOperationException) { staleWriteRejected = true; }
+        var dedicatedWriterRequired = false;
+        try
+        {
+            await session.SaveDocumentAsync("config.json", candidateBytes, null);
+        }
+        catch (InvalidDataException) { dedicatedWriterRequired = true; }
+
         var savedConfig = await PostgresLibraryDocumentStore.ReadAsync(session.ConnectionString,
             "config.json");
         return session.Config.ShowAll != originalShowAll &&
@@ -231,7 +252,10 @@ internal static class PostgresBackupAcceptance
             session.Index.Index.Entries[0].Size == index.Entries[0].Size &&
             session.Metadata.Records[fixture.VideoId].Title == "数据库会话写入测试" &&
             added == 1 && session.Queue.Count == 3 &&
-            session.Roles.State.Profiles[0].Name == "人物甲·会话写入";
+            session.Roles.State.Profiles[0].Name == "人物甲·会话写入" &&
+            candidateAfter?.Revision == candidateRevision &&
+            candidateAfter.Content.SequenceEqual(candidateBytes) &&
+            staleWriteRejected && dedicatedWriterRequired;
     }
 
     private static Fixture BuildFixture(string source, int count)

@@ -121,6 +121,43 @@ internal sealed class PostgresLibraryRuntimeSession : IAsyncDisposable
         finally { writeGate.Release(); }
     }
 
+    // Used for the remaining allowlisted user-state documents until their
+    // individual UI writers are moved to typed database operations. A caller
+    // must carry the revision it read; the session never overwrites blindly.
+    internal Task<PostgresLibraryDocumentStore.Snapshot?> ReadDocumentAsync(string name,
+        CancellationToken cancellationToken = default) =>
+        PostgresLibraryDocumentStore.ReadAsync(ConnectionString, name, cancellationToken);
+
+    internal async Task<string> SaveDocumentAsync(string name, byte[] content,
+        string? expectedRevision, CancellationToken cancellationToken = default)
+    {
+        await writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (name == "config.json" || PostgresLibraryMigration.IsQueueDocumentName(name) ||
+                name is "role-profiles.json" or "review-history.jsonl")
+                throw new InvalidDataException("该资料必须使用专用数据库事务保存：" + name);
+            return await PostgresLibraryDocumentStore.SaveAsync(ConnectionString, name,
+                content, expectedRevision, cancellationToken);
+        }
+        finally { writeGate.Release(); }
+    }
+
+    internal async Task DeleteDocumentAsync(string name, string expectedRevision,
+        CancellationToken cancellationToken = default)
+    {
+        await writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (name == "config.json" || PostgresLibraryMigration.IsQueueDocumentName(name) ||
+                name is "role-profiles.json" or "review-history.jsonl")
+                throw new InvalidDataException("该资料必须使用专用数据库事务删除：" + name);
+            await PostgresLibraryDocumentStore.DeleteAsync(ConnectionString, name,
+                expectedRevision, cancellationToken);
+        }
+        finally { writeGate.Release(); }
+    }
+
     internal static async Task<PostgresLibraryRuntimeSession> OpenAsync(string runtimeDirectory,
         string dataDirectory, CancellationToken cancellationToken = default)
     {

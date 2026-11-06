@@ -1,4 +1,4 @@
-#define MyAppVersion "1.6.9"
+#define MyAppVersion "1.6.10"
 #ifndef PortableSource
   #define PortableSource "..\发布\映格视频库.exe"
 #endif
@@ -13,6 +13,9 @@
 #endif
 #ifndef PackageGroupName
   #define PackageGroupName "映格视频库"
+#endif
+#ifndef PostgresSource
+  #define PostgresSource "artifacts\postgres-runtime"
 #endif
 
 [Setup]
@@ -40,7 +43,7 @@ SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
-VersionInfoVersion=1.6.9.0
+VersionInfoVersion=1.6.10.0
 
 [Languages]
 Name: "zhcn"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
@@ -53,11 +56,11 @@ Source: "{#PortableSource}"; DestDir: "{app}"; Flags: ignoreversion
 #ifndef BundlePostgres
   #define BundlePostgres 1
 #endif
-#if BundlePostgres == "1"
+#if BundlePostgres
 ; The private database runtime is bundled for offline library conversion.
 ; Prepare the pinned EDB archive with scripts/prepare-postgres-runtime.ps1 first.
 ; Database files must remain in the user's data directory, never under {app}.
-Source: "artifacts\postgres-runtime\*"; DestDir: "{app}\postgres"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "{#PostgresSource}\*"; DestDir: "{app}\postgres"; Flags: recursesubdirs createallsubdirs ignoreversion
 #endif
 Source: "assets\branding\yingge-icon-v3.ico"; DestDir: "{app}"; DestName: "yingge-icon-v3.ico"; Flags: ignoreversion
 Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion

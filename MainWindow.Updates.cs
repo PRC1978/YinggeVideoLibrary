@@ -25,6 +25,7 @@ public partial class MainWindow
     const string InstallerAssetName = "YinggeVideoLibrary-Setup.exe";
     const string PortableAssetName = "YinggeVideoLibrary-win-x64.exe";
     static readonly Uri LatestReleaseApi = new($"https://api.github.com/repos/{UpdateOwner}/{UpdateRepository}/releases/latest");
+    static readonly Uri ReleaseListApi = new($"https://api.github.com/repos/{UpdateOwner}/{UpdateRepository}/releases?per_page=30");
     static readonly Uri LatestReleasePage = new($"https://github.com/{UpdateOwner}/{UpdateRepository}/releases/latest");
     static readonly HttpClient UpdateHttp = CreateUpdateHttpClient();
     System.Windows.Controls.Button? updateButton;
@@ -108,6 +109,18 @@ public partial class MainWindow
         autoCheck.Checked += (_, _) => { config.UpdateAutoCheck = true; SaveConfig(); };
         autoCheck.Unchecked += (_, _) => { config.UpdateAutoCheck = false; SaveConfig(); };
         section.Children.Add(autoCheck);
+        var updateChannel = new ComboBox { Width = 220, HorizontalAlignment = WpfHorizontalAlignment.Left,
+            Margin = new Thickness(0, 0, 0, 10) };
+        updateChannel.Items.Add("正式版（推荐）");
+        updateChannel.Items.Add("测试版与正式版");
+        updateChannel.SelectedIndex = config.UpdateChannel == "preview" ? 1 : 0;
+        updateChannel.SelectionChanged += (_, _) =>
+        {
+            config.UpdateChannel = updateChannel.SelectedIndex == 1 ? "preview" : "stable";
+            availableUpdate = null;
+            SaveConfig();
+        };
+        section.Children.Add(updateChannel);
         section.Children.Add(new TextBlock
         {
             Text = "开启后每次启动都会查询 GitHub；只有发现新版本时才弹出提示。",
@@ -136,25 +149,31 @@ public partial class MainWindow
     static string SkippedReleasePath(string dataDirectory) => Path.Combine(dataDirectory, "updates", "skipped-release.json");
 
     static bool IsSkippedRelease(string dataDirectory, Version version)
+        => IsSkippedRelease(dataDirectory, version.ToString(4));
+
+    static bool IsSkippedRelease(string dataDirectory, string tag)
     {
         try
         {
             var path = SkippedReleasePath(dataDirectory);
             if (!File.Exists(path)) return false;
             var saved = JsonSerializer.Deserialize<SkippedRelease>(File.ReadAllText(path));
-            return Version.TryParse(saved?.Version, out var skipped) && skipped == version;
+            return string.Equals(saved?.Version, tag, StringComparison.OrdinalIgnoreCase);
         }
         catch { return false; /* A damaged preference must not suppress updates. */ }
     }
 
     static void SkipRelease(string dataDirectory, Version version)
+        => SkipRelease(dataDirectory, version.ToString(4));
+
+    static void SkipRelease(string dataDirectory, string tag)
     {
         var path = SkippedReleasePath(dataDirectory);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            File.WriteAllText(temporary, JsonSerializer.Serialize(new SkippedRelease(version.ToString(4), DateTimeOffset.UtcNow)));
+            File.WriteAllText(temporary, JsonSerializer.Serialize(new SkippedRelease(tag, DateTimeOffset.UtcNow)));
             File.Move(temporary, path, true);
         }
         finally { try { if (File.Exists(temporary)) File.Delete(temporary); } catch { } }
@@ -177,7 +196,7 @@ public partial class MainWindow
     static ReleaseUpdate ParseReleaseUpdate(JsonElement root)
     {
         var tag = root.GetProperty("tag_name").GetString() ?? "";
-        if (!Version.TryParse(tag.TrimStart('v', 'V'), out var parsedVersion))
+        if (!TryParseReleaseTag(tag, out var parsedVersion, out _))
             throw new InvalidDataException("发布版本号无效");
         var releaseVersion = new Version(parsedVersion.Major, parsedVersion.Minor,
             Math.Max(0, parsedVersion.Build), Math.Max(0, parsedVersion.Revision));
@@ -201,6 +220,52 @@ public partial class MainWindow
             portable = new ReleaseUpdate(tag, releaseVersion, uri, size, digest[7..], true, notes);
         }
         return portable ?? throw new InvalidDataException("新版本缺少便携更新文件；请稍后重试或手动下载安装包");
+    }
+
+    static bool TryParseReleaseTag(string tag, out Version version, out int prereleaseOrder)
+    {
+        prereleaseOrder = int.MaxValue;
+        var raw = tag.TrimStart('v', 'V');
+        var dash = raw.IndexOf('-');
+        if (dash >= 0)
+        {
+            var suffix = raw[(dash + 1)..];
+            var parts = suffix.Split('.', 2);
+            if (parts.Length != 2 || (parts[0] != "beta" && parts[0] != "rc")
+                || !int.TryParse(parts[1], out var number) || number < 1) { version = new Version(0, 0); return false; }
+            prereleaseOrder = (parts[0] == "rc" ? 100000 : 0) + number;
+            raw = raw[..dash];
+        }
+        return Version.TryParse(raw, out version!);
+    }
+
+    static bool IsNewerRelease(string tag, Version current)
+    {
+        if (!TryParseReleaseTag(tag, out var version, out var order)) return false;
+        var baseVersion = new Version(version.Major, version.Minor, Math.Max(0, version.Build), Math.Max(0, version.Revision));
+        if (baseVersion != current) return baseVersion > current;
+        var info = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "";
+        if (!TryParseReleaseTag(info.Split('+')[0], out _, out var currentOrder)) currentOrder = int.MaxValue;
+        return order > currentOrder;
+    }
+
+    static JsonElement SelectUpdateRelease(JsonElement root, bool preview)
+    {
+        if (!preview) return root;
+        if (root.ValueKind != JsonValueKind.Array) throw new InvalidDataException("测试版列表格式无效");
+        JsonElement? best = null;
+        foreach (var entry in root.EnumerateArray())
+        {
+            if (entry.TryGetProperty("draft", out var draft) && draft.GetBoolean()) continue;
+            var tag = entry.TryGetProperty("tag_name", out var node) ? node.GetString() ?? "" : "";
+            if (!IsNewerRelease(tag, CurrentUpdateVersion())) continue;
+            if (best is null) { best = entry; continue; }
+            var prior = best.Value.GetProperty("tag_name").GetString() ?? "";
+            TryParseReleaseTag(tag, out var candidateVersion, out var candidateOrder);
+            TryParseReleaseTag(prior, out var priorVersion, out var priorOrder);
+            if (candidateVersion > priorVersion || (candidateVersion == priorVersion && candidateOrder > priorOrder)) best = entry;
+        }
+        return best ?? default;
     }
 
     static string ParseLatestPageTag(Uri? finalUri)
@@ -441,7 +506,7 @@ public partial class MainWindow
         {
             try
             {
-                SkipRelease(DataDir, release.Version);
+                SkipRelease(DataDir, release.Tag);
                 SetUpdateStatus($"已跳过版本 {release.Tag}。以后仍可手动检查更新。");
                 dialog.Close();
             }
@@ -471,7 +536,7 @@ public partial class MainWindow
     void PresentDeferredUpdateIfAvailable()
     {
         if (!updatePromptDeferred || updatePromptWindow is not null || availableUpdate is null
-            || IsSkippedRelease(DataDir, availableUpdate.Version)) return;
+            || IsSkippedRelease(DataDir, availableUpdate.Tag)) return;
         ShowUpdatePrompt(availableUpdate, false, false);
     }
 
@@ -487,7 +552,8 @@ public partial class MainWindow
         if (interactive && updateStatus is not null) updateStatus.Text = "正在检查 GitHub 上的新版本…";
         try
         {
-            using var response = await UpdateHttp.GetAsync(LatestReleaseApi);
+            var preview = config.UpdateChannel == "preview";
+            using var response = await UpdateHttp.GetAsync(preview ? ReleaseListApi : LatestReleaseApi);
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
                 if (interactive && updateStatus is not null) updateStatus.Text = "暂未发布新版本，稍后再试。";
@@ -497,6 +563,7 @@ public partial class MainWindow
             string tag;
             if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests)
             {
+                if (preview) throw new InvalidDataException("GitHub 暂时限制测试版查询，请稍后重试。");
                 release = await ReadLatestReleaseWithoutApiAsync();
                 tag = release.Tag;
             }
@@ -504,14 +571,21 @@ public partial class MainWindow
             {
                 response.EnsureSuccessStatusCode();
                 using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-                tag = document.RootElement.GetProperty("tag_name").GetString() ?? "";
-                release = ParseReleaseUpdate(document.RootElement);
+                var selected = SelectUpdateRelease(document.RootElement, preview);
+                if (selected.ValueKind == JsonValueKind.Undefined)
+                {
+                    availableUpdate = null;
+                    if (updateStatus is not null) updateStatus.Text = "当前已是所选渠道的最新版。";
+                    return;
+                }
+                tag = selected.GetProperty("tag_name").GetString() ?? "";
+                release = ParseReleaseUpdate(selected);
             }
-            if (!Version.TryParse(tag.TrimStart('v', 'V'), out var parsedVersion))
+            if (!TryParseReleaseTag(tag, out var parsedVersion, out _))
                 throw new InvalidDataException("发布版本号无效");
             var releaseVersion = new Version(parsedVersion.Major, parsedVersion.Minor,
                 Math.Max(0, parsedVersion.Build), Math.Max(0, parsedVersion.Revision));
-            if (releaseVersion <= CurrentUpdateVersion())
+            if (!IsNewerRelease(tag, CurrentUpdateVersion()))
             {
                 TryRecordSuccessfulUpdateCheck();
                 availableUpdate = null;
@@ -525,7 +599,7 @@ public partial class MainWindow
             // check, so it must not postpone the next automatic retry.
             availableUpdate = release;
             TryRecordSuccessfulUpdateCheck();
-            var skipped = IsSkippedRelease(DataDir, releaseVersion);
+            var skipped = IsSkippedRelease(DataDir, tag);
             if (updateStatus is not null) updateStatus.Text = skipped && !interactive
                 ? $"已跳过版本 {tag}。点击“检查更新”仍可查看并安装。"
                 : $"发现新版本 {tag}，约 {availableUpdate.Size / 1024 / 1024} MB。校验后退出旧程序、自动替换并重启。";
@@ -678,6 +752,12 @@ public partial class MainWindow
             findings["releaseNotesPlainText"] = release.Notes.Contains("<script>", StringComparison.Ordinal)
                 && !SafeReleaseNotes("a\0b").Contains('\0')
                 && SafeReleaseNotes(new string('x', 15000)).Length == 12000;
+        }
+        using (var releases = JsonDocument.Parse("[{\"tag_name\":\"v9.9.1-beta.1\",\"draft\":false},{\"tag_name\":\"v9.9.1\",\"draft\":false},{\"tag_name\":\"v9.9.2-beta.2\",\"draft\":true}]"))
+        {
+            findings["previewSelectsPublishedPreRelease"] =
+                SelectUpdateRelease(releases.RootElement, true).GetProperty("tag_name").GetString() == "v9.9.1";
+            findings["previewIgnoresDraft"] = !IsNewerRelease("v1.6.9-beta.1", new Version(1, 6, 9, 0));
         }
         findings["rateLimitFallbackAcceptsOnlyOfficialReleasePage"] =
             ParseLatestPageTag(new Uri("https://github.com/PRC1978/YinggeVideoLibrary/releases/tag/v1.6.7")) == "v1.6.7";

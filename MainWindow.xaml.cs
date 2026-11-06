@@ -121,6 +121,7 @@ public sealed class LibraryConfig
     [JsonPropertyName("scrapeSkipWatched")] public bool ScrapeSkipWatched { get; set; }
     [JsonPropertyName("scrapeMinSizeMb")] public int ScrapeMinSizeMb { get; set; }
     [JsonPropertyName("updateAutoCheck")] public bool UpdateAutoCheck { get; set; } = true;
+    [JsonPropertyName("updateChannel")] public string UpdateChannel { get; set; } = "stable";
     [JsonPropertyName("updateCheckIntervalHours")] public int UpdateCheckIntervalHours { get; set; } = 12;
     [JsonPropertyName("scrapeRequestIntervalSeconds")] public double ScrapeRequestIntervalSeconds { get; set; } = 2.5;
     [JsonPropertyName("scrapeSourcePolicies")] public Dictionary<string, ScrapeSourcePolicy> ScrapeSourcePolicies { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -706,6 +707,7 @@ public partial class MainWindow : Window
             loaded.ScrapeSkipTags ??= "";
             loaded.StartPage = NormalizeStartupPage(loaded.StartPage);
             loaded.UpdateCheckIntervalHours = Math.Clamp(loaded.UpdateCheckIntervalHours, 1, 168);
+            loaded.UpdateChannel = loaded.UpdateChannel == "preview" ? "preview" : "stable";
             loaded.ScrapeRequestIntervalSeconds = double.IsFinite(loaded.ScrapeRequestIntervalSeconds)
                 ? Math.Clamp(loaded.ScrapeRequestIntervalSeconds, 2.5, 30) : 2.5;
             loaded.ScrapeSourcePolicies = (loaded.ScrapeSourcePolicies ?? new())

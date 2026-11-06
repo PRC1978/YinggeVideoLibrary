@@ -89,6 +89,7 @@ public partial class MainWindow
         ,ScrapeSkipWatched = source.ScrapeSkipWatched
         ,ScrapeMinSizeMb = source.ScrapeMinSizeMb
         ,UpdateAutoCheck = source.UpdateAutoCheck
+        ,UpdateChannel = source.UpdateChannel
         ,UpdateCheckIntervalHours = source.UpdateCheckIntervalHours
         ,ScrapeRequestIntervalSeconds = source.ScrapeRequestIntervalSeconds
         ,ScrapeSourcePolicies = source.ScrapeSourcePolicies.ToDictionary(pair => pair.Key,
@@ -194,6 +195,7 @@ public partial class MainWindow
             ScrapeSkipWatched = MergeScalar(baseline.ScrapeSkipWatched, current.ScrapeSkipWatched, latest.ScrapeSkipWatched),
             ScrapeMinSizeMb = MergeScalar(baseline.ScrapeMinSizeMb, current.ScrapeMinSizeMb, latest.ScrapeMinSizeMb),
             UpdateAutoCheck = MergeScalar(baseline.UpdateAutoCheck, current.UpdateAutoCheck, latest.UpdateAutoCheck),
+            UpdateChannel = MergeScalar(baseline.UpdateChannel, current.UpdateChannel, latest.UpdateChannel),
             UpdateCheckIntervalHours = MergeScalar(baseline.UpdateCheckIntervalHours, current.UpdateCheckIntervalHours, latest.UpdateCheckIntervalHours),
             ScrapeRequestIntervalSeconds = MergeScalar(baseline.ScrapeRequestIntervalSeconds, current.ScrapeRequestIntervalSeconds, latest.ScrapeRequestIntervalSeconds),
             ScrapeSourcePolicies = MergeMap(baseline.ScrapeSourcePolicies, current.ScrapeSourcePolicies,

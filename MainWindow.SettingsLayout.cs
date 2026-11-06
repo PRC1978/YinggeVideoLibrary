@@ -264,7 +264,7 @@ public partial class MainWindow
             && reportBody.Children.Cast<UIElement>().Any(child =>
                 SettingSearchText(child).Contains("加密导出日志包", StringComparison.Ordinal) &&
                 !SettingSearchText(child).Contains("上传加密日志包", StringComparison.Ordinal))
-            && reportBody.Children.Cast<UIElement>().Any(child =>
+            && !reportBody.Children.Cast<UIElement>().Any(child =>
                 SettingSearchText(child).Contains("云端账号（错误日志）", StringComparison.Ordinal));
         var valid = missing.Length == 0 && unfound.Length == 0 && settingsSections.Values.All(section =>
             section.Content is StackPanel stack && stack.Children.Count > 0) && relocation && licenseReadable && credits && encryptedReports;

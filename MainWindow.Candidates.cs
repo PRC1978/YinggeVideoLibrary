@@ -23,6 +23,9 @@ public partial class MainWindow
     CheckBox? aniListEnabledBox;
     CheckBox? javDbTitleEnabledBox;
     CheckBox? javDatabaseEnabledBox;
+    CheckBox? r18EnabledBox;
+    bool r18CatalogInstalled;
+    CancellationTokenSource? r18ImportCancellation;
     CheckBox? tvMazeEnabledBox;
     CheckBox? wikidataEnabledBox;
     CheckBox? kitsuEnabledBox;
@@ -54,6 +57,10 @@ public partial class MainWindow
             Margin = new Thickness(0, 0, 0, 8)
         });
         javDatabaseEnabledBox = new CheckBox { Content = "启用 JAVDatabase 番号及标题候选", IsChecked = config.EnableJavDatabase, Margin = new Thickness(0, 0, 0, 10) };
+        r18CatalogInstalled = postgresSession is not null && R18OfflineCatalog.IsInstalled(postgresSession.ConnectionString);
+        r18EnabledBox = new CheckBox { Content = "启用 r18.dev 本机离线番号目录", IsChecked = config.EnableR18Offline,
+            Margin = new Thickness(0, 0, 0, 8), IsEnabled = r18CatalogInstalled,
+            ToolTip = "需先导入 r18.dev 官方 .sql.gz 数据包；仅匹配明确番号，结果进入人工审核。" };
         javDbTitleEnabledBox = new CheckBox { Content = "启用 JavDB 标题候选", IsChecked = config.EnableJavDbTitle, Margin = new Thickness(0, 0, 0, 10) };
         bangumiEnabledBox = new CheckBox { Content = "启用 Bangumi 动画 / 真人作品", IsChecked = config.EnableBangumi, Margin = new Thickness(0, 0, 0, 10) };
         aniListEnabledBox = new CheckBox { Content = "启用 AniList 动画（手动搜索；不用于全量队列）", IsChecked = config.EnableAniList,
@@ -73,7 +80,51 @@ public partial class MainWindow
             Margin = new Thickness(0, 0, 0, 10), ToolTip = "只读取公开 RSS 的字幕组、集数和发布时间；不会下载种子或磁链，也不会直接覆盖作品资料。" };
         animeQueueEnabledBox = new CheckBox { Content = "在后台标题队列查询已分类为动漫的视频", IsChecked = config.AnimeSourcesInQueue,
             Margin = new Thickness(0, 0, 0, 10), ToolTip = "仅向蜜柑、番库查询已明确归入动漫分类的视频；每来源至少间隔 5 秒。默认关闭。" };
-        foreach (var box in new[] { javDatabaseEnabledBox, javDbTitleEnabledBox, bangumiEnabledBox, aniListEnabledBox, tvMazeEnabledBox, wikidataEnabledBox, kitsuEnabledBox, tenraiEnabledBox, mikanEnabledBox, fankuHubEnabledBox, dmhyEnabledBox, animeQueueEnabledBox }) toggleGroup.Children.Add(box);
+        foreach (var box in new[] { javDatabaseEnabledBox, r18EnabledBox, javDbTitleEnabledBox, bangumiEnabledBox, aniListEnabledBox, tvMazeEnabledBox, wikidataEnabledBox, kitsuEnabledBox, tenraiEnabledBox, mikanEnabledBox, fankuHubEnabledBox, dmhyEnabledBox, animeQueueEnabledBox }) toggleGroup.Children.Add(box);
+        var r18Import = new Button { Content = "导入 r18.dev 离线数据包…", Style = (Style)FindResource("Action"),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 5),
+            IsEnabled = postgresSession is not null };
+        var r18Cancel = new Button { Content = "取消导入", Style = (Style)FindResource("Action"),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left, Margin = new Thickness(8, 0, 0, 5), IsEnabled = false };
+        var r18Buttons = new StackPanel { Orientation = Orientation.Horizontal };
+        r18Buttons.Children.Add(r18Import);
+        r18Buttons.Children.Add(r18Cancel);
+        var r18Status = new TextBlock { Text = postgresSession is null ? "本机目录需要 PostgreSQL 存储模式。" :
+            (r18CatalogInstalled ? "本机目录已安装。" : "尚未导入；默认不参与搜刮。"),
+            Foreground = UiTheme.TextTertiaryBrush, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 10) };
+        toggleGroup.Children.Add(r18Buttons);
+        toggleGroup.Children.Add(r18Status);
+        r18Cancel.Click += (_, _) => r18ImportCancellation?.Cancel();
+        Closed += (_, _) => r18ImportCancellation?.Cancel();
+        r18Import.Click += async (_, _) =>
+        {
+            if (postgresSession is null) return;
+            var picker = new Microsoft.Win32.OpenFileDialog { Title = "选择 r18.dev 官方离线数据包", Filter = "r18.dev 数据包 (*.sql.gz)|*.sql.gz", CheckFileExists = true };
+            if (picker.ShowDialog(this) != true) return;
+            if (MessageBox.Show(this, "将把数据包导入本机 PostgreSQL。需要约 8 GB 可用空间；导入可能耗时较长，完成前现有离线目录保持可用。继续？",
+                "导入离线目录", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            r18Import.IsEnabled = false;
+            r18Cancel.IsEnabled = true;
+            r18ImportCancellation = new CancellationTokenSource();
+            var progress = new Progress<string>(message => r18Status.Text = message);
+            try
+            {
+                var result = await Task.Run(() => R18OfflineCatalog.Import(postgresSession.ConnectionString, DataDir, picker.FileName,
+                    r18ImportCancellation.Token, progress));
+                r18CatalogInstalled = true;
+                r18EnabledBox.IsEnabled = true;
+                r18Status.Text = $"已导入 {result.VideoCount:N0} 部 · {result.Version}；可启用本机来源。";
+                MessageBox.Show(this, r18Status.Text, "离线目录导入完成");
+            }
+            catch (OperationCanceledException) { r18Status.Text = "已取消导入；现有目录保持可用。"; }
+            catch (Exception ex)
+            {
+                r18Status.Text = "导入失败；已有目录与视频资料保持不变。";
+                Log("r18.dev 离线目录导入失败：" + ex.Message);
+                MessageBox.Show(this, ex.Message, "离线目录导入失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            finally { r18ImportCancellation?.Dispose(); r18ImportCancellation = null; r18Cancel.IsEnabled = false; r18Import.IsEnabled = true; }
+        };
         var ordinaryPreset = new Button
         {
             Content = "启用普通影视与动画公开来源",
@@ -115,6 +166,7 @@ public partial class MainWindow
         {
             if (!IsLoaded || applyingSourcePreset) return;
             config.EnableJavDb = JavDbEnabledBox.IsChecked == true;
+            config.EnableR18Offline = r18EnabledBox.IsChecked == true;
             config.EnableJavDatabase = javDatabaseEnabledBox.IsChecked == true;
             config.EnableJavDbTitle = javDbTitleEnabledBox.IsChecked == true;
             config.EnableBangumi = bangumiEnabledBox.IsChecked == true;
@@ -134,7 +186,7 @@ public partial class MainWindow
             SaveConfig();
             RefreshSourceDiagnostics();
         }
-        foreach (var box in new[] { JavDbEnabledBox, PornhubEnabledBox, TmdbEnabledBox, javDatabaseEnabledBox, javDbTitleEnabledBox, bangumiEnabledBox, aniListEnabledBox, tvMazeEnabledBox, wikidataEnabledBox, kitsuEnabledBox, tenraiEnabledBox, mikanEnabledBox, fankuHubEnabledBox, dmhyEnabledBox, animeQueueEnabledBox, folderHintBox, pluginQueueCheckBox })
+        foreach (var box in new[] { JavDbEnabledBox, PornhubEnabledBox, TmdbEnabledBox, javDatabaseEnabledBox, r18EnabledBox, javDbTitleEnabledBox, bangumiEnabledBox, aniListEnabledBox, tvMazeEnabledBox, wikidataEnabledBox, kitsuEnabledBox, tenraiEnabledBox, mikanEnabledBox, fankuHubEnabledBox, dmhyEnabledBox, animeQueueEnabledBox, folderHintBox, pluginQueueCheckBox })
         {
             box.Checked += SaveSourceToggles;
             box.Unchecked += SaveSourceToggles;
@@ -524,17 +576,19 @@ public partial class MainWindow
                 12 => tenraiEnabledBox?.IsChecked == true,
                 14 => mikanEnabledBox?.IsChecked == true,
                 15 => fankuHubEnabledBox?.IsChecked == true,
+                16 => r18EnabledBox?.IsChecked == true && r18CatalogInstalled,
                 _ => false
             });
         if (selectedSource == 0 && string.IsNullOrWhiteSpace(config.TmdbToken))
             throw new InvalidOperationException("请先在搜刮页保存 TMDB API Read Access Token。");
-        var sources = PlanCandidateSources(selectedSource, bulk, config.AnimeSourcesInQueue);
+        var sources = PlanCandidateSources(selectedSource, bulk, config.AnimeSourcesInQueue,
+            r18EnabledBox?.IsChecked == true && r18CatalogInstalled);
         var results = new List<MovieMetadata>();
         var completedSources = 0;
         var failedSources = 0;
         async Task<(string name, IReadOnlyList<MovieMetadata>? found, Exception? error)> QueryAsync(int source)
         {
-            var name = source switch { 1 => "Pornhub", 2 => "TVmaze", 4 => "Bangumi", 5 => "JavDB 标题", 6 => "AniList", 7 => "JAVDatabase 标题", 8 => "Javinfo 手动", 9 => "Wikidata", 10 => "OMDb", 11 => "Kitsu", 12 => "Tenrai", 13 => "Trakt", 14 => "Mikan", 15 => "FankuHub", _ => "TMDB" };
+            var name = source switch { 1 => "Pornhub", 2 => "TVmaze", 4 => "Bangumi", 5 => "JavDB 标题", 6 => "AniList", 7 => "JAVDatabase 标题", 8 => "Javinfo 手动", 9 => "Wikidata", 10 => "OMDb", 11 => "Kitsu", 12 => "Tenrai", 13 => "Trakt", 14 => "Mikan", 15 => "FankuHub", 16 => R18OfflineCatalog.Source, _ => "TMDB" };
             var sourceKey = source switch { 5 => "JavDB", 7 => "JAVDatabase", _ => name };
             try
             {
@@ -554,8 +608,11 @@ public partial class MainWindow
                     13 => TraktScraper.SearchAsync(title, cancellationToken),
                     14 => MikanScraper.SearchAsync(AnimeReleaseTitleParser.CleanWorkTitle(title), cancellationToken),
                     15 => FankuHubScraper.SearchAsync(AnimeReleaseTitleParser.CleanWorkTitle(title), cancellationToken),
+                    16 when postgresSession is not null => Task.Run(() => R18OfflineCatalog.SearchTitle(postgresSession.ConnectionString, title).ToList(), cancellationToken),
                     _ => AdditionalScrapers.SearchTmdbAsync(title, config.TmdbToken)
                 };
+                if (source == 16)
+                    return (name, await Fetch().WaitAsync(cancellationToken), null);
                 // The cache itself decides whether a network request is needed.
                 // A valid local hit must remain usable while this source cools.
                 var cacheQuery = source == 8 ? javinfoEvidence!.Code : title;
@@ -590,6 +647,7 @@ public partial class MainWindow
                                         source == 12 && tenraiEnabledBox?.IsChecked != true ||
                                         source == 14 && mikanEnabledBox?.IsChecked != true ||
                                         source == 15 && fankuHubEnabledBox?.IsChecked != true)) continue;
+            if (source == 16 && (r18EnabledBox?.IsChecked != true || !r18CatalogInstalled)) continue;
             if ((source is 14 or 15) && bulk &&
                 (video is null || !IsAnimeCategory(video))) continue;
             if (bulk && source == 6) continue; // AniList terms prohibit mass collection.
@@ -603,7 +661,7 @@ public partial class MainWindow
             else
             {
                 failedSources++;
-                if (selectedSource is 8 or 10 or 11 or 12 or 13 or 14 or 15) throw outcome.error;
+                if (selectedSource is 8 or 10 or 11 or 12 or 13 or 14 or 15 or 16) throw outcome.error;
                 Log($"{outcome.name} 候选查询失败：{outcome.error.Message}");
             }
         }
@@ -619,9 +677,9 @@ public partial class MainWindow
                 StringComparer.OrdinalIgnoreCase).Select(group => group.First()).ToList();
     }
 
-    internal static int[] PlanCandidateSources(int selectedSource, bool bulk, bool animeQueue = false)
+    internal static int[] PlanCandidateSources(int selectedSource, bool bulk, bool animeQueue = false, bool r18Offline = false)
     {
-        if (selectedSource is < 0 or > 15) throw new ArgumentOutOfRangeException(nameof(selectedSource));
+        if (selectedSource is < 0 or > 16) throw new ArgumentOutOfRangeException(nameof(selectedSource));
         if (bulk && selectedSource == 8)
             throw new InvalidOperationException("Javinfo 只能手动选择，不能进入批量搜刮。");
         if (bulk && selectedSource == 6)
@@ -633,9 +691,11 @@ public partial class MainWindow
         if (bulk && selectedSource is (14 or 15) && !animeQueue)
             throw new InvalidOperationException("番剧新来源仅在开启动漫分类后台队列后参与批量搜刮。");
         if (selectedSource != 3) return [selectedSource];
-        return bulk && !animeQueue
-            ? [0, 1, 2, 4, 5, 6, 7, 9, 11, 12]
-            : [0, 1, 2, 4, 5, 6, 7, 9, 11, 12, 14, 15];
+        var sources = bulk && !animeQueue
+            ? new List<int> { 0, 1, 2, 4, 5, 6, 7, 9, 11, 12 }
+            : new List<int> { 0, 1, 2, 4, 5, 6, 7, 9, 11, 12, 14, 15 };
+        if (r18Offline) sources.Add(16);
+        return [.. sources];
     }
 
     internal static bool IsAnimeCategory(VideoItem video)
@@ -670,7 +730,7 @@ public partial class MainWindow
         var name = selectedSource switch
         {
             0 => "TMDB", 1 => "Pornhub", 2 => "TVmaze", 4 => "Bangumi", 5 => "JavDB 标题",
-            6 => "AniList", 7 => "JAVDatabase", 9 => "Wikidata", 11 => "Kitsu", 12 => "Tenrai", 14 => "Mikan", 15 => "FankuHub",
+            6 => "AniList", 7 => "JAVDatabase", 9 => "Wikidata", 11 => "Kitsu", 12 => "Tenrai", 14 => "Mikan", 15 => "FankuHub", 16 => R18OfflineCatalog.Source,
             _ => throw new ArgumentOutOfRangeException(nameof(selectedSource))
         };
         if (!enabled) throw new InvalidOperationException($"请先在搜刮设置中启用 {name} 来源。");

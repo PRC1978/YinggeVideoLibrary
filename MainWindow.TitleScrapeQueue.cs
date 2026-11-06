@@ -83,7 +83,8 @@ public partial class MainWindow
             javDatabaseEnabledBox?.IsChecked == true, wikidataEnabledBox?.IsChecked == true,
             kitsuEnabledBox?.IsChecked == true, tenraiEnabledBox?.IsChecked == true,
             config.AnimeSourcesInQueue && mikanEnabledBox?.IsChecked == true,
-            config.AnimeSourcesInQueue && fankuHubEnabledBox?.IsChecked == true);
+            config.AnimeSourcesInQueue && fankuHubEnabledBox?.IsChecked == true,
+            r18EnabledBox?.IsChecked == true && r18CatalogInstalled);
         if (builtIn.Length == 0 && queuePlugins.Count > 0)
         {
             var reason = pluginFailures.Count > 0 ? string.Join("；", pluginFailures) : "没有可用的插件";
@@ -149,6 +150,21 @@ public partial class MainWindow
             if (string.IsNullOrWhiteSpace(candidate.SourceUrl))
             {
                 row.DetailStatus = "detail-error";
+                return;
+            }
+            // The imported catalog already contains the verified detail. Its
+            // fragment URL is an identity marker, not a page to fetch online.
+            if (candidate.Source == R18OfflineCatalog.Source)
+            {
+                if (!candidate.DetailFetched || !candidate.DetailIdentityVerified)
+                {
+                    row.DetailStatus = "identity-unverified";
+                    return;
+                }
+                row.DetailMetadata = candidate.Clone();
+                row.DetailFetchedUtc = DateTime.UtcNow;
+                row.DetailStatus = "verified";
+                record ??= candidate;
                 return;
             }
             try
@@ -281,6 +297,7 @@ public partial class MainWindow
             "FankuHub" => "FankuHub",
             "Pornhub" => "Pornhub",
             "Bangumi" => "Bangumi",
+            R18OfflineCatalog.Source => R18OfflineCatalog.Source,
             _ => ""
         };
     }

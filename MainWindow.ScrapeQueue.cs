@@ -21,7 +21,8 @@ public partial class MainWindow
     string[] EnabledQueueCodeSources()
     {
         return PlanQueueCodeSources(JavDbEnabledBox.IsChecked == true,
-            javDatabaseEnabledBox?.IsChecked == true);
+            javDatabaseEnabledBox?.IsChecked == true,
+            r18EnabledBox?.IsChecked == true && r18CatalogInstalled);
     }
 
     // The queue schedules per source set, so a plugin that participates is
@@ -67,7 +68,8 @@ public partial class MainWindow
             javDatabaseEnabledBox?.IsChecked == true, wikidataEnabledBox?.IsChecked == true,
             kitsuEnabledBox?.IsChecked == true, tenraiEnabledBox?.IsChecked == true,
             config.AnimeSourcesInQueue && mikanEnabledBox?.IsChecked == true,
-            config.AnimeSourcesInQueue && fankuHubEnabledBox?.IsChecked == true);
+            config.AnimeSourcesInQueue && fankuHubEnabledBox?.IsChecked == true,
+            r18EnabledBox?.IsChecked == true && r18CatalogInstalled);
         return AppendPluginQueueSources(builtIn, queuePlugins.Select(item => item.Id));
     }
 
@@ -83,17 +85,18 @@ public partial class MainWindow
     bool QueuePlanHasApplicableSource(PlannedScrapeItem plan) =>
         plan.Item is not { Kind: "title" } || !AnimeOnlyTitleSources() || IsAnimeCategory(plan.Video);
 
-    internal static string[] PlanQueueCodeSources(bool javDb, bool javDatabase)
+    internal static string[] PlanQueueCodeSources(bool javDb, bool javDatabase, bool r18Offline = false)
     {
         var sources = new List<string>(2);
         if (javDb) sources.Add("JavDB");
         if (javDatabase) sources.Add("JAVDatabase");
+        if (r18Offline) sources.Add(R18OfflineCatalog.Source);
         return [.. sources];
     }
 
     internal static string[] PlanQueueTitleSources(bool tmdb, bool pornHub, bool tvMaze,
         bool bangumi, bool javDb, bool javDatabase, bool wikidata = false, bool kitsu = false,
-        bool tenrai = false, bool mikan = false, bool fankuHub = false)
+        bool tenrai = false, bool mikan = false, bool fankuHub = false, bool r18Offline = false)
     {
         var sources = new List<string>(7);
         if (tmdb) sources.Add("TMDB");
@@ -107,6 +110,7 @@ public partial class MainWindow
         if (tenrai) sources.Add("Tenrai");
         if (mikan) sources.Add("Mikan");
         if (fankuHub) sources.Add("FankuHub");
+        if (r18Offline) sources.Add(R18OfflineCatalog.Source);
         // Javinfo is paid/manual; AniList disallows mass collection.
         return [.. sources];
     }
@@ -532,7 +536,7 @@ public partial class MainWindow
                         if (metadata.ContainsKey(video.Id) && !candidate.DetailFetched)
                             throw new InvalidDataException("旧资料保留；新详情暂不可读：" + candidate.DetailNote);
                         status = await StoreScrapeReviewAsync(video, candidate,
-                            forcePending: item.RefreshExisting, cancellationToken: cancellationToken);
+                            forcePending: item.RefreshExisting || candidate.Source == R18OfflineCatalog.Source, cancellationToken: cancellationToken);
                     }
                     await Task.Run(() => queueBridge.Remove(item.VideoId));
                     if (status == "approved") approved++;

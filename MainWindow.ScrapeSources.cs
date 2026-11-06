@@ -4,7 +4,8 @@ namespace YinggeVideoLibrary;
 
 public partial class MainWindow
 {
-    bool HasEnabledCodeSource => JavDbEnabledBox.IsChecked == true || javDatabaseEnabledBox?.IsChecked == true;
+    bool HasEnabledCodeSource => JavDbEnabledBox.IsChecked == true || javDatabaseEnabledBox?.IsChecked == true ||
+        (r18EnabledBox?.IsChecked == true && r18CatalogInstalled);
 
     async Task<MovieMetadata> ScrapeCodeFromEnabledSourcesAsync(string code, string videoId,
         CancellationToken cancellationToken, bool queue = false)
@@ -46,6 +47,19 @@ public partial class MainWindow
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (ScrapeNotFoundException) { notFound.Add("JAVDatabase"); }
             catch (Exception ex) { failures.Add(("JAVDatabase", ex)); Log("JAVDatabase 本次不可用：" + ex.Message); }
+        }
+        if (r18EnabledBox?.IsChecked == true && postgresSession is not null && r18CatalogInstalled)
+        {
+            attempted++;
+            try
+            {
+                var local = await Task.Run(() => R18OfflineCatalog.SearchCode(postgresSession.ConnectionString, code), cancellationToken);
+                if (local.Count == 0) notFound.Add(R18OfflineCatalog.Source);
+                foreach (var record in local)
+                    if (NativeMetadataAggregation.HasExactCode(record, code)) verified.Add(record);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex) { failures.Add((R18OfflineCatalog.Source, ex)); Log("R18 离线目录本次不可用：" + ex.Message); }
         }
         if (attempted == 0) throw new InvalidOperationException("请先在搜刮页启用至少一个番号来源。");
         if (verified.Count > 0)

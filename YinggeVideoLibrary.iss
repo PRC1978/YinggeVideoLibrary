@@ -1,4 +1,4 @@
-#define MyAppVersion "1.6.10"
+#define MyAppVersion "1.7.0"
 #ifndef PortableSource
   #define PortableSource "..\发布\映格视频库.exe"
 #endif
@@ -43,7 +43,7 @@ SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
-VersionInfoVersion=1.6.10.0
+VersionInfoVersion=1.7.0.0
 
 [Languages]
 Name: "zhcn"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"

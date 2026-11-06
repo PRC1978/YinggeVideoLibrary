@@ -142,7 +142,7 @@ internal static class NativeMetadataAggregation
         => (metadata.SourceObservations ?? []).Where(item => item.Field == field)
             .Select(item => item.Clone()).ToList();
 
-    internal static bool IsNativeSource(string source) => source is "JavDB" or "JAVDatabase";
+    internal static bool IsNativeSource(string source) => source is "JavDB" or "JAVDatabase" or R18OfflineCatalog.Source;
 
     internal static bool HasExactCode(MovieMetadata metadata, string requestedCode)
         => ScrapeCodeIdentity.Same(metadata.Code, requestedCode);

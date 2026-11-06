@@ -290,6 +290,7 @@ internal static class RoleProfileStore
         "JavDB" => CanonicalUri(url, "javdb.com", @"^/v/[A-Za-z0-9_-]{2,64}/?$"),
         "TMDB" => CanonicalUri(url, "www.themoviedb.org", @"^/(?:movie|tv)/[0-9]+/?$"),
         "TVmaze" => CanonicalUri(url, "www.tvmaze.com", @"^/shows/[0-9]+/?$"),
+        "R18" => R18OfflineCatalog.TrustedWorkUrl(url),
         _ => false
     };
 
@@ -300,6 +301,8 @@ internal static class RoleProfileStore
             return source.PersonId.Equals(source.PersonUrl, StringComparison.OrdinalIgnoreCase) &&
                 JavDbScraper.TryCatalogUrl(source.PersonUrl, out var canonical, out var kind) &&
                 kind == "演员" && canonical.Equals(source.PersonUrl, StringComparison.OrdinalIgnoreCase);
+        if (source.Provider == "R18")
+            return R18OfflineCatalog.TrustedPersonIdentity(source.PersonId, source.PersonUrl);
         if (!int.TryParse(source.PersonId, out var id) || id <= 0 || source.PersonId != id.ToString())
             return false;
         return source.Provider switch
@@ -372,13 +375,28 @@ internal static class RoleProfileStore
         out SourceIdentity identity)
     {
         identity = new SourceIdentity();
-        if (!record.DetailFetched || !record.DetailIdentityVerified || record.IsAdultContent ||
+        if (!record.DetailFetched || !record.DetailIdentityVerified ||
+            (record.IsAdultContent && credit.Provider != "R18") ||
             !string.Equals(credit.VerifiedFromWorkUrl, record.SourceUrl, StringComparison.Ordinal) ||
             !(record.PersonCredits?.Any(saved => saved is not null && saved.Provider == credit.Provider &&
                 saved.PersonId == credit.PersonId && saved.PersonUrl == credit.PersonUrl &&
                 saved.Name == credit.Name && saved.VerifiedFromWorkUrl == credit.VerifiedFromWorkUrl) == true) ||
-            !int.TryParse(credit.PersonId, out var personId) || personId <= 0 ||
             string.IsNullOrWhiteSpace(credit.Name) || credit.Name.Length > 180) return false;
+        if (credit.Provider == "R18")
+        {
+            if (record.Source != R18OfflineCatalog.Source ||
+                !record.ExternalIds.TryGetValue("R18", out var workId) ||
+                !record.SourceUrl.Equals("https://r18.dev/#offline-" + Uri.EscapeDataString(workId), StringComparison.Ordinal) ||
+                !R18OfflineCatalog.TrustedWorkUrl(record.SourceUrl) ||
+                !R18OfflineCatalog.TrustedPersonIdentity(credit.PersonId, credit.PersonUrl)) return false;
+            identity = new SourceIdentity
+            {
+                Provider = credit.Provider, PersonId = credit.PersonId, PersonUrl = credit.PersonUrl,
+                NameAtSource = credit.Name, VerifiedFromWorkUrl = credit.VerifiedFromWorkUrl
+            };
+            return true;
+        }
+        if (!int.TryParse(credit.PersonId, out var personId) || personId <= 0) return false;
         var trusted = credit.Provider switch
         {
             "TMDB" => record.Source.StartsWith("TMDB", StringComparison.Ordinal) &&

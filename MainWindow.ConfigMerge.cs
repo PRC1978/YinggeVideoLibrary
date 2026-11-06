@@ -61,6 +61,7 @@ public partial class MainWindow
         SearchHistory = [.. source.SearchHistory]
         ,SourceTrustWeights = new Dictionary<string, int>(source.SourceTrustWeights, StringComparer.OrdinalIgnoreCase)
         ,EnableJavDb = source.EnableJavDb
+        ,EnableR18Offline = source.EnableR18Offline
         ,EnableJavDatabase = source.EnableJavDatabase
         ,EnableJavDbTitle = source.EnableJavDbTitle
         ,EnableBangumi = source.EnableBangumi
@@ -167,6 +168,7 @@ public partial class MainWindow
                 latest.SiteListLocalActions, StringComparer.Ordinal),
             SourceTrustWeights = MergeMap(baseline.SourceTrustWeights, current.SourceTrustWeights, latest.SourceTrustWeights, StringComparer.OrdinalIgnoreCase),
             EnableJavDb = MergeScalar(baseline.EnableJavDb, current.EnableJavDb, latest.EnableJavDb),
+            EnableR18Offline = MergeScalar(baseline.EnableR18Offline, current.EnableR18Offline, latest.EnableR18Offline),
             EnableJavDatabase = MergeScalar(baseline.EnableJavDatabase, current.EnableJavDatabase, latest.EnableJavDatabase),
             EnableJavDbTitle = MergeScalar(baseline.EnableJavDbTitle, current.EnableJavDbTitle, latest.EnableJavDbTitle),
             EnableBangumi = MergeScalar(baseline.EnableBangumi, current.EnableBangumi, latest.EnableBangumi),

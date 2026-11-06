@@ -455,7 +455,19 @@ internal static class RoleProfileAutoScraper
                     throw new InvalidOperationException($"人物“{candidate.Name}”的作品关联会超过 20,000 部上限；已停止并保存此前处理的档案。 ");
                 if (isNew)
                 {
-                    profile = new RoleProfileStore.Profile { Name = candidate.Name };
+                    profile = new RoleProfileStore.Profile
+                    {
+                        Name = candidate.Name,
+                        PersonKind = candidate.Provider == "R18"
+                            ? candidate.PersonId.Split(':')[0] switch
+                            {
+                                "director" => RolePersonKind.Director,
+                                "actor" => RolePersonKind.MaleActor,
+                                "actress" => RolePersonKind.FemaleActor,
+                                _ => RolePersonKind.Unspecified
+                            }
+                            : RolePersonKind.Unspecified
+                    };
                     profile.Sources.Add(validEvidence[0].Identity);
                     state.Profiles.Add(profile);
                     profilesBySource.Add(sourceKey, profile);

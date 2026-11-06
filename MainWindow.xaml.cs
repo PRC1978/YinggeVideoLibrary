@@ -91,8 +91,9 @@ public sealed class LibraryConfig
     // Keep a short, privacy-friendly local history so repeated searches can
     // be reused without making the toolbar wider or sending anything online.
     [JsonPropertyName("searchHistory")] public List<string> SearchHistory { get; set; } = [];
-    [JsonPropertyName("sourceTrustWeights")] public Dictionary<string, int> SourceTrustWeights { get; set; } = new(StringComparer.OrdinalIgnoreCase) { ["TMDB"] = 12, ["JavDB"] = 10, ["Bangumi"] = 8, ["AniList"] = 9, ["JAVDatabase"] = 7, ["Javinfo"] = 7, ["TVmaze"] = 8, ["Wikidata"] = 6, ["OMDb"] = 7, ["Kitsu"] = 8, ["Tenrai"] = 7, ["Trakt"] = 8, ["Pornhub"] = 4, ["Mikan"] = 5, ["FankuHub"] = 6 };
+    [JsonPropertyName("sourceTrustWeights")] public Dictionary<string, int> SourceTrustWeights { get; set; } = new(StringComparer.OrdinalIgnoreCase) { ["TMDB"] = 12, ["JavDB"] = 10, ["Bangumi"] = 8, ["AniList"] = 9, ["JAVDatabase"] = 7, ["Javinfo"] = 7, ["TVmaze"] = 8, ["Wikidata"] = 6, ["OMDb"] = 7, ["Kitsu"] = 8, ["Tenrai"] = 7, ["Trakt"] = 8, ["Pornhub"] = 4, ["Mikan"] = 5, ["FankuHub"] = 6, ["R18 离线目录"] = 6 };
     [JsonPropertyName("enableJavDb")] public bool EnableJavDb { get; set; } = true;
+    [JsonPropertyName("enableR18Offline")] public bool EnableR18Offline { get; set; }
     [JsonPropertyName("enableJavDatabase")] public bool EnableJavDatabase { get; set; } = true;
     [JsonPropertyName("enableJavDbTitle")] public bool EnableJavDbTitle { get; set; } = true;
     [JsonPropertyName("enableBangumi")] public bool EnableBangumi { get; set; } = true;
@@ -813,7 +814,7 @@ public partial class MainWindow : Window
     internal static void RestoreDefaultSourceTrustWeights(LibraryConfig loaded)
     {
         loaded.SourceTrustWeights ??= new(StringComparer.OrdinalIgnoreCase);
-        foreach (var (name, weight) in new[] { ("TMDB", 12), ("JavDB", 10), ("Bangumi", 8), ("AniList", 9), ("JAVDatabase", 7), ("Javinfo", 7), ("TVmaze", 8), ("Wikidata", 6), ("OMDb", 7), ("Kitsu", 8), ("Tenrai", 7), ("Trakt", 8), ("Pornhub", 4), ("Mikan", 5), ("FankuHub", 6) })
+        foreach (var (name, weight) in new[] { ("TMDB", 12), ("JavDB", 10), ("Bangumi", 8), ("AniList", 9), ("JAVDatabase", 7), ("Javinfo", 7), ("TVmaze", 8), ("Wikidata", 6), ("OMDb", 7), ("Kitsu", 8), ("Tenrai", 7), ("Trakt", 8), ("Pornhub", 4), ("Mikan", 5), ("FankuHub", 6), ("R18 离线目录", 6) })
             loaded.SourceTrustWeights.TryAdd(name, weight);
     }
 
@@ -4624,7 +4625,7 @@ public partial class MainWindow : Window
         try
         {
             var record = await ScrapeCodeFromEnabledSourcesAsync(code, video.Id, CancellationToken.None);
-            var status = await StoreScrapeReviewAsync(video, record);
+            var status = await StoreScrapeReviewAsync(video, record, forcePending: record.Source == R18OfflineCatalog.Source);
             if (view is "review" or "scrape") RefreshReviewQueue();
             RefreshCardsAfterReview();
             TaskStatusText.Text = status == "approved" ? "搜刮完成 · 已自动通过" : status == "rejected" ? "搜刮完成 · AI 否决" : "搜刮完成 · 待人工审核";
@@ -4725,9 +4726,9 @@ public partial class MainWindow : Window
                     MessageBox.Show(this, "没有找到新的候选；已有的视频信息和标签保持不变。", "完整资料搜刮");
                     return;
                 }
-                if (source is 8 or 10 or 11 or 12 or 13 or 14 or 15)
+                if (source is 8 or 10 or 11 or 12 or 13 or 14 or 15 or 16)
                 {
-                    var manualSource = source switch { 8 => "Javinfo", 10 => "OMDb", 12 => "Tenrai", 13 => "Trakt", 14 => "蜜柑计划", 15 => "番库", _ => "Kitsu" };
+                    var manualSource = source switch { 8 => "Javinfo", 10 => "OMDb", 12 => "Tenrai", 13 => "Trakt", 14 => "蜜柑计划", 15 => "番库", 16 => "r18.dev 本机目录", _ => "Kitsu" };
                     TaskStatusText.Text = manualSource + " 没有找到候选 · 视频状态未改变";
                     MessageBox.Show(this, manualSource + " 没有找到候选。视频状态和标签未改变；可换用其他来源继续搜索。", "完整资料搜刮");
                     return;
@@ -4747,10 +4748,12 @@ public partial class MainWindow : Window
                 (!TmdbUsagePolicy.Evaluate(video, metadata.GetValueOrDefault(video.Id), title).Allowed ||
                  chosen.IsAdultContent || TmdbUsagePolicy.HasAdultCue(chosen.Title)))
                 throw new InvalidOperationException("该视频或候选不属于已确认的普通电影/剧集，未请求 TMDB 详情。");
-            record = (await ScrapeCandidateCache.GetOrFetchAsync(DataDir, chosen.Source + " 详情", chosen.SourceUrl,
-                async () => [await AdditionalScrapers.FetchFullDetailsAsync(chosen, config.TmdbToken, config.JavinfoKey, DataDir, config.JavinfoDailyRequestLimit, javinfoEvidence)]))
-                .FirstOrDefault(item => ScrapeCandidateCache.DetailMatchesCandidate(chosen, item))
-                ?? throw new InvalidOperationException("来源详情与选中的作品身份不一致，请重新搜索并核对。");
+            record = chosen.Source == R18OfflineCatalog.Source && chosen.DetailFetched && chosen.DetailIdentityVerified
+                ? chosen.Clone()
+                : (await ScrapeCandidateCache.GetOrFetchAsync(DataDir, chosen.Source + " 详情", chosen.SourceUrl,
+                    async () => [await AdditionalScrapers.FetchFullDetailsAsync(chosen, config.TmdbToken, config.JavinfoKey, DataDir, config.JavinfoDailyRequestLimit, javinfoEvidence)]))
+                    .FirstOrDefault(item => ScrapeCandidateCache.DetailMatchesCandidate(chosen, item))
+                    ?? throw new InvalidOperationException("来源详情与选中的作品身份不一致，请重新搜索并核对。 ");
             if (record.Source.StartsWith("TMDB", StringComparison.OrdinalIgnoreCase) &&
                 (record.IsAdultContent || TmdbUsagePolicy.HasAdultCue(record.Title) ||
                  TmdbUsagePolicy.HasAdultCue(record.Summary)))
@@ -4762,7 +4765,7 @@ public partial class MainWindow : Window
             var (aggregatedRecord, nativeForcePending) = await AggregateNativeTitleCandidateAsync(record, video.Id);
             record = aggregatedRecord;
             await AdditionalScrapers.DownloadPosterAsync(record, video.Id, DataDir);
-            var status = await StoreScrapeReviewAsync(video, record, forcePending: nativeForcePending || source is 10 or 13 or 14 or 15 ||
+            var status = await StoreScrapeReviewAsync(video, record, forcePending: nativeForcePending || source is 10 or 13 or 14 or 15 or 16 ||
                 record.Source.Equals("Kitsu", StringComparison.OrdinalIgnoreCase) ||
                 record.Source.Equals("Tenrai", StringComparison.OrdinalIgnoreCase) ||
                 record.Source.Equals("Mikan", StringComparison.OrdinalIgnoreCase) ||

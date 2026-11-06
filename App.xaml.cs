@@ -142,6 +142,11 @@ public partial class App : System.Windows.Application
             Shutdown(await FeatureDiagnostics.RunAsync(e.Args[1]));
             return;
         }
+        if (e.Args.Length > 4 && e.Args[0] == "--diagnose-r18-offline")
+        {
+            Shutdown(R18OfflineDiagnostics.Run(e.Args[1], e.Args[2], e.Args[3], e.Args[4]));
+            return;
+        }
         // Explicit, isolated PostgreSQL import probe. This never reads AppPaths.DataDirectory.
         if (e.Args.Length > 2 && e.Args[0] == "--self-test-postgres")
         {

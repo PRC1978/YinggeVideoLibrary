@@ -60,6 +60,28 @@ internal sealed class PostgresLibraryRuntimeSession : IAsyncDisposable
         finally { writeGate.Release(); }
     }
 
+    internal async Task<MainWindow.IndexSaveResult> SaveScannedIndexAsync(LibraryIndex scanned,
+        bool explicitlyClearedByUser, CancellationToken cancellationToken = default)
+    {
+        await writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (scanned.Folders.Length == 0 && scanned.Entries.Count == 0 &&
+                !explicitlyClearedByUser)
+                return new(false, 0, false);
+            var previous = Index.Index;
+            if (MainWindow.ShouldPreserveMismatchedIndex(previous, scanned,
+                explicitlyClearedByUser))
+                return new(true, previous.Entries.Count, false);
+            await PostgresLibraryIndexStore.SaveAsync(ConnectionString, scanned,
+                Index.Revision, cancellationToken);
+            Index = await PostgresLibraryIndexStore.ReadAsync(ConnectionString,
+                cancellationToken);
+            return new(false, 0, true);
+        }
+        finally { writeGate.Release(); }
+    }
+
     internal async Task SaveMetadataAsync(IReadOnlyDictionary<string, MovieMetadata> edited,
         CancellationToken cancellationToken = default)
     {

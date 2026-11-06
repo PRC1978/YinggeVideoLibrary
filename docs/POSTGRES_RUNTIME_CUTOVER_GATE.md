@@ -7,7 +7,7 @@
 | 数据 | 当前正常程序入口 | 已有数据库适配器 | 剩余工作 |
 | --- | --- | --- | --- |
 | 配置、标签、分类、收藏、审核记录 | `MainWindow.LoadConfig` / `SaveConfig` | `PostgresLibraryConfigStore` | 主窗口读写、三路合并和凭据清除接线；审核事务不能只改配置 |
-| 视频索引与缺失状态 | `MainWindow.SaveIndexAsync`、增量扫描和缺失清理 | `PostgresLibraryIndexStore` | 启动读取、扫描提交、清理撤销与 CAS 冲突处理 |
+| 视频索引与缺失状态 | `MainWindow.SaveIndexAsync`、增量扫描和缺失清理 | `PostgresLibraryIndexStore`、`PostgresLibraryRuntimeSession.SaveScannedIndexAsync` | 主窗口启动读取和扫描入口接线、清理撤销与 CAS 冲突处理。隔离库已验证空扫描不覆盖不同根目录的旧索引 |
 | 搜刮资料 | `MetadataStore.Load/Save` 与审核事务 | `PostgresLibraryMetadataStore`、`PostgresReviewTransactionStore` | 所有资料写入、审核历史和撤销同事务 |
 | 搜刮队列与来源冷却 | `ScrapeQueueStore` 文件日志 | `PostgresScrapeQueueStore`、`PostgresScrapeSourceBackoffStore` | 后台调度、取消、重试、重启恢复实际接线 |
 | 人物与关系 | `RoleProfileStore` 文件 | `PostgresRoleProfileStore` | 自动搜刮、手工编辑、作品关联与撤销接线 |

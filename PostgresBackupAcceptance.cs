@@ -212,6 +212,20 @@ internal static class PostgresBackupAcceptance
             }).ToList()
         };
         await session.SaveIndexAsync(index);
+        var beforeEmptyScan = session.Index.Revision;
+        var protectedEmptyScan = await session.SaveScannedIndexAsync(new LibraryIndex
+        {
+            Folders = [Path.Combine(fixture.MediaRoot, "other-root")], Entries = []
+        }, explicitlyClearedByUser: false);
+        var unconfiguredEmptyScan = await session.SaveScannedIndexAsync(new LibraryIndex
+        {
+            Folders = [], Entries = []
+        }, explicitlyClearedByUser: false);
+        var emptyScanProtected = protectedEmptyScan.PreservedMismatchedIndex &&
+            !protectedEmptyScan.Written &&
+            protectedEmptyScan.PreviousEntryCount == fixture.Videos &&
+            !unconfiguredEmptyScan.Written &&
+            session.Index.Revision == beforeEmptyScan;
 
         var metadata = session.Metadata.Records.ToDictionary(pair => pair.Key,
             pair => pair.Value.Clone(), StringComparer.Ordinal);
@@ -255,7 +269,7 @@ internal static class PostgresBackupAcceptance
             session.Roles.State.Profiles[0].Name == "人物甲·会话写入" &&
             candidateAfter?.Revision == candidateRevision &&
             candidateAfter.Content.SequenceEqual(candidateBytes) &&
-            staleWriteRejected && dedicatedWriterRequired;
+            staleWriteRejected && dedicatedWriterRequired && emptyScanProtected;
     }
 
     private static Fixture BuildFixture(string source, int count)

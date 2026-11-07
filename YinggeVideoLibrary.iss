@@ -1,4 +1,4 @@
-#define MyAppVersion "1.7.3"
+#define MyAppVersion "1.7.2.1"
 #ifndef PortableSource
   #define PortableSource "..\发布\映格视频库.exe"
 #endif
@@ -43,7 +43,7 @@ SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
-VersionInfoVersion=1.7.3.0
+VersionInfoVersion=1.7.2.1
 
 [Languages]
 Name: "zhcn"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
@@ -210,4 +210,5 @@ begin
     MsgBox('部分数据未能删除，请手动检查：' + #13#10 + LibraryDataDir,
       mbError, MB_OK);
 end;
+
 

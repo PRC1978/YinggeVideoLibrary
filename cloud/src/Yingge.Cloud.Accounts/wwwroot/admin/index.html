@@ -8,11 +8,10 @@
 <body class="admin-body">
   <header class="topbar"><a class="brand" href="/">映格<span>YINGGE</span></a><span class="admin-label">管理后台</span></header>
   <main class="admin-shell">
-    <section id="login-view" class="login-view"><p class="edition">OPERATIONS</p><h1>管理入口</h1><p>管理页面需要管理员账号和独立管理密钥。信息仅在当前页面内存中使用，刷新后清除。</p>
+    <section id="login-view" class="login-view"><h1>管理入口</h1><p>使用管理员账号登录。登录信息仅在当前页面内存中使用，刷新后清除。</p>
       <form id="login-form">
         <label for="username">账号名</label><input id="username" autocomplete="username" required>
         <label for="password">密码</label><input id="password" type="password" autocomplete="current-password" required>
-        <label for="admin-key">管理密钥</label><input id="admin-key" type="password" autocomplete="off" required placeholder="由服务器管理员单独提供">
         <button class="primary" type="submit">进入后台</button><p id="login-status" class="status" role="status"></p>
       </form>
     </section>
@@ -22,7 +21,7 @@
         <button class="primary" type="submit">修改密码并退出</button><p id="password-status" class="status" role="status"></p></form>
     </section>
     <section id="dashboard-view" hidden>
-      <div class="dashboard-head"><div><p class="edition">OPERATIONS</p><h1>服务概况</h1><p>仅显示账号与报告元数据，不展示日志正文。</p></div><button id="logout" class="secondary">退出</button></div>
+      <div class="dashboard-head"><div><h1>服务概况</h1><p>仅显示账号与报告元数据，不展示日志正文。</p></div><button id="logout" class="secondary">退出</button></div>
       <div id="metrics" class="metrics"></div>
       <nav class="tabs" aria-label="后台栏目"><button data-tab="accounts" class="active">账号</button><button data-tab="invites">邀请</button><button data-tab="reports">报告</button><button data-tab="audit">操作记录</button></nav>
       <div class="table-toolbar"><h2 id="section-title">账号</h2><div><button id="new-invite" class="secondary" hidden>生成邀请码</button><button id="refresh" class="secondary">刷新</button></div></div>

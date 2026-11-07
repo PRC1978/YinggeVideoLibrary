@@ -30,14 +30,16 @@ internal static class AdminEndpoints
         HttpContext http, SessionAuthenticator authenticator, AccountRepository accounts,
         CloudOptions options, CancellationToken ct, bool allowInitialPassword = false)
     {
-        if (options.Admin.AccessKeyHash is not { Length: 32 } expected)
-            return (null, Problems.Create(503, "admin_unavailable", "管理员后台尚未启用。"));
-        var key = http.Request.Headers["X-Admin-Key"].ToString();
-        if (key.Length != 64)
-            return (null, Problems.Create(403, "admin_forbidden", "管理员身份未通过验证。"));
-        var actual = SHA256.HashData(Encoding.UTF8.GetBytes(key));
-        if (!CryptographicOperations.FixedTimeEquals(actual, expected))
-            return (null, Problems.Create(403, "admin_forbidden", "管理员身份未通过验证。"));
+        if (options.Admin.AccessKeyHash is { Length: 32 } expected)
+        {
+            var key = http.Request.Headers["X-Admin-Key"].ToString();
+            if (key.Length > 0)
+            {
+                var actual = SHA256.HashData(Encoding.UTF8.GetBytes(key));
+                if (!CryptographicOperations.FixedTimeEquals(actual, expected))
+                    return (null, Problems.Create(403, "admin_forbidden", "管理员身份未通过验证。"));
+            }
+        }
         var (session, problem) = await authenticator.AuthenticateAsync(http, ct);
         if (session is null) return (null, Problems.Auth(problem));
         var account = await accounts.FindByIdAsync(session.AccountId, ct);

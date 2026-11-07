@@ -100,12 +100,12 @@ $('#login-form').addEventListener('submit',async event=>{
   const button=event.currentTarget.querySelector('button');button.disabled=true;
   try{
     const username=$('#username').value.trim(),password=$('#password').value;
-    adminKey=$('#admin-key').value.trim();
+    adminKey='';
     const response=await fetch('/api/v1/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({username,password}),cache:'no-store'});
     if(!response.ok)throw new Error('账号名或密码不正确，或账号暂时锁定。');
     token=(await response.json()).token;
-    $('#password').value='';$('#admin-key').value='';
+    $('#password').value='';
     if(await overview())await loadTab();
   }catch(error){token='';adminKey='';message('#login-status',error.message,true);}
   finally{button.disabled=false;}

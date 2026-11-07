@@ -1,0 +1,10 @@
+[Unit]
+Description=Yingge cloud database and report backup
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/
+ExecStart=/bin/bash /opt/yingge-cloud/deploy/backup.sh
+UMask=0077

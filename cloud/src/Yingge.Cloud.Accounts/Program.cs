@@ -48,6 +48,7 @@ builder.Services.AddSingleton<InviteRepository>();
 builder.Services.AddSingleton<AccountRepository>();
 builder.Services.AddSingleton<SessionRepository>();
 builder.Services.AddSingleton<ReportRepository>();
+builder.Services.AddSingleton<AdminRepository>();
 builder.Services.AddSingleton<SessionAuthenticator>();
 builder.Services.AddSingleton<ReportService>();
 builder.Services.AddSingleton<RetentionService>();
@@ -100,7 +101,23 @@ app.Use(async (context, next) =>
 });
 app.UseRateLimiter();
 
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["Referrer-Policy"] = "no-referrer";
+    context.Response.Headers["Content-Security-Policy"] =
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; " +
+        "connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+    if (context.Request.Path.StartsWithSegments("/admin"))
+        context.Response.Headers.CacheControl = "no-store";
+    await next();
+});
+
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.MapAuthEndpoints();
+app.MapAdminEndpoints();
 app.MapReportEndpoints();
 app.MapHealthEndpoints();
 

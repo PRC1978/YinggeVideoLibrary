@@ -9,7 +9,12 @@ internal sealed record AccountRow(
     string PasswordHash,
     string Status,
     int FailedLoginCount,
-    DateTimeOffset? LockedUntil);
+    DateTimeOffset? LockedUntil,
+    bool IsAdmin,
+    bool MustChangePassword);
+
+internal sealed record AdminAccountRow(Guid Id, string Username, string Status,
+    bool IsAdmin, DateTimeOffset CreatedAt);
 
 internal sealed class InviteNotUsableException : Exception { }
 
@@ -17,7 +22,7 @@ internal sealed class UsernameTakenException : Exception { }
 
 internal sealed class AccountRepository(NpgsqlDataSource db)
 {
-    const string Columns = "id, username, password_hash, status, failed_login_count, locked_until";
+    const string Columns = "id, username, password_hash, status, failed_login_count, locked_until, is_admin, must_change_password";
 
     public async Task<AccountRow?> FindByUsernameAsync(string username, CancellationToken ct)
     {
@@ -125,6 +130,49 @@ internal sealed class AccountRepository(NpgsqlDataSource db)
         await command.ExecuteNonQueryAsync(ct);
     }
 
+    public async Task<bool> ChangeAdminPasswordAsync(Guid accountId, string passwordHash, CancellationToken ct)
+    {
+        await using var connection = await db.OpenConnectionAsync(ct);
+        await using var command = new NpgsqlCommand("""
+            update accounts set password_hash = @password_hash,
+                password_updated_at = now(), must_change_password = false
+            where id = @id and is_admin and status = 'active'
+            """, connection);
+        command.Parameters.Add(Db.Parameter("id", NpgsqlDbType.Uuid, accountId));
+        command.Parameters.Add(Db.Parameter("password_hash", NpgsqlDbType.Text, passwordHash));
+        return await command.ExecuteNonQueryAsync(ct) == 1;
+    }
+
+    public async Task<bool> CreateAdminAsync(string username, string passwordHash, CancellationToken ct)
+    {
+        await using var connection = await db.OpenConnectionAsync(ct);
+        await using var command = new NpgsqlCommand("""
+            insert into accounts (username, password_hash, is_admin, must_change_password)
+            values (@username, @password_hash, true, true)
+            on conflict (username) do nothing
+            """, connection);
+        command.Parameters.Add(Db.Parameter("username", NpgsqlDbType.Text, username));
+        command.Parameters.Add(Db.Parameter("password_hash", NpgsqlDbType.Text, passwordHash));
+        return await command.ExecuteNonQueryAsync(ct) == 1;
+    }
+
+    public async Task<IReadOnlyList<AdminAccountRow>>
+        ListForAdminAsync(int limit, CancellationToken ct)
+    {
+        await using var connection = await db.OpenConnectionAsync(ct);
+        await using var command = new NpgsqlCommand("""
+            select id, username, status, is_admin, created_at from accounts
+            order by created_at desc limit @limit
+            """, connection);
+        command.Parameters.Add(Db.Parameter("limit", NpgsqlDbType.Integer, limit));
+        var rows = new List<AdminAccountRow>();
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            rows.Add(new AdminAccountRow(reader.GetGuid(0), reader.GetString(1), reader.GetString(2),
+                reader.GetBoolean(3), Db.Utc(reader.GetDateTime(4))));
+        return rows;
+    }
+
     public async Task<bool> SetStatusAsync(string username, bool active, CancellationToken ct)
     {
         await using var connection = await db.OpenConnectionAsync(ct);
@@ -164,5 +212,6 @@ internal sealed class AccountRepository(NpgsqlDataSource db)
         reader.GetString(2),
         reader.GetString(3),
         reader.GetInt32(4),
-        reader.IsDBNull(5) ? null : Db.Utc(reader.GetDateTime(5)));
+        reader.IsDBNull(5) ? null : Db.Utc(reader.GetDateTime(5)),
+        reader.GetBoolean(6), reader.GetBoolean(7));
 }

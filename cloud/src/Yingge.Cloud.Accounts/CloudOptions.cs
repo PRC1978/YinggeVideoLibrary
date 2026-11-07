@@ -35,6 +35,11 @@ internal sealed class StorageOptions
     public string RootPath { get; init; } = "";
 }
 
+internal sealed class AdminOptions
+{
+    public byte[]? AccessKeyHash { get; init; }
+}
+
 // Configuration is read once at startup. Anything invalid stops the process
 // instead of degrading into an insecure default.
 internal sealed class CloudOptions
@@ -43,6 +48,7 @@ internal sealed class CloudOptions
     public required SecurityOptions Security { get; init; }
     public required ReportOptions Reports { get; init; }
     public required StorageOptions Storage { get; init; }
+    public required AdminOptions Admin { get; init; }
 
     public static CloudOptions Load(IConfiguration configuration, IHostEnvironment environment)
     {
@@ -97,7 +103,8 @@ internal sealed class CloudOptions
                 BurstWindowMinutes = Positive(reports.GetValue("BurstWindowMinutes", 5), 5),
                 SweepMinutes = Positive(reports.GetValue("SweepMinutes", 15), 15)
             },
-            Storage = new StorageOptions { RootPath = resolvedRoot }
+            Storage = new StorageOptions { RootPath = resolvedRoot },
+            Admin = new AdminOptions { AccessKeyHash = ParseAdminKeyHash(configuration["Admin:AccessKeyHash"]) }
         };
     }
 
@@ -105,6 +112,18 @@ internal sealed class CloudOptions
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
 
     static int Positive(int value, int fallback) => value > 0 ? value : fallback;
+
+    static byte[]? ParseAdminKeyHash(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (value.Length != 64)
+            throw new InvalidOperationException("管理员访问密钥的 SHA-256 值无效。");
+        try { return Convert.FromHexString(value); }
+        catch (FormatException)
+        {
+            throw new InvalidOperationException("管理员访问密钥的 SHA-256 值无效。");
+        }
+    }
 
     static IReadOnlyList<IPAddress> ParseProxies(IConfigurationSection section)
     {

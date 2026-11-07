@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>映格 · 邀请注册</title>
+  <link rel="stylesheet" href="/site.css">
+  <script defer src="/register.js"></script>
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="/">映格<span>YINGGE</span></a><a class="quiet-link" href="/admin/">管理入口</a></header>
+  <main class="register-layout">
+    <section class="intro"><p class="edition">PRIVATE VIDEO LIBRARY</p><h1>让资料留在<br><em>你掌控的地方。</em></h1><p>映格云端账号只用于接收你主动提交的脱敏错误报告。你的本地视频库不会上传到这里。</p><div class="fine-rule"></div><p class="small">目前仅开放邀请注册。邀请码由维护者发放，使用一次后失效。</p></section>
+    <section class="form-pane" aria-labelledby="register-title"><div class="pane-head"><span class="pane-index">01 / 注册</span><h2 id="register-title">创建账号</h2><p>填写邀请码和登录信息。注册成功后可回到桌面软件登录。</p></div>
+      <form id="register-form" novalidate>
+        <label for="invite">邀请码</label><input id="invite" name="invite" autocomplete="off" required placeholder="例如 ABCD-EFGH-…">
+        <label for="username">账号名</label><input id="username" name="username" autocomplete="username" required minlength="3" maxlength="32" placeholder="3–32 位字母、数字或 . _ -">
+        <label for="password">密码</label><input id="password" name="password" type="password" autocomplete="new-password" required minlength="12" placeholder="至少 12 位，包含字母和数字">
+        <button id="submit" class="primary" type="submit">完成注册 <span aria-hidden="true">↗</span></button>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+      </form>
+      <p class="footnote">使用账号表示你同意仅上传由你确认过的脱敏错误日志。注册页不会读取本地视频。</p>
+    </section>
+  </main>
+  <footer>映格视频库 <span>邀请制账号服务</span></footer>
+</body>
+</html>

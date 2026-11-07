@@ -72,6 +72,32 @@ internal static class AdminCli
                 Console.WriteLine($"expires_at={expiresAt:O}");
                 return 0;
             }
+            case "admin-create":
+            {
+                var username = AccountRules.NormalizeUsername(Option(rest, "--username"));
+                if (AccountRules.ValidateUsername(username) is not null)
+                {
+                    Console.Error.WriteLine("管理员账号名无效。");
+                    return 2;
+                }
+                Console.Error.WriteLine("从标准输入读取一次性初始密码（不会显示或写入日志）。");
+                var initialPassword = await Console.In.ReadLineAsync(ct);
+                if (string.IsNullOrEmpty(initialPassword))
+                {
+                    Console.Error.WriteLine("初始密码为空。");
+                    return 2;
+                }
+                var hash = new PasswordService(210_000).Hash(initialPassword);
+                if (!await accounts.CreateAdminAsync(username, hash, ct))
+                {
+                    Console.Error.WriteLine("账号已存在，不会修改其角色或密码。");
+                    return 1;
+                }
+                await audit.LogAsync("admin.created", null, null,
+                    new { username, must_change_password = true }, ct);
+                Console.WriteLine("管理员账号已创建，首次登录后必须修改密码。");
+                return 0;
+            }
             case "invite-revoke":
             {
                 var code = Option(rest, "--code");
@@ -174,6 +200,7 @@ internal static class AdminCli
               admin migrate [--admin-db <连接串>]
               admin migrate-down [--to <版本号>]
               admin invite-create [--note <备注>] [--ttl-hours 72] [--count 1]
+              admin admin-create --username <账号名>  # 初始密码从 stdin 读取
               admin invite-revoke --code <邀请码>
               admin invites-revoke-all
               admin account-disable --username <账号名>

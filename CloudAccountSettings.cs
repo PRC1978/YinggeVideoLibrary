@@ -9,7 +9,7 @@ namespace YinggeVideoLibrary;
 // Credential Manager; nothing in this file can be replayed as a login.
 internal sealed class CloudAccountSettings
 {
-    public string ServerUrl { get; set; } = "";
+    public string ServerUrl { get; set; } = "https://reports.yingevideo.top";
 
     [System.Text.Json.Serialization.JsonIgnore]
     public bool IsConfigured =>

@@ -1,6 +1,6 @@
 # /etc/nginx/sites-available/yingge-cloud-accounts
 #
-# 实际域名：reports.yingevideo.top -> 43.226.58.187（DNSPod，NS 已生效）
+# 实际域名：reports.yingevideo.top -> 45.207.215.78（DNSPod，NS 已生效）
 #
 # TLS terminates here with a Let's Encrypt certificate managed by certbot.
 # Kestrel stays on 127.0.0.1:5080 and trusts forwarded headers only from

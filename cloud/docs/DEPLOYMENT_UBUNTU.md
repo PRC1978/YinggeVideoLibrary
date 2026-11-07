@@ -44,14 +44,14 @@ sudo -E ./deploy/setup-database.sh
 sudo ss -ltnp | grep -E ':5432|:5080'      # 期望：5432/5080 都只绑定 127.0.0.1
 sudo ufw status                              # 期望：没有 allow 5432
 # 在外部机器执行，期望超时或被拒绝：
-#   nc -vz 43.226.58.187 5432
+#   nc -vz 45.207.215.78 5432
 ```
 
 ## 3. 发布（开发机）
 
 ```bash
 dotnet publish cloud/src/Yingge.Cloud.Accounts -c Release -o publish
-scp -r publish cloud/deploy user@43.226.58.187:/tmp/yingge-cloud-install/
+scp -r publish cloud/deploy user@45.207.215.78:/tmp/yingge-cloud-install/
 ```
 
 发布目录不包含任何连接串、口令或证书。配置只在服务器上。

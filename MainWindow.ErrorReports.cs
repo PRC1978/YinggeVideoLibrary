@@ -21,7 +21,7 @@ public partial class MainWindow
             TextWrapping = TextWrapping.Wrap, Foreground = UiTheme.TextSecondaryBrush,
             Margin = new Thickness(0, 4, 0, 8)
         });
-        body.Children.Add(new TextBlock { Text = "本地导出无需登录。云端账号服务尚未上线，目前不能上传日志。",
+        body.Children.Add(new TextBlock { Text = "本地导出无需登录。邀请账号登录后，可在下方预览并上传脱敏后的错误日志。",
             TextWrapping = TextWrapping.Wrap, Foreground = UiTheme.TextSecondaryBrush,
             Margin = new Thickness(0, 4, 0, 8) });
         var buttons = new WrapPanel();

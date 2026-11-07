@@ -79,7 +79,7 @@ systemctl enable yingge-cloud-accounts >/dev/null
 systemctl restart yingge-cloud-accounts
 
 for _ in $(seq 1 20); do
-  if curl -fsS -H 'X-Forwarded-Proto: https' http://127.0.0.1:5080/api/v1/health \
+  if curl -fsS -H 'Host: reports.yingevideo.top' -H 'X-Forwarded-Proto: https' http://127.0.0.1:5080/api/v1/health \
        >/dev/null 2>&1; then
     echo "服务已启动：http://127.0.0.1:5080 (仅本机)"
     echo "下一步：配置 nginx + certbot，再运行 smoke-local.sh 验证 HTTPS 链路。"

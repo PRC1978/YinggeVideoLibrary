@@ -5,7 +5,7 @@ set -uo pipefail
 cd /tmp || exit 9
 
 DOMAIN="${DOMAIN:-reports.yingevideo.top}"
-EXPECTED_IP="${EXPECTED_IP:-43.226.58.187}"
+EXPECTED_IP="${EXPECTED_IP:-45.207.215.78}"
 
 echo "== DNS =="
 if command -v dig >/dev/null; then

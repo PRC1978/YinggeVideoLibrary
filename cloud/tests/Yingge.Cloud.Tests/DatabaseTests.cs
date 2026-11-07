@@ -16,7 +16,7 @@ public sealed class DatabaseTests(PostgresFixture fixture) : IAsyncLifetime
     public async Task Migrations_are_recorded_with_checksums_and_reapplying_is_a_no_op()
     {
         var catalog = MigrationCatalog.Load();
-        Assert.Equal(2, catalog.Count);
+        Assert.Equal(3, catalog.Count);
 
         var applied = await Migrator.ListAppliedAsync(fixture.OwnerDataSource, CancellationToken.None);
         Assert.Equal(catalog.Count, applied.Count);
@@ -66,7 +66,7 @@ public sealed class DatabaseTests(PostgresFixture fixture) : IAsyncLifetime
         await Migrator.ApplyAsync(dataSource, null, CancellationToken.None);
         var rolledBack = await Migrator.RollbackAsync(dataSource, "0001", null, CancellationToken.None);
 
-        Assert.Single(rolledBack);
+        Assert.Equal(2, rolledBack.Count);
         Assert.Equal(0, await ScalarAsync<int>(dataSource,
             "select count(*)::int from pg_tables where schemaname = 'public' and tablename = 'error_reports'"));
         Assert.Equal(1, await ScalarAsync<int>(dataSource,
@@ -96,7 +96,7 @@ public sealed class DatabaseTests(PostgresFixture fixture) : IAsyncLifetime
             "select count(*)::int from invites where note = 'backup-rehearsal'", restored);
         Assert.Equal(1, (int)(await invites.ExecuteScalarAsync())!);
         await using var ledger = new NpgsqlCommand("select count(*)::int from schema_migrations", restored);
-        Assert.Equal(2, (int)(await ledger.ExecuteScalarAsync())!);
+        Assert.Equal(MigrationCatalog.Load().Count, (int)(await ledger.ExecuteScalarAsync())!);
     }
 
     [Fact]

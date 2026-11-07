@@ -4624,8 +4624,10 @@ public partial class MainWindow : Window
         Log("开始搜刮：" + code);
         try
         {
-            var record = await ScrapeCodeFromEnabledSourcesAsync(code, video.Id, CancellationToken.None);
-            var status = await StoreScrapeReviewAsync(video, record, forcePending: record.Source == R18OfflineCatalog.Source);
+            var scrape = await ScrapeCodeFromEnabledSourcesAsync(code, video.Id, CancellationToken.None);
+            var record = scrape.Record;
+            var status = await StoreScrapeReviewAsync(video, record,
+                forcePending: scrape.ForcePending || record.Source == R18OfflineCatalog.Source);
             if (view is "review" or "scrape") RefreshReviewQueue();
             RefreshCardsAfterReview();
             TaskStatusText.Text = status == "approved" ? "搜刮完成 · 已自动通过" : status == "rejected" ? "搜刮完成 · AI 否决" : "搜刮完成 · 待人工审核";
@@ -4637,6 +4639,7 @@ public partial class MainWindow : Window
                 _ => $"已找到 {record.Code}，但可信度不足，已放入人工审核队列。"
             }, "搜刮审核", MessageBoxButton.OK, MessageBoxImage.Information);
         }
+        catch (OperationCanceledException) { TaskStatusText.Text = "已取消选择搜刮候选"; }
         catch (Exception ex) { TaskStatusText.Text = "搜刮失败"; Log("搜刮失败：" + code + " · " + ex.Message); MessageBox.Show(this, ex.Message, "搜刮失败", MessageBoxButton.OK, MessageBoxImage.Warning); }
         finally { ShowView(view); }
     }

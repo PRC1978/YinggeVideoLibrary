@@ -526,7 +526,8 @@ public partial class MainWindow
                     }
                     else
                     {
-                        var candidate = await ScrapeCodeFromEnabledSourcesAsync(item.Code, item.VideoId, cancellationToken, queue: true);
+                        var scrape = await ScrapeCodeFromEnabledSourcesAsync(item.Code, item.VideoId, cancellationToken, queue: true);
+                        var candidate = scrape.Record;
                         cancellationToken.ThrowIfCancellationRequested();
                         if (!await Task.Run(() => queueBridge.HasPending(item.VideoId)))
                         {
@@ -536,7 +537,8 @@ public partial class MainWindow
                         if (metadata.ContainsKey(video.Id) && !candidate.DetailFetched)
                             throw new InvalidDataException("旧资料保留；新详情暂不可读：" + candidate.DetailNote);
                         status = await StoreScrapeReviewAsync(video, candidate,
-                            forcePending: item.RefreshExisting || candidate.Source == R18OfflineCatalog.Source, cancellationToken: cancellationToken);
+                            forcePending: item.RefreshExisting || scrape.ForcePending ||
+                                candidate.Source == R18OfflineCatalog.Source, cancellationToken: cancellationToken);
                     }
                     await Task.Run(() => queueBridge.Remove(item.VideoId));
                     if (status == "approved") approved++;

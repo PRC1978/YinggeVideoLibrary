@@ -252,6 +252,10 @@ internal static class R18OfflineCatalog
         return SearchDetails(connection, code, null);
     }
 
+    internal static bool CodeResultsRequireSelection(IReadOnlyList<MovieMetadata> results) =>
+        results.Select(item => item.ExternalIds.GetValueOrDefault("R18") ?? item.SourceUrl)
+            .Distinct(StringComparer.OrdinalIgnoreCase).Skip(1).Any();
+
     static IReadOnlyList<MovieMetadata> SearchDetails(NpgsqlConnection connection, string? code, string? exactContentId)
     {
         var key = code is null ? "" : ScrapeCodeIdentity.Key(code).ToLowerInvariant();

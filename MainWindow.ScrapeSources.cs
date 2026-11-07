@@ -7,12 +7,13 @@ public partial class MainWindow
     bool HasEnabledCodeSource => JavDbEnabledBox.IsChecked == true || javDatabaseEnabledBox?.IsChecked == true ||
         (r18EnabledBox?.IsChecked == true && r18CatalogInstalled);
 
-    async Task<MovieMetadata> ScrapeCodeFromEnabledSourcesAsync(string code, string videoId,
+    async Task<(MovieMetadata Record, bool ForcePending)> ScrapeCodeFromEnabledSourcesAsync(string code, string videoId,
         CancellationToken cancellationToken, bool queue = false)
     {
         var failures = new List<(string Name, Exception Error)>();
         var notFound = new List<string>();
         var verified = new List<MovieMetadata>(2);
+        var r18CodeAmbiguous = false;
         var attempted = 0;
         if (JavDbEnabledBox.IsChecked == true)
         {
@@ -55,10 +56,33 @@ public partial class MainWindow
             {
                 var local = await Task.Run(() => R18OfflineCatalog.SearchCode(postgresSession.ConnectionString, code), cancellationToken);
                 if (local.Count == 0) notFound.Add(R18OfflineCatalog.Source);
-                foreach (var record in local)
+                else if (R18OfflineCatalog.CodeResultsRequireSelection(local))
+                {
+                    r18CodeAmbiguous = true;
+                    var video = videos.FirstOrDefault(item => item.Id == videoId);
+                    if (video is not null)
+                    {
+                        // Keep every edition visible even when the background
+                        // queue cannot ask the user to choose one right now.
+                        if (queue) SaveTitleCandidates(BuildTitleCandidateSnapshot(video, code, local));
+                        else
+                        {
+                            var choices = local.Select(record =>
+                                (candidate: record, score: LocalScrapeConfidence(video, record, out _)))
+                                .OrderByDescending(item => item.score).ToList();
+                            var chosen = ChooseScrapeCandidate(video, choices, sameCodeEditions: true);
+                            if (chosen is null) throw new OperationCanceledException("已取消选择离线作品。", cancellationToken);
+                            verified.Add(chosen);
+                        }
+                    }
+                    if (queue || video is null)
+                        throw new InvalidDataException($"r18.dev 离线目录中番号 {code} 对应 {local.Count} 部不同作品；候选已保留，请手动核对并选定作品。");
+                }
+                else foreach (var record in local)
                     if (NativeMetadataAggregation.HasExactCode(record, code)) verified.Add(record);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (OperationCanceledException) when (!queue) { throw; }
             catch (Exception ex) { failures.Add((R18OfflineCatalog.Source, ex)); Log("R18 离线目录本次不可用：" + ex.Message); }
         }
         if (attempted == 0) throw new InvalidOperationException("请先在搜刮页启用至少一个番号来源。");
@@ -77,11 +101,13 @@ public partial class MainWindow
                     await AdditionalScrapers.DownloadPosterAsync(alternate, videoId, DataDir);
             }
             var merged = NativeMetadataAggregation.AggregateExactCode(code, ordered);
+            if (r18CodeAmbiguous)
+                merged.DetailNote += "；r18.dev 离线目录中此番号对应多部作品，必须人工核对版本";
             if (failures.Count > 0)
                 merged.DetailNote += $"；本次仅采用已成功的来源，{string.Join("、", failures.Select(item => item.Name))} 暂不可用，可稍后重试补全";
             if (notFound.Count > 0)
                 merged.DetailNote += $"；{string.Join("、", notFound)} 未找到相同番号";
-            return merged;
+            return (merged, r18CodeAmbiguous);
         }
         // A blocked or temporarily unavailable source cannot prove that the
         // title is absent. Leave the item as failed/retryable instead of

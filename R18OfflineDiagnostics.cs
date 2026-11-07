@@ -28,6 +28,11 @@ internal static class R18OfflineDiagnostics
         yield return new("r18CachedEditionsRequireSameContentId",
             ScrapeCandidateCache.DetailMatchesCandidate(edition, edition) &&
             !ScrapeCandidateCache.DetailMatchesCandidate(edition, differentEdition));
+        edition.ExternalIds["R18"] = "abc00123";
+        differentEdition.ExternalIds["R18"] = "abc00124";
+        yield return new("r18SameCodeRequiresExplicitEditionSelection",
+            !R18OfflineCatalog.CodeResultsRequireSelection([edition]) &&
+            R18OfflineCatalog.CodeResultsRequireSelection([edition, differentEdition]));
         var credit = new VerifiedPersonCredit
         {
             Provider = "R18", PersonId = "actress:123", Name = "示例人物",
@@ -88,6 +93,16 @@ internal static class R18OfflineDiagnostics
             result["videoCount"] = imported?.VideoCount;
             result["sampleCode"] = code;
             result["sampleResults"] = found.Count;
+            using var duplicateCode = new NpgsqlCommand(
+                "SELECT content_id FROM yingge_r18_active.derived_video WHERE dvd_id='SS-023' LIMIT 2", connection);
+            using var duplicateCodeRows = duplicateCode.ExecuteReader();
+            var duplicateCodeCount = 0;
+            while (duplicateCodeRows.Read()) duplicateCodeCount++;
+            duplicateCodeRows.Close();
+            var duplicateFound = duplicateCodeCount < 2 ? null : R18OfflineCatalog.SearchCode(connectionString, "SS-023");
+            result["duplicateCodeChecked"] = duplicateFound is not null;
+            result["duplicateCodeRequiresSelection"] = duplicateFound is null ||
+                R18OfflineCatalog.CodeResultsRequireSelection(duplicateFound);
             result["titleResults"] = titleFound.Count;
             result["titleMatchedSample"] = titleFound.Any(item => NativeMetadataAggregation.HasExactCode(item, code));
             using var duplicateSample = new NpgsqlCommand("""
@@ -113,7 +128,8 @@ internal static class R18OfflineDiagnostics
             result["posterUrl"] = found.FirstOrDefault()?.PosterUrl;
             result["verifiedPersonCredits"] = found.Sum(item => item.PersonCredits.Count(credit =>
                 RoleProfileStore.TryVerifiedPersonCredit(item, credit, out _)));
-            result["passed"] = editionIsolated && found.Count > 0 && titleFound.Any(item => NativeMetadataAggregation.HasExactCode(item, code)) && found.All(item =>
+            result["passed"] = editionIsolated && (duplicateFound is null || R18OfflineCatalog.CodeResultsRequireSelection(duplicateFound)) &&
+                found.Count > 0 && titleFound.Any(item => NativeMetadataAggregation.HasExactCode(item, code)) && found.All(item =>
                 item.DetailIdentityVerified && NativeMetadataAggregation.HasExactCode(item, code));
         }
         catch (Exception ex) { result["error"] = ex.ToString(); }

@@ -230,7 +230,7 @@ public partial class MainWindow
         panel.Children.Insert(panel.Children.IndexOf(ScrapeSourceBox) + 1, section);
         if (ReviewSelectAllButton.Parent is Panel reviewActions)
         {
-            var compare = new Button { Content = "比较已存标题候选", Style = (Style)FindResource("Action"),
+            var compare = new Button { Content = "比较已存搜刮候选", Style = (Style)FindResource("Action"),
                 ToolTip = "从审核选择中打开，或查找视频；离线查看最多 12 个候选及原始字段出处。" };
             compare.Click += async (_, _) =>
             {
@@ -241,7 +241,7 @@ public partial class MainWindow
                 var snapshot = await Task.Run(() => LoadSavedTitleCandidates(selected.Id));
                 if (snapshot is null)
                 {
-                    MessageBox.Show(this, "这个视频尚无已保存的标题候选。先在搜刮页按标题搜索，或等待标题队列处理。", "候选比较");
+                    MessageBox.Show(this, "这个视频尚无已保存的搜刮候选。先在搜刮页查询，或等待搜刮队列处理。", "候选比较");
                     return;
                 }
                 ShowTitleCandidateComparison(selected, snapshot);
@@ -294,7 +294,7 @@ public partial class MainWindow
 
     void ShowTitleCandidateComparison(VideoItem video, ScrapeCandidateCache.TitleCandidateSnapshot snapshot)
     {
-        var dialog = new Window { Title = "标题候选比较", Owner = this, Width = 980, Height = 660,
+        var dialog = new Window { Title = "搜刮候选比较", Owner = this, Width = 980, Height = 660,
             MinWidth = 720, MinHeight = 430, WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Background = UiTheme.SurfaceBrush, Foreground = UiTheme.TextPrimaryBrush };
         var root = new DockPanel { Margin = new Thickness(16) };
@@ -421,7 +421,8 @@ public partial class MainWindow
         dialog.ShowDialog();
     }
 
-    MovieMetadata? ChooseScrapeCandidate(VideoItem video, IReadOnlyList<(MovieMetadata candidate, int score)> candidates)
+    MovieMetadata? ChooseScrapeCandidate(VideoItem video, IReadOnlyList<(MovieMetadata candidate, int score)> candidates,
+        bool sameCodeEditions = false)
     {
         var snapshot = BuildTitleCandidateSnapshot(video, "手动标题查询（原输入未记录）",
             candidates.Select(item => item.candidate));
@@ -447,9 +448,11 @@ public partial class MainWindow
             Background = UiTheme.SurfaceBrush, Foreground = UiTheme.TextPrimaryBrush };
         var layout = new DockPanel { Margin = new Thickness(18) };
         var person = config.UseFolderPersonHint ? ScrapeSearchHints.FindPersonHint(video.Path, config.Folders) : null;
-        var caption = new TextBlock { Text = person is null
-            ? "按标题匹配和来源可信度排序。选定候选后会读取来源详情，并在审核资料中展示。"
-            : $"按标题和来源排序；已参考目录人物线索「{person}」。选定后会读取详情并核对演员，完整路径不会提交给来源。",
+        var caption = new TextBlock { Text = sameCodeEditions
+            ? "此番号对应多部不同作品。请核对标题、日期、封面和作品 ID 后再选定；不会自动采用列表第一条。"
+            : person is null
+                ? "按标题匹配和来源可信度排序。选定候选后会读取来源详情，并在审核资料中展示。"
+                : $"按标题和来源排序；已参考目录人物线索「{person}」。选定后会读取详情并核对演员，完整路径不会提交给来源。",
             Margin = new Thickness(0, 0, 0, 12), TextWrapping = TextWrapping.Wrap };
         DockPanel.SetDock(caption, Dock.Top); layout.Children.Add(caption);
         var footer = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
@@ -466,6 +469,11 @@ public partial class MainWindow
             var row = new StackPanel { Margin = new Thickness(8, 5, 8, 6) };
             row.Children.Add(new TextBlock { Text = candidate.Title, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
             row.Children.Add(new TextBlock { Text = $"匹配估分 {score}% · {candidate.Source} · {candidate.Code}", Foreground = global::YinggeVideoLibrary.UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 3, 0, 0) });
+            if (candidate.Source == R18OfflineCatalog.Source &&
+                candidate.ExternalIds.TryGetValue("R18", out var workId))
+                row.Children.Add(new TextBlock { Text = "离线作品 ID：" + workId,
+                    Foreground = global::YinggeVideoLibrary.UiTheme.TextTertiaryBrush, FontSize = 11,
+                    Margin = new Thickness(0, 3, 0, 0) });
             var glimpse = string.Join(" · ", new[] { candidate.ReleaseDate, candidate.Rating, candidate.Summary }.Where(value => !string.IsNullOrWhiteSpace(value)));
             if (glimpse.Length > 0) row.Children.Add(new TextBlock { Text = glimpse, Foreground = global::YinggeVideoLibrary.UiTheme.TextTertiaryBrush,
                 FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 3, 0, 0) });

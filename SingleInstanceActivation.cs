@@ -32,6 +32,9 @@ internal sealed class SingleInstanceActivation : IDisposable
         return "YinggeVideoLibrary.Activate." + hash;
     }
 
+    internal static string InstanceMutexNameFor(string libraryDirectory) =>
+        "Local\\YinggeVideoLibrary.Instance." + PipeNameFor(libraryDirectory)[^16..];
+
     internal static SingleInstanceActivation Start(MainWindow window, string libraryDirectory) =>
         new(window, libraryDirectory);
 

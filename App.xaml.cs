@@ -11,6 +11,7 @@ public partial class App : System.Windows.Application
 {
     System.IO.FileStream? librarySessionLease;
     PostgresLibraryRuntimeSession? postgresRuntimeSession;
+    Mutex? instanceGate;
     internal bool SystemSessionEnding { get; private set; }
     internal bool RecoveryShutdownRequested { get; private set; }
 
@@ -83,6 +84,9 @@ public partial class App : System.Windows.Application
         }
         finally
         {
+            try { if (instanceGate is not null) instanceGate.ReleaseMutex(); } catch { }
+            instanceGate?.Dispose();
+            instanceGate = null;
             librarySessionLease?.Dispose();
             base.OnExit(e);
         }
@@ -480,6 +484,25 @@ public partial class App : System.Windows.Application
         // them in the background so a failed prune can never delay or block startup.
         _ = Task.Run(() => UpdateBackupJanitor.TryRun(System.IO.Path.GetDirectoryName(Environment.ProcessPath)));
         var dataDir = AppPaths.DataDirectory;
+        // Claim the per-library instance before migration/database startup. A
+        // second launch during slow PostgreSQL initialization must wake the
+        // first process instead of racing its lock and showing a false error.
+        try
+        {
+            instanceGate = new Mutex(false, SingleInstanceActivation.InstanceMutexNameFor(dataDir));
+            if (!instanceGate.WaitOne(0))
+            {
+                if (await SingleInstanceActivation.WaitForExistingAsync(dataDir,
+                        TimeSpan.FromSeconds(30)))
+                    Shutdown();
+                else
+                    YinggeVideoLibrary.ThemeMessageBox.Show(
+                        "映格正在启动，已有实例尚未准备好。请稍后再试。",
+                        "映格视频库", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+        }
+        catch (AbandonedMutexException) { }
         // A previous window may be hidden in the notification area. Wake it
         // before touching migration, backup or database files.
         if (SingleInstanceActivation.TryActivateExisting(dataDir, 100))

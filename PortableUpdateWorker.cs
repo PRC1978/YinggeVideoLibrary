@@ -45,6 +45,8 @@ internal static class PortableUpdateWorker
             catch (ArgumentException) { /* The old process has already exited. */ }
             previousExited = true;
 
+            WaitForLibraryLeaseRelease(TimeSpan.FromSeconds(60));
+
             // The 1.6.8 updater can download only the new EXE. Its worker is
             // this new binary, so stop here when the installed directory lacks
             // the database runtime. Otherwise the update would appear to work
@@ -91,6 +93,25 @@ internal static class PortableUpdateWorker
                 try { Process.Start(new ProcessStartInfo(target) { UseShellExecute = true }); } catch { }
             return 1;
         }
+    }
+
+    static void WaitForLibraryLeaseRelease(TimeSpan timeout)
+    {
+        var lease = Path.Combine(AppPaths.DataDirectory, ".postgres-cluster-owner.lock");
+        var pid = Path.Combine(AppPaths.DataDirectory, "postgres-data", "postmaster.pid");
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            var leaseFree = true;
+            if (File.Exists(lease))
+            {
+                try { using var stream = new FileStream(lease, FileMode.Open, FileAccess.ReadWrite, FileShare.None); }
+                catch (IOException) { leaseFree = false; }
+            }
+            if (leaseFree && !File.Exists(pid)) return;
+            Thread.Sleep(250);
+        }
+        throw new IOException("数据库仍在停止，更新已取消；请稍后重试");
     }
 
     internal static bool HasBundledPostgres(string applicationDirectory)
@@ -385,3 +406,4 @@ internal static class PortableUpdateWorker
         catch { /* A portable copy has no uninstall entry. */ }
     }
 }
+

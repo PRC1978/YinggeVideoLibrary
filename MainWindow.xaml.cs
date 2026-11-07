@@ -1980,6 +1980,7 @@ public partial class MainWindow : Window
         var items = categoryCardItems;
         var targets = categoryCardTargets;
         var completion = categoryCardPopulationCompletion;
+        var batchSize = view == "categories" && config.UiMotion == UiMotion.Smooth ? 3 : CardPopulationBatchSize;
         var next = 0;
         void AddChunk()
         {
@@ -1991,7 +1992,7 @@ public partial class MainWindow : Window
                 return;
             }
             var populateClock = System.Diagnostics.Stopwatch.StartNew();
-            var end = Math.Min(targets.Count, next + CardPopulationBatchSize);
+            var end = Math.Min(targets.Count, next + batchSize);
             while (next < end)
             {
                 if (next < items.Count)
@@ -2003,7 +2004,7 @@ public partial class MainWindow : Window
             }
             if (next == targets.Count)
             {
-                for (var removed = 0; removed < CardPopulationBatchSize && items.Count > targets.Count; removed++)
+                for (var removed = 0; removed < batchSize && items.Count > targets.Count; removed++)
                     items.RemoveAt(items.Count - 1);
             }
             lastSearchPopulateMaxChunkMs = Math.Max(lastSearchPopulateMaxChunkMs, populateClock.Elapsed.TotalMilliseconds);

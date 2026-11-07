@@ -70,6 +70,7 @@
     <Button x:Name="ReviewNav" AutomationProperties.Name="人工审核" Style="{StaticResource Nav}" Click="NavReview" Visibility="Collapsed"><StackPanel><TextBlock Text="✓" FontSize="23" TextAlignment="Center"/><TextBlock Text="审核" FontSize="11" TextAlignment="Center"/></StackPanel></Button>
     <Button x:Name="OnlineNav" AutomationProperties.Name="在线" Style="{StaticResource Nav}" Click="NavOnline"><StackPanel><TextBlock Text="◎" FontSize="23" TextAlignment="Center"/><TextBlock Text="在线" FontSize="11" TextAlignment="Center"/></StackPanel></Button>
     <Button x:Name="PluginsNav" AutomationProperties.Name="插件" Style="{StaticResource Nav}" Click="NavPlugins" Visibility="Collapsed"><StackPanel><TextBlock Text="⬡" FontSize="23" TextAlignment="Center"/><TextBlock Text="插件" FontSize="11" TextAlignment="Center"/></StackPanel></Button>
+    <Button x:Name="AccountNav" AutomationProperties.Name="账号" Style="{StaticResource Nav}" Click="NavAccount"><StackPanel><TextBlock Text="◎" FontSize="23" TextAlignment="Center"/><TextBlock Text="账号" FontSize="11" TextAlignment="Center"/></StackPanel></Button>
    </StackPanel></ScrollViewer>
    <Button x:Name="SettingsNav" AutomationProperties.Name="设置" Grid.Row="2" Style="{StaticResource Nav}" HorizontalAlignment="Center" Margin="0,0,0,15" Click="NavSettings"><StackPanel><TextBlock Text="⚙" FontSize="22" TextAlignment="Center"/><TextBlock Text="设置" FontSize="11" TextAlignment="Center"/></StackPanel></Button>
   </Grid></Border>

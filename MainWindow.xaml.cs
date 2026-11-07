@@ -3774,6 +3774,16 @@ public partial class MainWindow : Window
     void NavFolders(object sender, RoutedEventArgs e) => ShowView("folders");
     void NavStatus(object sender, RoutedEventArgs e) => ShowView("status");
     void NavSettings(object sender, RoutedEventArgs e) => ShowView("settings");
+    void NavAccount(object sender, RoutedEventArgs e)
+    {
+        ShowView("settings");
+        if (settingsSections.TryGetValue("data", out var data))
+        {
+            data.IsExpanded = true;
+            Dispatcher.BeginInvoke(new Action(() => data.BringIntoView()),
+                System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+    }
     void NavScrape(object sender, RoutedEventArgs e) => ShowView("scrape");
     void OpenPluginsFromSettings(object sender, RoutedEventArgs e) => ShowView("plugins");
     void NavOnline(object sender, RoutedEventArgs e) => ShowView("online");

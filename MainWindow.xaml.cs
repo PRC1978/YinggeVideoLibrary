@@ -1885,6 +1885,11 @@ public partial class MainWindow : Window
             Cards.ItemsSource = null;
             pageItems = [];
             Pager.Visibility = Visibility.Collapsed;
+            // The virtualized full-list path used to return before updating the
+            // empty-state panel, leaving a blank page for a newly opened library.
+            // Keep the same empty-state affordance as the paged layouts.
+            EmptyPanel.Visibility = list.Count == 0 && view != "categories"
+                ? Visibility.Visible : Visibility.Collapsed;
             if (view == "categories") { CategoryPanel.Visibility = Visibility.Visible; RenderCategories(); LibraryScroll.Visibility = Visibility.Visible; AllListPanel.Visibility = Visibility.Collapsed; }
             else { Dispatcher.BeginInvoke(() => ScheduleVirtualPosters(0, 5)); UpdateSelectionToolbar(); return; }
         }

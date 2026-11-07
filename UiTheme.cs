@@ -184,7 +184,7 @@ public static class UiTheme
         // 原版界面：与 1.6.0 硬编码颜色逐项一致，保证回退模式视觉不变。
         [Classic] = (new Palette(
             "#F7F8FB", "#FFFFFF", "#FFFFFF", "#F7F9FF", "#E3E8EF", "#BCC8D8",
-            "#263347", "#52647A", "#8390A3",
+            "#263347", "#52647A", "#65738A",
             "#4B6FE1", "#3E63D5", "#FFFFFF", "#EAF0FF", "#4669D9", "#7B67B1",
             "#EEF3FF", "#435FAD",
             "#C27A2E", "#B4232A", "#0F6E56",

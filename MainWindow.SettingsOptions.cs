@@ -205,6 +205,11 @@ public partial class MainWindow
                 if (config.UiMotion == id) return;
                 config.UiMotion = id;
                 if (id == UiMotion.Smooth) ResetPageMotion();
+                if (sphereMapSurface is not null)
+                {
+                    sphereMapSurface.ProjectedStrokeRadiusThreshold = id == UiMotion.Smooth ? 3.5 : 0;
+                    sphereMapSurface.InvalidateVisual();
+                }
                 SaveConfig();
             };
             motionButtons.Add(motion);

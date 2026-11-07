@@ -523,14 +523,73 @@ public partial class MainWindow
                 var frameBitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(
                     (int)sphere.Width, (int)sphere.Height, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
                 var frameTimes = new List<double>();
+                var renderStages = new List<(double Background, double Projection, double Topology, double Associations, double FocusAndRoot, double Labels, double Total)>();
+                sphere.ProfileRenderStages = true;
                 for (var frame = 0; frame < 12; frame++)
                 {
                     var frameClock = System.Diagnostics.Stopwatch.StartNew();
                     sphere.Rotation = frame * .025;
-                    sphere.InvalidateVisual();
-                    frameBitmap.Render(sphere);
+                    frameBitmap.Render(sphere.DrawFrameForDiagnostics());
                     frameTimes.Add(frameClock.Elapsed.TotalMilliseconds);
+                    renderStages.Add(sphere.LastRenderStages);
                 }
+                sphere.ProfileRenderStages = false;
+                var screenWidth = Math.Max(1, (int)Math.Ceiling(viewport.ActualWidth));
+                var screenHeight = Math.Max(1, (int)Math.Ceiling(viewport.ActualHeight));
+                var screenBitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                    screenWidth, screenHeight, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                var fit = Math.Min(screenWidth / sphere.Width, screenHeight / sphere.Height) * .96;
+                var screenTimes = new List<double>();
+                var emptyTimes = new List<double>();
+                for (var frame = 0; frame < 12; frame++)
+                {
+                    var empty = new System.Windows.Media.DrawingVisual();
+                    using (var context = empty.RenderOpen())
+                        context.DrawRectangle(System.Windows.Media.Brushes.Transparent, null,
+                            new System.Windows.Rect(0, 0, screenWidth, screenHeight));
+                    var clock = System.Diagnostics.Stopwatch.StartNew();
+                    screenBitmap.Render(empty);
+                    emptyTimes.Add(clock.Elapsed.TotalMilliseconds);
+                }
+                for (var frame = 0; frame < 12; frame++)
+                {
+                    var frameClock = System.Diagnostics.Stopwatch.StartNew();
+                    sphere.Rotation = frame * .025;
+                    var visual = sphere.DrawFrameForDiagnostics();
+                    visual.Transform = new System.Windows.Media.MatrixTransform(fit, 0, 0, fit,
+                        (screenWidth - sphere.Width * fit) / 2, (screenHeight - sphere.Height * fit) / 2);
+                    screenBitmap.Render(visual);
+                    screenTimes.Add(frameClock.Elapsed.TotalMilliseconds);
+                }
+                double MeasureWithout(bool edges, bool nodes, bool labels)
+                {
+                    sphere.DiagnosticHideEdges = edges;
+                    sphere.DiagnosticHideNodes = nodes;
+                    sphere.DiagnosticHideLabels = labels;
+                    var times = new List<double>();
+                    for (var frame = 0; frame < 12; frame++)
+                    {
+                        var clock = System.Diagnostics.Stopwatch.StartNew();
+                        sphere.Rotation = .5 + frame * .025;
+                        var visual = sphere.DrawFrameForDiagnostics();
+                        visual.Transform = new System.Windows.Media.MatrixTransform(fit, 0, 0, fit,
+                            (screenWidth - sphere.Width * fit) / 2, (screenHeight - sphere.Height * fit) / 2);
+                        screenBitmap.Render(visual);
+                        times.Add(clock.Elapsed.TotalMilliseconds);
+                    }
+                    sphere.DiagnosticHideEdges = sphere.DiagnosticHideNodes = sphere.DiagnosticHideLabels = false;
+                    return times.Average();
+                }
+                var withoutEdgesMs = MeasureWithout(true, false, false);
+                var withoutNodesMs = MeasureWithout(false, true, false);
+                var withoutLabelsMs = MeasureWithout(false, false, true);
+                sphere.DiagnosticNoNodeStroke = true;
+                var withoutNodeStrokeMs = MeasureWithout(false, false, false);
+                sphere.DiagnosticNoNodeStroke = false;
+                sphere.ProjectedStrokeRadiusThreshold = 3.5;
+                var smallNodesNoStrokeMs = MeasureWithout(false, false, false);
+                sphere.ProjectedStrokeRadiusThreshold = 0;
+                var withNodeStrokeMs = MeasureWithout(false, false, false);
                 var focusedFrameTimes = new List<double>();
                 if (mostConnectedTag.Key is not null)
                 {
@@ -539,8 +598,7 @@ public partial class MainWindow
                     {
                         var frameClock = System.Diagnostics.Stopwatch.StartNew();
                         sphere.Rotation = .31 + frame * .025;
-                        sphere.InvalidateVisual();
-                        frameBitmap.Render(sphere);
+                        frameBitmap.Render(sphere.DrawFrameForDiagnostics());
                         focusedFrameTimes.Add(frameClock.Elapsed.TotalMilliseconds);
                     }
                     sphere.SetHover(null);
@@ -548,14 +606,18 @@ public partial class MainWindow
                 sphere.Rotation = .48;
                 sphere.InvalidateVisual();
                 SaveSpherePreview(sphere, Path.ChangeExtension(destination, ".rotated.png"));
+                sphere.ProjectedStrokeRadiusThreshold = 3.5;
+                SaveSpherePreview(sphere, Path.ChangeExtension(destination, ".smooth.png"));
+                sphere.ProjectedStrokeRadiusThreshold = 0;
                 sphere.Rotation = 0;
                 sphere.InvalidateVisual();
                 var previewStarted = System.Diagnostics.Stopwatch.StartNew();
                 SaveSpherePreview(sphere, Path.ChangeExtension(destination, ".png"));
                 var previewMs = previewStarted.ElapsedMilliseconds;
                 var frameP95 = frameTimes.OrderBy(value => value).ElementAt(Math.Min(frameTimes.Count - 1, (int)Math.Ceiling(frameTimes.Count * .95) - 1));
+                var stageProfile = $"背景 {renderStages.Average(stage => stage.Background):F1}、投影 {renderStages.Average(stage => stage.Projection):F1}、层级节点 {renderStages.Average(stage => stage.Topology):F1}、关联线 {renderStages.Average(stage => stage.Associations):F1}、焦点根节点 {renderStages.Average(stage => stage.FocusAndRoot):F1}、标签 {renderStages.Average(stage => stage.Labels):F1}、OnRender 合计 {renderStages.Average(stage => stage.Total):F1}、离屏栅格化及框架开销约 {frameTimes.Zip(renderStages, (frame, stage) => Math.Max(0, frame - stage.Total)).Average():F1} ms";
                 var cardInputP95 = cardInputLatencies.Count == 0 ? 0 : cardInputLatencies.OrderBy(value => value).ElementAt(Math.Min(cardInputLatencies.Count - 1, (int)Math.Ceiling(cardInputLatencies.Count * .95) - 1));
-                RecordCacheDiagnostic("graph verified", $"全部相关节点 {sphere.NodeCount}，选中标签关联节点 {tagNodes}，该标签实际共现连线 {selectedTagRelations}，全部节点经 {navigationPages} 页可访问；视口 {viewport.ActualWidth:F0}×{viewport.ActualHeight:F0}；首次构建 {graphBuildMs} ms（切页 {graphShowMs:F1}、等待后台 {graphWaitMs:F1}、布局 {graphLayoutMs:F1} ms [调度 {graphLayoutStartedAt - graphLayoutQueuedAt:F1}、执行 {graphLayoutExecutedMs:F1}]），{pageItems.Count} 张本页卡片及 {generatedCardContainers} 个视觉容器全部到位 {cardReadyMs} ms，加载期间 {cardInputLatencies.Count} 次输入/旋转反馈平均 {(cardInputLatencies.Count == 0 ? 0 : cardInputLatencies.Average()):F1} ms、P95 {cardInputP95:F1} ms，标签切换 {tagSwitchMs} ms，12 帧离屏旋转平均 {frameTimes.Average():F1} ms、P95 {frameP95:F1} ms、最慢 {frameTimes.Max():F1} ms，最密标签 {mostConnectedTag.Value?.Count ?? 0} 条关联聚焦平均 {(focusedFrameTimes.Count == 0 ? 0 : focusedFrameTimes.Average()):F1} ms，离屏 PNG 保存 {previewMs} ms；索引预热 {sphereIndexWarmProfile}；分段：{categoryRenderProfile}；{sphereGraphBuildProfile}；缩放、平移、调高正常");
+                RecordCacheDiagnostic("graph verified", $"全部相关节点 {sphere.NodeCount}，选中标签关联节点 {tagNodes}，该标签实际共现连线 {selectedTagRelations}，全部节点经 {navigationPages} 页可访问；视口 {viewport.ActualWidth:F0}×{viewport.ActualHeight:F0}；首次构建 {graphBuildMs} ms（切页 {graphShowMs:F1}、等待后台 {graphWaitMs:F1}、布局 {graphLayoutMs:F1} ms [调度 {graphLayoutStartedAt - graphLayoutQueuedAt:F1}、执行 {graphLayoutExecutedMs:F1}]），{pageItems.Count} 张本页卡片及 {generatedCardContainers} 个视觉容器全部到位 {cardReadyMs} ms，加载期间 {cardInputLatencies.Count} 次输入/旋转反馈平均 {(cardInputLatencies.Count == 0 ? 0 : cardInputLatencies.Average()):F1} ms、P95 {cardInputP95:F1} ms，标签切换 {tagSwitchMs} ms，12 帧完整画布离屏旋转平均 {frameTimes.Average():F1} ms、P95 {frameP95:F1} ms、最慢 {frameTimes.Max():F1} ms，实际视口尺寸离屏平均 {screenTimes.Average():F1} ms、P95 {screenTimes.OrderBy(value => value).ElementAt(Math.Min(screenTimes.Count - 1, (int)Math.Ceiling(screenTimes.Count * .95) - 1)):F1} ms，同尺寸空画布平均 {emptyTimes.Average():F1} ms，分层对照（仅诊断隐藏）去连线 {withoutEdgesMs:F1}、去节点 {withoutNodesMs:F1}、去标签 {withoutLabelsMs:F1} ms，节点无描边 {withoutNodeStrokeMs:F1}、小节点无描边 {smallNodesNoStrokeMs:F1}、全部描边 {withNodeStrokeMs:F1} ms，旋转帧分段：{stageProfile}，最密标签 {mostConnectedTag.Value?.Count ?? 0} 条关联聚焦平均 {(focusedFrameTimes.Count == 0 ? 0 : focusedFrameTimes.Average()):F1} ms，离屏 PNG 保存 {previewMs} ms；索引预热 {sphereIndexWarmProfile}；分段：{categoryRenderProfile}；{sphereGraphBuildProfile}；缩放、平移、调高正常");
             }
             if (verifyScrape)
             {
@@ -703,7 +765,7 @@ public partial class MainWindow
         surface.UpdateLayout();
         var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(1120, 620, 96, 96,
             System.Windows.Media.PixelFormats.Pbgra32);
-        bitmap.Render(surface);
+        bitmap.Render(surface is SphereMapSurface graph ? graph.DrawFrameForDiagnostics() : surface);
         var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
         encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
         using var file = File.Create(destination);

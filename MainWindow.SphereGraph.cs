@@ -164,8 +164,25 @@ public partial class MainWindow
         public int NodeCount => nodes.Count;
         public double AssociationBuildMs { get; private set; }
         public double BaseLayerBuildMs { get; private set; }
+        public bool ProfileRenderStages { get; set; }
+        public bool DiagnosticHideEdges { get; set; }
+        public bool DiagnosticHideNodes { get; set; }
+        public bool DiagnosticHideLabels { get; set; }
+        public bool DiagnosticNoNodeStroke { get; set; }
+        public double ProjectedStrokeRadiusThreshold { get; set; }
+        public (double Background, double Projection, double Topology, double Associations, double FocusAndRoot, double Labels, double Total) LastRenderStages { get; private set; }
         public bool EveryNodeLinked => nodes.All(node => node.Parent.Length == 0 || byPath.ContainsKey(node.Parent));
         public int FocusAssociationCount => FocusAssociations().Count;
+        // RenderTargetBitmap.Render(FrameworkElement) can reuse WPF's retained
+        // drawing after InvalidateVisual. A fresh visual forces this same paint
+        // path to run for each isolated performance frame.
+        public DrawingVisual DrawFrameForDiagnostics()
+        {
+            var visual = new DrawingVisual();
+            using var context = visual.RenderOpen();
+            OnRender(context);
+            return visual;
+        }
         public bool IsBranchHighlighted(string path)
         {
             RefreshFocusedBranches();
@@ -633,6 +650,8 @@ public partial class MainWindow
 
         protected override void OnRender(DrawingContext dc)
         {
+            var profile = ProfileRenderStages;
+            var started = profile ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             var bounds = new Rect(0, 0, Width, Height);
             dc.DrawRectangle(Backdrop, null, bounds);
             var center = new System.Windows.Point(Width / 2, Height / 2 + 7);
@@ -648,20 +667,25 @@ public partial class MainWindow
             }
 
             RefreshFocusedBranches();
-            var rotation = RotationMatrix(center, Rotation);
             var projected = Math.Abs(Rotation) >= .00001 || Math.Abs(Pitch) >= .00001;
+            var backgroundEnd = profile ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+            if (projected) EnsureProjection();
+            var projectionEnd = profile ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             System.Windows.Point Position(string path) => projected ? ProjectedPoint(path) : basePoints[path];
             if (projected)
             {
-                foreach (var node in nodes)
-                    dc.DrawLine(LinkPen, Position(node.Parent), Position(node.Path));
-                foreach (var node in nodes)
-                {
-                    var point = Position(node.Path);
-                    var radius = ProjectedRadius(node.Path);
-                    dc.DrawEllipse(node.IsTag ? TagBrush : node.Count == 0 ? NodeLightBrush : NodeBrush,
-                        NodePen, point, radius, radius);
-                }
+                if (!DiagnosticHideEdges)
+                    foreach (var node in nodes)
+                        dc.DrawLine(LinkPen, Position(node.Parent), Position(node.Path));
+                if (!DiagnosticHideNodes)
+                    foreach (var node in nodes)
+                    {
+                        var point = Position(node.Path);
+                        var radius = ProjectedRadius(node.Path);
+                        dc.DrawEllipse(node.IsTag ? TagBrush : node.Count == 0 ? NodeLightBrush : NodeBrush,
+                            DiagnosticNoNodeStroke || radius <= ProjectedStrokeRadiusThreshold ? null : NodePen,
+                            point, radius, radius);
+                    }
                 foreach (var path in focusedBranches)
                     if (byPath.TryGetValue(path, out var node))
                         dc.DrawLine(FocusLinkPen, Position(node.Parent), Position(path));
@@ -673,6 +697,7 @@ public partial class MainWindow
                 if (focusedBranches.Count > 0)
                     dc.DrawGeometry(null, FocusLinkPen, FocusedLinkGeometry());
             }
+            var topologyEnd = profile ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
 
             // Cross-links are shown when a category or tag is focused. Drawing
             // all such lines permanently would bury the hierarchy in large
@@ -685,6 +710,7 @@ public partial class MainWindow
                         dc.DrawLine(AssociationPen, Position(association.TagPath), Position(association.CategoryPath));
                 else dc.DrawGeometry(null, AssociationPen, AssociationLinkGeometry(associations));
             }
+            var associationsEnd = profile ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             void DrawFocusedNode(string path, bool active)
             {
                 if (!byPath.TryGetValue(path, out var node)) return;
@@ -701,6 +727,7 @@ public partial class MainWindow
             dc.DrawEllipse(RootBrush, RootPen, center, forceMode ? 32 : 43, forceMode ? 32 : 43);
             DrawCentered(dc, "✦", center.X, center.Y - 14, 16, RootTextBrush, FontWeights.Bold);
             DrawCentered(dc, RootLabel, center.X, center.Y + 8, 11, RootTextBrush, FontWeights.SemiBold);
+            var focusEnd = profile ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
 
             // All nodes remain visible as dots. Labels use collision avoidance;
             // the navigator below offers exact access to every dense node.
@@ -724,15 +751,24 @@ public partial class MainWindow
             if (byPath.TryGetValue(HoverPath, out var hoveredNode)) DrawLabel(hoveredNode);
             if (byPath.TryGetValue(SelectedPath, out var selectedNode) &&
                 !string.Equals(SelectedPath, HoverPath, StringComparison.OrdinalIgnoreCase)) DrawLabel(selectedNode);
-            foreach (var node in rankedLabels)
-            {
-                if (drawn >= labelLimit) break;
-                if (node.Path.Equals(HoverPath, StringComparison.OrdinalIgnoreCase) ||
-                    node.Path.Equals(SelectedPath, StringComparison.OrdinalIgnoreCase)) continue;
-                DrawLabel(node);
-            }
+            if (!DiagnosticHideLabels)
+                foreach (var node in rankedLabels)
+                {
+                    if (drawn >= labelLimit) break;
+                    if (node.Path.Equals(HoverPath, StringComparison.OrdinalIgnoreCase) ||
+                        node.Path.Equals(SelectedPath, StringComparison.OrdinalIgnoreCase)) continue;
+                    DrawLabel(node);
+                }
             if (nodes.Count == 0)
                 DrawCentered(dc, "这个标签还没有关联分类节点", center.X, center.Y + 72, 13, LightTextBrush, FontWeights.Normal);
+            if (profile)
+            {
+                var finished = System.Diagnostics.Stopwatch.GetTimestamp();
+                static double Ms(long first, long last) => System.Diagnostics.Stopwatch.GetElapsedTime(first, last).TotalMilliseconds;
+                LastRenderStages = (Ms(started, backgroundEnd), Ms(backgroundEnd, projectionEnd),
+                    Ms(projectionEnd, topologyEnd), Ms(topologyEnd, associationsEnd),
+                    Ms(associationsEnd, focusEnd), Ms(focusEnd, finished), Ms(started, finished));
+            }
         }
 
         static void DrawCentered(DrawingContext dc, string value, double x, double y, double size, Brush brush, FontWeight weight)
@@ -1386,6 +1422,7 @@ public partial class MainWindow
             RootCount = relevantCount,
             RootLabel = sphereTagFilter.Length == 0 ? "全部分类" :
                 "#" + (sphereTagFilter.Length > 6 ? sphereTagFilter[..6] + "…" : sphereTagFilter),
+            ProjectedStrokeRadiusThreshold = config.UiMotion == UiMotion.Smooth ? 3.5 : 0,
             SelectedPath = selectedCategory is "全部" or "未分类" ? (selectedCategory == "未分类" ? "未分类" : "") : selectedCategory
         };
         var surfaceMs = graphClock.Elapsed.TotalMilliseconds - layoutMs;

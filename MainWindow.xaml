@@ -99,6 +99,7 @@
         <Button x:Name="InvertSelectionAction" Style="{StaticResource Action}" Content="反选筛选结果" Click="InvertVideoSelection" ToolTip="反转当前分类、视图和搜索条件匹配视频的选择状态"/>
         <Button x:Name="ClearSelectionAction" Style="{StaticResource Action}" Content="清空选择" Click="ClearVideoSelection" ToolTip="取消整个视频库的选择"/>
         <Button x:Name="BatchUndoAction" Style="{StaticResource Action}" Content="撤销上次批量操作" Click="UndoLastBatchAction" Visibility="Collapsed" ToolTip="恢复上一次批量分类、标签、状态或收藏操作"/>
+        <Button x:Name="BatchCancelAction" Style="{StaticResource Action}" Content="取消批量操作" Click="CancelBatchOperation" Visibility="Collapsed" ToolTip="停止处理尚未开始的批量项目"/>
       </WrapPanel>
       <WrapPanel x:Name="BatchSelectionActions" Visibility="Collapsed" Margin="0,7,0,0">
         <Button x:Name="BatchCategoryAction" Style="{StaticResource Action}" Content="批量分类" Click="BatchCategoryButtonClick" ToolTip="把选中的视频添加到一个或多个分类"/>

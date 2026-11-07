@@ -2046,6 +2046,8 @@ public partial class MainWindow : Window
         ClearSelectionAction.Visibility = hasSelection ? Visibility.Visible : Visibility.Collapsed;
         BatchUndoAction.Visibility = lastBatchUndo is null ? Visibility.Collapsed : Visibility.Visible;
         BatchUndoAction.IsEnabled = lastBatchUndo is not null && !batchOperationInProgress;
+        BatchCancelAction.Visibility = batchOperationInProgress ? Visibility.Visible : Visibility.Collapsed;
+        BatchCancelAction.IsEnabled = batchOperationInProgress;
         ClearSelectionAction.IsEnabled = hasSelection && !batchOperationInProgress;
         BatchCategoryAction.IsEnabled = hasSelection && !batchOperationInProgress;
         BatchTagAction.IsEnabled = hasSelection && !batchOperationInProgress;

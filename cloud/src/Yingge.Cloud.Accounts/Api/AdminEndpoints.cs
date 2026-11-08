@@ -74,12 +74,16 @@ internal static class AdminEndpoints
         var (account, error) = await AuthorizeAsync(http, auth, accounts, options, ct);
         if (error is not null) return error;
         if (account!.MustChangePassword) return Results.Json(new { mustChangePassword = true });
-        var process = Process.GetCurrentProcess();
+        using var process = Process.GetCurrentProcess();
         var drive = new DriveInfo(Path.GetPathRoot(options.Storage.RootPath) ?? options.Storage.RootPath);
         long databaseBytes = 0;
         await using (var connection = await db.OpenConnectionAsync(ct))
         await using (var command = new NpgsqlCommand("select pg_database_size(current_database())", connection))
+        {
+            command.CommandTimeout = 5;
             databaseBytes = Convert.ToInt64(await command.ExecuteScalarAsync(ct));
+        }
+        var reportUsage = await Task.Run(() => AdminStorageUsage.Measure(options.Storage.RootPath, ct), ct);
         return Results.Json(new
         {
             capturedAt = DateTimeOffset.UtcNow,
@@ -88,9 +92,8 @@ internal static class AdminEndpoints
             storageFreeBytes = drive.AvailableFreeSpace,
             storageTotalBytes = drive.TotalSize,
             databaseBytes,
-            reportStorageBytes = Directory.Exists(options.Storage.RootPath)
-                ? Directory.EnumerateFiles(options.Storage.RootPath, "*", SearchOption.AllDirectories)
-                    .Sum(path => new FileInfo(path).Length) : 0
+            reportStorageBytes = reportUsage.Bytes,
+            reportStorageComplete = reportUsage.Complete
         });
     }
 

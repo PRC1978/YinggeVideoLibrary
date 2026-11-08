@@ -41,8 +41,8 @@ function draw(headers, rows, render) {
 }
 async function overview() {
   const data = await request('admin/overview');
-  const resources = await request('admin/resources');
   if (data.mustChangePassword) { show('password-view'); return false; }
+  const resources = await request('admin/resources');
   const metricData = [
     ['账号总数',data.accounts],['待使用邀请码',data.pendingInvites],
     ['有效会话',data.activeSessions],['有效报告',data.reportsLive]
@@ -55,7 +55,7 @@ async function overview() {
     item.append(number,caption); parent.append(item);
   }
   const bytes = value => `${(Number(value || 0) / 1048576).toFixed(1)} MB`;
-  for (const [label,value] of [['进程内存',bytes(resources.processWorkingSetBytes)],['数据库大小',bytes(resources.databaseBytes)],['日志空间',bytes(resources.reportStorageBytes)],['磁盘可用',bytes(resources.storageFreeBytes)]]) {
+  for (const [label,value] of [['进程内存',bytes(resources.processWorkingSetBytes)],['数据库大小',bytes(resources.databaseBytes)],['日志空间',bytes(resources.reportStorageBytes)+(resources.reportStorageComplete === false ? '（部分统计）' : '')],['磁盘可用',bytes(resources.storageFreeBytes)]]) {
     const item = document.createElement('div'); item.className = 'metric resource-metric';
     const number = document.createElement('strong'); number.textContent = value;
     const caption = document.createElement('span'); caption.textContent = label;

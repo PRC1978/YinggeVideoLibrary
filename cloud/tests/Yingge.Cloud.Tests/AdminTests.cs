@@ -40,8 +40,40 @@ public sealed class AdminTests(PostgresFixture fixture) : CloudTestBase(fixture)
         Assert.Equal(HttpStatusCode.OK, admin.StatusCode);
         Assert.Contains("邀请注册", await register.Content.ReadAsStringAsync());
         Assert.Contains("管理入口", await admin.Content.ReadAsStringAsync());
+        var login = await Client.GetAsync("/login/");
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+        Assert.Contains("login-form", await login.Content.ReadAsStringAsync());
+        var loginScript = await Client.GetAsync("/login.js");
+        Assert.Equal(HttpStatusCode.OK, loginScript.StatusCode);
+        Assert.Contains("我的账号", await loginScript.Content.ReadAsStringAsync());
         Assert.Equal(HttpStatusCode.Unauthorized,
             (await SendAdminAsync(HttpMethod.Get, "overview")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await SendAdminAsync(HttpMethod.Get, "resources")).StatusCode);
+    }
+
+    [Fact]
+    public void Resource_storage_scan_is_bounded_and_reports_partial_measurements()
+    {
+        File.WriteAllBytes(Path.Combine(Factory.StorageRoot, "one.bin"), new byte[8]);
+        File.WriteAllBytes(Path.Combine(Factory.StorageRoot, "two.bin"), new byte[8]);
+        var limited = Yingge.Cloud.Accounts.Api.AdminStorageUsage.Measure(Factory.StorageRoot,
+            CancellationToken.None, maxEntries: 1);
+        Assert.False(limited.Complete);
+        Assert.Equal(8L, limited.Bytes);
+        var full = Yingge.Cloud.Accounts.Api.AdminStorageUsage.Measure(Factory.StorageRoot, CancellationToken.None);
+        Assert.True(full.Complete);
+        Assert.Equal(16L, full.Bytes);
+    }
+
+    [Fact]
+    public void Resource_storage_scan_obeys_cancellation()
+    {
+        File.WriteAllBytes(Path.Combine(Factory.StorageRoot, "one.bin"), new byte[8]);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        Assert.Throws<OperationCanceledException>(() => Yingge.Cloud.Accounts.Api.AdminStorageUsage.Measure(
+            Factory.StorageRoot, cancellation.Token));
     }
 
     [Fact]
@@ -55,6 +87,8 @@ public sealed class AdminTests(PostgresFixture fixture) : CloudTestBase(fixture)
         var user = await TestSupport.LoginAsync(Client, username, TestSupport.Password);
         Assert.Equal(HttpStatusCode.Forbidden,
             (await SendAdminAsync(HttpMethod.Get, "overview", user.Token)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await SendAdminAsync(HttpMethod.Get, "resources", user.Token)).StatusCode);
 
         var accounts = new AccountRepository(Fixture.OwnerDataSource);
         Assert.True(await accounts.CreateAdminAsync("yun", new PasswordService(1000).Hash(InitialPassword),
@@ -77,6 +111,8 @@ public sealed class AdminTests(PostgresFixture fixture) : CloudTestBase(fixture)
         Assert.Contains("mustChangePassword", await overview.Content.ReadAsStringAsync());
         Assert.Equal(HttpStatusCode.Forbidden,
             (await SendAdminAsync(HttpMethod.Get, "accounts", initial.Token)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await SendAdminAsync(HttpMethod.Get, "resources", initial.Token)).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest,
             (await SendAdminAsync(HttpMethod.Post, "change-password", initial.Token, body: new {
                 currentPassword = InitialPassword, newPassword = "short"
@@ -89,6 +125,14 @@ public sealed class AdminTests(PostgresFixture fixture) : CloudTestBase(fixture)
             (await SendAdminAsync(HttpMethod.Get, "overview", initial.Token)).StatusCode);
 
         var renewed = await TestSupport.LoginAsync(Client, "yun", NewPassword);
+        var resources = await SendAdminAsync(HttpMethod.Get, "resources", renewed.Token);
+        Assert.Equal(HttpStatusCode.OK, resources.StatusCode);
+        Assert.Equal("no-store", resources.Headers.CacheControl?.ToString());
+        var resourceJson = System.Text.Json.JsonDocument.Parse(await resources.Content.ReadAsStringAsync());
+        Assert.True(resourceJson.RootElement.GetProperty("databaseBytes").GetInt64() > 0);
+        Assert.True(resourceJson.RootElement.GetProperty("processWorkingSetBytes").GetInt64() > 0);
+        Assert.True(resourceJson.RootElement.GetProperty("storageTotalBytes").GetInt64() > 0);
+        Assert.DoesNotContain(Factory.StorageRoot, resourceJson.RootElement.GetRawText(), StringComparison.OrdinalIgnoreCase);
         Assert.Equal(HttpStatusCode.OK,
             (await SendAdminAsync(HttpMethod.Get, "accounts", renewed.Token)).StatusCode);
         var created = await SendAdminAsync(HttpMethod.Post, "invites", renewed.Token,

@@ -111,6 +111,25 @@ public partial class App : System.Windows.Application
             Shutdown(await UpdateShutdownDiagnostics.RunAsync(e.Args[1]));
             return;
         }
+        if (e.Args.Length > 2 && e.Args[0] == "--diagnose-update-handoff")
+        {
+            try
+            {
+                global::YinggeVideoLibrary.MainWindow.PrepareIsolatedUpdateHandoff(e.Args[1], e.Args[2]);
+                var handoffProbe = new MainWindow { ShowActivated = false, ShowInTaskbar = false };
+                MainWindow = handoffProbe;
+                // Never Show: the old host must exercise production update
+                // shutdown without Loaded starting scans or auto-update checks.
+                if (!await handoffProbe.RunIsolatedUpdateHandoffAsync(e.Args[1], e.Args[2]))
+                    Shutdown(1);
+            }
+            catch (Exception error)
+            {
+                System.Diagnostics.Trace.WriteLine("Isolated handoff rejected: " + error);
+                Shutdown(2);
+            }
+            return;
+        }
         if (e.Args.Length > 1 && e.Args[0] == "--diagnose-update-shutdown-child")
         {
             UpdateShutdownDiagnostics.StartWindowProbe(this, e.Args[1]);

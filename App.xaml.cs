@@ -106,6 +106,23 @@ public partial class App : System.Windows.Application
             Shutdown(await Task.Run(() => PortableUpdateWorker.Apply(e.Args)));
             return;
         }
+        if (e.Args.Length > 1 && e.Args[0] == "--diagnose-update-shutdown")
+        {
+            Shutdown(await UpdateShutdownDiagnostics.RunAsync(e.Args[1]));
+            return;
+        }
+        if (e.Args.Length > 1 && e.Args[0] == "--diagnose-update-shutdown-child")
+        {
+            UpdateShutdownDiagnostics.StartWindowProbe(this, e.Args[1]);
+            return;
+        }
+        if (e.Args.Length > 1 && e.Args[0] == "--diagnose-update-shutdown-helper")
+        {
+            System.IO.File.WriteAllText(e.Args[1], "ready");
+            await Task.Delay(TimeSpan.FromSeconds(30));
+            Shutdown(0);
+            return;
+        }
         if (e.Args.Length > 2 && e.Args[0] == "--diagnose-review-recovery")
         {
             Shutdown(ReviewTransactionRecoveryDiagnostics.RecoverCopyToFile(e.Args[1], e.Args[2]));

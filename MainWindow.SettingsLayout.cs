@@ -111,6 +111,7 @@ public partial class MainWindow
         AddSection(panel, "startup", "启动", "开机自启、最小化与启动页", "↗", "#ECF7F0", "#4A9E67", buckets["startup"]);
         AddSection(panel, "updates", "软件更新", "检查新版本并在应用内更新、重启", "↻", "#EAF2FF", "#4D7BCB", buckets["updates"]);
         AddSection(panel, "data", "数据与备份", "本地备份、恢复和数据目录", "▤", "#F9F0EC", "#B6785A", buckets["data"]);
+        panel.Children.Add(BuildAboutFooter());
     }
 
     FrameworkElement CreateSettingsIntro()

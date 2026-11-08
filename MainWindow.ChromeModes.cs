@@ -50,7 +50,7 @@ public partial class MainWindow
         foreach (var heading in modernSidebarHeadings)
             heading.Visibility = wide ? Visibility.Visible : Visibility.Collapsed;
         foreach (var button in new[] { LibraryNav, AllNav, RecentNav, FavoriteNav, RecommendationsNav,
-            CategoriesNav, FoldersNav, StatusNav, RolesNav, ScrapeNav, ReviewNav, OnlineNav, PluginsNav, SettingsNav })
+            CategoriesNav, FoldersNav, StatusNav, RolesNav, ScrapeNav, ReviewNav, OnlineNav, PluginsNav, AccountNav, SettingsNav })
         {
             button.Width = wide ? 176 : UiTheme.IsClassicMode ? 60 : 66;
             button.Height = wide ? 46 : UiTheme.IsClassicMode ? 50 : 58;

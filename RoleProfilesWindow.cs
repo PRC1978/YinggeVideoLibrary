@@ -370,7 +370,7 @@ internal sealed partial class RoleProfilesView : Grid
             token.ThrowIfCancellationRequested();
             if (matched is null)
             {
-                autoStatus.Text = "没有找到能同时核对演员姓名、作品番号和来源链接的唯一人物；未写入档案。可使用手工档案。";
+                autoStatus.Text = "没有找到能同时核对姓名、作品番号和来源链接的唯一人物；未写入档案。可点击“维基百科查找所选姓名”继续搜索并保存本地资料；同名条目需由你选择核对，作品关联也需明确确认。";
                 return;
             }
             var current = await roleStore.LoadMetadataAsync(token);

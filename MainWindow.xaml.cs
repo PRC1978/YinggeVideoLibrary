@@ -571,6 +571,7 @@ public partial class MainWindow : Window
         sphereGraphTimer.Tick += (_, _) => RotateSphereGraph();
         Closing += (_, e) =>
         {
+            if (updateExitRequested) return;
             // A Windows sign-out/shutdown must close the window and release
             // the private database, regardless of the tray preference.
             if (System.Windows.Application.Current is App app &&
@@ -1676,6 +1677,7 @@ public partial class MainWindow : Window
             ["folders"] = ("视频文件夹", "管理本地视频的扫描位置。", "已添加的文件夹"),
             ["status"] = ("状态", "查看扫描和搜刮任务的运行情况。", "运行状态"),
             ["settings"] = ("设置", "播放器、性能和备份设置。", "设置"),
+            ["account"] = ("账号", "管理云端登录、会话与错误报告。", "账号"),
             ["scrape"] = ("搜刮", "管理来源、凭据和完整资料匹配。", "搜刮设置")
             , ["online"] = ("在线", "在应用内浏览视频网站。", "在线")
             , ["plugins"] = ("插件", "管理第三方搜刮来源，插件候选一律人工审核。", "插件")
@@ -1689,11 +1691,11 @@ public partial class MainWindow : Window
             : current.Item2;
         // Settings and scrape already carry their own card heading; a second
         // identical title only pushed the real content further down.
-        SectionTitle.Text = target is "settings" or "scrape" or "review" or "roles" or "plugins" or "folders" or "recommendations"
+        SectionTitle.Text = target is "settings" or "scrape" or "review" or "roles" or "plugins" or "folders" or "recommendations" or "account"
             ? "" : current.Item3;
         BrandEyebrow.Visibility = UiTheme.IsClassicMode ? Visibility.Visible : Visibility.Collapsed;
         UpdateHeaderResponsive();
-        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav, LibraryNav, ReviewNav, RolesNav, PluginsNav })
+        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav, LibraryNav, ReviewNav, RolesNav, PluginsNav, AccountNav })
         {
             button.Background = Brushes.Transparent;
             button.Foreground = UiTheme.TextTertiaryBrush;
@@ -1714,17 +1716,18 @@ public partial class MainWindow : Window
             "online" => OnlineNav,
             "plugins" => classic ? SettingsNav : PluginsNav,
             "settings" => SettingsNav,
+            "account" => AccountNav,
             _ => classic ? AllNav : LibraryNav
         };
         selected.Background = UiTheme.SelectionBackgroundBrush;
         selected.Foreground = UiTheme.SelectionForegroundBrush;
         selected.Tag = "active";
-        Toolbar.Visibility = target is "settings" or "status" or "scrape" or "online" or "recommendations" or "folders" or "plugins" or "review" or "roles" ? Visibility.Collapsed : Visibility.Visible;
+        Toolbar.Visibility = target is "settings" or "status" or "scrape" or "online" or "recommendations" or "folders" or "plugins" or "review" or "roles" or "account" ? Visibility.Collapsed : Visibility.Visible;
         LibraryScroll.Visibility = target == "online" ? Visibility.Collapsed : Visibility.Visible;
         AllListPanel.Visibility = Visibility.Collapsed;
         OnlinePanel.Visibility = target == "online" ? Visibility.Visible : Visibility.Collapsed;
         if (target == "online") _ = InitializeOnlineAsync();
-        Cards.Visibility = target is "folders" or "status" or "scrape" or "settings" or "online" or "recommendations" or "plugins" or "review" or "roles" ? Visibility.Collapsed : Visibility.Visible;
+        Cards.Visibility = target is "folders" or "status" or "scrape" or "settings" or "online" or "recommendations" or "plugins" or "review" or "roles" or "account" ? Visibility.Collapsed : Visibility.Visible;
         if (target is not ("all" or "recent" or "favorites" or "categories"))
         {
             CompactRows.Visibility = Visibility.Collapsed;
@@ -1742,6 +1745,7 @@ public partial class MainWindow : Window
         PluginsPanel.Visibility = target == "plugins" ? Visibility.Visible : Visibility.Collapsed;
         ReviewPanel.Visibility = target == "review" ? Visibility.Visible : Visibility.Collapsed;
         RolesPanel.Visibility = target == "roles" ? Visibility.Visible : Visibility.Collapsed;
+        AccountPanel.Visibility = target == "account" ? Visibility.Visible : Visibility.Collapsed;
         EnsureLibrarySegments();
         UpdateLibrarySegments();
         if (target == "folders") { CountText.Text = $"{config.Folders.Count} 个位置"; RenderFolders(); }
@@ -1759,6 +1763,7 @@ public partial class MainWindow : Window
         }
         else if (target == "plugins") { CountText.Text = ""; EnsurePluginCatalog(); RenderPlugins(); }
         else if (target == "review") { CountText.Text = ""; RefreshReviewQueue(); }
+        else if (target == "account") { CountText.Text = ""; EnsureAccountPage(); }
         else if (target == "roles") { CountText.Text = ""; EnsureEmbeddedRoles(); }
         else if (target == "recommendations") { CountText.Text = ""; RenderRecommendations(); }
         else if (target is "status" or "online")
@@ -1884,6 +1889,11 @@ public partial class MainWindow : Window
             Cards.ItemsSource = null;
             pageItems = [];
             Pager.Visibility = Visibility.Collapsed;
+            // The virtualized full-list path used to return before updating the
+            // empty-state panel, leaving a blank page for a newly opened library.
+            // Keep the same empty-state affordance as the paged layouts.
+            EmptyPanel.Visibility = list.Count == 0 && view != "categories"
+                ? Visibility.Visible : Visibility.Collapsed;
             if (view == "categories") { CategoryPanel.Visibility = Visibility.Visible; RenderCategories(); LibraryScroll.Visibility = Visibility.Visible; AllListPanel.Visibility = Visibility.Collapsed; }
             else { Dispatcher.BeginInvoke(() => ScheduleVirtualPosters(0, 5)); UpdateSelectionToolbar(); return; }
         }
@@ -2040,6 +2050,8 @@ public partial class MainWindow : Window
         ClearSelectionAction.Visibility = hasSelection ? Visibility.Visible : Visibility.Collapsed;
         BatchUndoAction.Visibility = lastBatchUndo is null ? Visibility.Collapsed : Visibility.Visible;
         BatchUndoAction.IsEnabled = lastBatchUndo is not null && !batchOperationInProgress;
+        BatchCancelAction.Visibility = batchOperationInProgress ? Visibility.Visible : Visibility.Collapsed;
+        BatchCancelAction.IsEnabled = batchOperationInProgress;
         ClearSelectionAction.IsEnabled = hasSelection && !batchOperationInProgress;
         BatchCategoryAction.IsEnabled = hasSelection && !batchOperationInProgress;
         BatchTagAction.IsEnabled = hasSelection && !batchOperationInProgress;
@@ -3768,6 +3780,7 @@ public partial class MainWindow : Window
     void NavFolders(object sender, RoutedEventArgs e) => ShowView("folders");
     void NavStatus(object sender, RoutedEventArgs e) => ShowView("status");
     void NavSettings(object sender, RoutedEventArgs e) => ShowView("settings");
+    void NavAccount(object sender, RoutedEventArgs e) => ShowView("account");
     void NavScrape(object sender, RoutedEventArgs e) => ShowView("scrape");
     void OpenPluginsFromSettings(object sender, RoutedEventArgs e) => ShowView("plugins");
     void NavOnline(object sender, RoutedEventArgs e) => ShowView("online");
@@ -3791,7 +3804,7 @@ public partial class MainWindow : Window
         HeaderToggle.Visibility = Visibility.Visible;
         HeaderToggle.Content = "⌃";
         HeaderToggle.ToolTip = "收缩顶部区域";
-        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav, LibraryNav, ReviewNav, RolesNav, PluginsNav })
+        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav, LibraryNav, ReviewNav, RolesNav, PluginsNav, AccountNav })
         {
             button.Visibility = Visibility.Visible;
             button.Width = 60;
@@ -3816,7 +3829,7 @@ public partial class MainWindow : Window
         LogoMark.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
         HeaderToggle.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
         SidebarToggle.Width = collapsed ? 28 : 50;
-        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav, LibraryNav, ReviewNav, RolesNav, PluginsNav })
+        foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav, LibraryNav, ReviewNav, RolesNav, PluginsNav, AccountNav })
         {
             button.Width = 60;
             button.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
@@ -4291,7 +4304,9 @@ public partial class MainWindow : Window
         finally { if (locked) ConfigWriteMutex.ReleaseMutex(); }
     }
 
-    void RefreshReviewQueue(object? sender = null, RoutedEventArgs? e = null)
+    void RefreshReviewQueue(object? sender = null, RoutedEventArgs? e = null) => RefreshReviewQueueCore(false);
+
+    void RefreshReviewQueueCore(bool reuseUnchangedRows)
     {
         if (ReviewQueuePanel is null || ReviewSummary is null) return;
         UpdateReviewSourceFilter();
@@ -4317,7 +4332,12 @@ public partial class MainWindow : Window
         var ids = records.Select(review => review.VideoId).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var pluginCandidates = PluginCandidates.Load().Videos;
         reviewSelection.RemoveWhere(id => !ids.Contains(id));
-        ReviewQueuePanel.Children.Clear();
+        var previousRows = reuseUnchangedRows
+            ? ReviewQueuePanel.Children.OfType<Border>().Where(row => row.Uid.Length > 0)
+                .ToDictionary(row => row.Uid, StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, Border>(StringComparer.OrdinalIgnoreCase);
+        var nextRows = new List<UIElement>();
+        if (!reuseUnchangedRows) ReviewQueuePanel.Children.Clear();
         var low = records.Count(review => review.Confidence < ReviewManualThreshold);
         var rejected = records.Count(review => review.Status == "rejected");
         var unmatched = records.Count(review => review.Status == "unmatched");
@@ -4336,8 +4356,28 @@ public partial class MainWindow : Window
         ReviewSelectAllButton.IsEnabled = records.Any(review => review.Status is "pending" or "rejected");
         ReviewSelectLowButton.IsEnabled = records.Any(review => (review.Status is "pending" or "rejected") && review.Confidence < ReviewManualThreshold);
         ReviewClearButton.IsEnabled = reviewSelection.Count > 0;
+        void UpdateSelectionActions()
+        {
+            // Selection does not change ordering or filters. Keep the existing
+            // controls alive so keyboard focus, scroll and decoded covers survive.
+            // Reused rows may outlive a single decision: read current records,
+            // rather than retaining the summary from their creation.
+            var currentRecords = config.AiReviews.Values.Where(item => available.ContainsKey(item.VideoId))
+                .Where(ReviewMatchesFilter).ToList();
+            var currentIds = currentRecords.Select(item => item.VideoId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var count = reviewSelection.Count(currentIds.Contains);
+            ReviewSummary.Text = currentRecords.Count == 0 ? "暂无搜刮记录" :
+                $"待审核 {currentRecords.Count(item => item.Status == "pending")} · 已通过 {currentRecords.Count(item => item.Status == "approved")} · 未找到 {currentRecords.Count(item => item.Status == "unmatched")} · 低可信度 {currentRecords.Count(item => item.Confidence < ReviewManualThreshold)}"
+                + (count > 0 ? $" · 已选 {count}" : "");
+            var actionable = reviewSelection.Any(id => config.AiReviews.TryGetValue(id, out var item)
+                && (item.Status is "pending" or "rejected"));
+            ReviewApproveButton.IsEnabled = actionable;
+            ReviewRejectButton.IsEnabled = actionable;
+            ReviewClearButton.IsEnabled = reviewSelection.Count > 0;
+        }
         if (records.Count == 0)
         {
+            ReviewQueuePanel.Children.Clear();
             ReviewQueuePanel.Children.Add(new TextBlock { Text = "搜刮结果会先经过可信度判断。低于阈值的匹配会出现在这里。", Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(8, 15, 8, 15), TextWrapping = TextWrapping.Wrap });
             return;
         }
@@ -4345,7 +4385,19 @@ public partial class MainWindow : Window
         // contain thousands of records and must not block the UI thread.
         foreach (var review in records.Skip(reviewPageIndex * ReviewPageSize).Take(ReviewPageSize))
         {
+            var rowVersion = JsonSerializer.Serialize(review) + "\n" + available[review.VideoId].DisplayTitle;
+            if (previousRows.TryGetValue(review.VideoId, out var existingRow) && Equals(existingRow.Tag, rowVersion))
+            {
+                if (existingRow.Child is Grid existingGrid && existingGrid.Children.OfType<System.Windows.Controls.CheckBox>().FirstOrDefault() is { } existingCheck)
+                    existingCheck.IsChecked = reviewSelection.Contains(review.VideoId);
+                existingRow.BorderBrush = reviewSelection.Contains(review.VideoId) ? UiTheme.AccentBrush : UiTheme.BorderBrushToken;
+                nextRows.Add(existingRow);
+                continue;
+            }
             var row = new Border { Background = UiTheme.SurfaceBrush, BorderBrush = UiTheme.BorderBrushToken, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(11), Padding = new Thickness(12), Margin = new Thickness(0, 0, 0, 9) };
+            row.Uid = review.VideoId;
+            row.Tag = rowVersion;
+            row.BorderBrush = reviewSelection.Contains(review.VideoId) ? UiTheme.AccentBrush : UiTheme.BorderBrushToken;
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(74) });
@@ -4356,7 +4408,8 @@ public partial class MainWindow : Window
             check.Click += (_, _) =>
             {
                 if (check.IsChecked == true) reviewSelection.Add(review.VideoId); else reviewSelection.Remove(review.VideoId);
-                RefreshReviewQueue();
+                row.BorderBrush = check.IsChecked == true ? UiTheme.AccentBrush : UiTheme.BorderBrushToken;
+                UpdateSelectionActions();
             };
             Grid.SetColumn(check, 0); grid.Children.Add(check);
             var scoreLabel = review.Status switch { "rejected" => ReviewRejectLabel(review), "unmatched" => "未找到", "approved" => "已通过", _ => "待审核" };
@@ -4432,12 +4485,12 @@ public partial class MainWindow : Window
             var approve = new Button { Content = "通过", Style = (Style)FindResource("Action"), Padding = new Thickness(10, 0, 10, 0) }; approve.Click += (_, _) =>
             {
                 if (!TryCommitReviewDecisionsWithPreview([review.VideoId], true, out var error)) { if (error.Length > 0) MessageBox.Show(this, "通过操作未完成：" + error + (ReviewTransactionStore.HasPending(DataDir) ? "；待恢复记录会在下次启动检查。" : ""), "审核保存失败", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
-                RefreshReviewQueue(); RefreshCardsAfterReview(); Log($"人工通过搜刮匹配：{review.CandidateCode}");
+                RefreshReviewQueueCore(true); RefreshCardsAfterReview(); Log($"人工通过搜刮匹配：{review.CandidateCode}");
             };
             var reject = new Button { Content = "否决", Style = (Style)FindResource("Action"), Padding = new Thickness(10, 0, 10, 0) }; reject.Click += (_, _) =>
             {
                 if (!TryCommitReviewDecisionsWithPreview([review.VideoId], false, out var error)) { if (error.Length > 0) MessageBox.Show(this, "否决操作未完成：" + error + (ReviewTransactionStore.HasPending(DataDir) ? "；待恢复记录会在下次启动检查。" : ""), "审核保存失败", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
-                RefreshReviewQueue(); RefreshCardsAfterReview(); Log($"人工否决搜刮匹配：{review.CandidateCode}");
+                RefreshReviewQueueCore(true); RefreshCardsAfterReview(); Log($"人工否决搜刮匹配：{review.CandidateCode}");
             };
             System.Windows.Automation.AutomationProperties.SetAutomationId(approve, "ReviewRowApprove");
             System.Windows.Automation.AutomationProperties.SetAutomationId(reject, "ReviewRowReject");
@@ -4445,7 +4498,18 @@ public partial class MainWindow : Window
             approve.IsEnabled = review.Status is "pending" or "rejected";
             reject.IsEnabled = review.Status is "pending" or "rejected";
             actions.Children.Add(information); actions.Children.Add(approve); actions.Children.Add(reject); Grid.SetColumn(actions, 4); grid.Children.Add(actions);
-            row.Child = grid; ReviewQueuePanel.Children.Add(row);
+            row.Child = grid;
+            nextRows.Add(row);
+        }
+        // Reconcile only the current page. Unchanged rows keep their controls
+        // and decoded covers; ordering/filter changes can add or remove rows.
+        for (var index = ReviewQueuePanel.Children.Count - 1; index >= 0; index--)
+            if (!nextRows.Contains(ReviewQueuePanel.Children[index])) ReviewQueuePanel.Children.RemoveAt(index);
+        for (var index = 0; index < nextRows.Count; index++)
+        {
+            if (index < ReviewQueuePanel.Children.Count && ReferenceEquals(ReviewQueuePanel.Children[index], nextRows[index])) continue;
+            ReviewQueuePanel.Children.Remove(nextRows[index]);
+            ReviewQueuePanel.Children.Insert(index, nextRows[index]);
         }
     }
 

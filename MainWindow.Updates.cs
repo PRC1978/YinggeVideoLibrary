@@ -40,6 +40,7 @@ public partial class MainWindow
     bool updateInstallRunning;
     bool updatePromptDeferred;
     bool updateCloseAllowed;
+    bool updateExitRequested;
 
     sealed record ReleaseUpdate(string Tag, Version Version, Uri DownloadUrl, long Size, string Sha256, bool Portable, string Notes);
     sealed record SkippedRelease(string Version, DateTimeOffset SkippedAtUtc);
@@ -696,7 +697,8 @@ public partial class MainWindow
                 updater.ArgumentList.Add(release.Sha256);
                 using var helper = Process.Start(updater) ?? throw new IOException("无法启动更新助手");
                 updateCloseAllowed = true;
-                Close();
+                updateExitRequested = true;
+                System.Windows.Application.Current.Shutdown();
                 if (!isClosing)
                 {
                     updateCloseAllowed = false;

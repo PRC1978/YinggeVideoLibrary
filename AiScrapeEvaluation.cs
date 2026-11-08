@@ -52,7 +52,16 @@ internal static class AiScrapeEvaluation
         int ModelCalls, double EstimatedUsd, string CalibrationStatus,
         int? SuggestedThreshold, List<CaseResult> Cases,
         RateInterval? Precision95, RateInterval? FalseApprovalRate95,
-        List<SourceMetrics> Sources, int IdentityConflictCases, int IdentityConflictAutoApproved);
+        List<SourceMetrics> Sources, int IdentityConflictCases, int IdentityConflictAutoApproved)
+    {
+        // These measure automatic approval only. A match held for manual
+        // review is not evidence that the search failed to retrieve it.
+        public int MatchesNotAutoApproved => GoldMatches - CorrectApprovals;
+        public double? AutoApprovalRecall => GoldMatches == 0 ? null : (double)CorrectApprovals / GoldMatches;
+        public RateInterval? AutoApprovalRecall95 => Wilson(CorrectApprovals, GoldMatches);
+        public double? MatchNotAutoApprovedRate => GoldMatches == 0 ? null : (double)MatchesNotAutoApproved / GoldMatches;
+        public string RetrievalRecallStatus => "未测量：当前输入为已取得的候选对，不包含完整检索结果；不得将待审率称为搜刮漏配率";
+    }
 
     internal static Report Evaluate(Fixture fixture)
     {

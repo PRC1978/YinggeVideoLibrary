@@ -12,7 +12,7 @@ using WpfBrushes = System.Windows.Media.Brushes;
 using WpfFontFamily = System.Windows.Media.FontFamily;
 using WpfBinding = System.Windows.Data.Binding;
 using WpfComboBox = System.Windows.Controls.ComboBox;
-using WpfMessageBox = System.Windows.MessageBox;
+using WpfMessageBox = YinggeVideoLibrary.ThemeMessageBox;
 
 namespace YinggeVideoLibrary;
 

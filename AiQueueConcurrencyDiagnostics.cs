@@ -34,7 +34,7 @@ internal static class AiQueueConcurrencyDiagnostics
                 ledger.ReportedUsageCount == 2 && api.DidNotReceiveCloudKey;
         }
 
-        await using (var api = new CaptureApi(1))
+        await using (var api = new CaptureApi(1, holdResponses: true))
         {
             var directory = Path.Combine(root, "budget-cap");
             var requestJson = JsonSerializer.Serialize(payload);
@@ -43,11 +43,18 @@ internal static class AiQueueConcurrencyDiagnostics
             var second = AiRequestQueue.SendAsync(config, api.Endpoint, payload, directory);
             var succeeded = 0;
             var blocked = 0;
-            foreach (var request in new[] { first, second })
+            async Task ObserveAsync(Task<JsonDocument> request)
             {
                 try { using var response = await request.WaitAsync(TimeSpan.FromSeconds(8)); succeeded++; }
-                catch (InvalidOperationException ex) when (ex.Message.Contains("预算", StringComparison.Ordinal)) { blocked++; }
+                catch (InvalidOperationException ex) when (ex.Message.Contains("预算", StringComparison.Ordinal))
+                {
+                    blocked++;
+                    api.ReleaseResponses();
+                }
             }
+            // Keep the first reservation live until the competing request has
+            // actually reached the budget check; fixed delays race scheduling.
+            await Task.WhenAll(ObserveAsync(first), ObserveAsync(second));
             var ledger = AiRequestQueue.LoadBudgetLedger(directory);
             findings["aiParallelReservationsRespectSharedDailyBudget"] = succeeded == 1 && blocked == 1 &&
                 api.AcceptedCount == 1 && ledger.AttemptCount == 1 && ledger.ReportedUsageCount == 1;
@@ -64,13 +71,15 @@ internal static class AiQueueConcurrencyDiagnostics
         readonly Task server;
         readonly int expected;
         readonly int responseDelayMs;
+        readonly TaskCompletionSource<bool> responsesReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
         int accepted;
         bool didNotReceiveCloudKey = true;
 
-        internal CaptureApi(int expected, int responseDelayMs = 0)
+        internal CaptureApi(int expected, int responseDelayMs = 0, bool holdResponses = false)
         {
             this.expected = expected;
             this.responseDelayMs = responseDelayMs;
+            if (!holdResponses) responsesReady.TrySetResult(true);
             listener.Start();
             Endpoint = $"http://127.0.0.1:{((IPEndPoint)listener.LocalEndpoint).Port}/v1/chat/completions";
             server = ServeAsync();
@@ -79,6 +88,7 @@ internal static class AiQueueConcurrencyDiagnostics
         internal string Endpoint { get; }
         internal int AcceptedCount => Volatile.Read(ref accepted);
         internal bool DidNotReceiveCloudKey => didNotReceiveCloudKey;
+        internal void ReleaseResponses() => responsesReady.TrySetResult(true);
 
         async Task ServeAsync()
         {
@@ -96,6 +106,7 @@ internal static class AiQueueConcurrencyDiagnostics
                 // contender to reach the shared budget check.
                 if (responseDelayMs > 0 || expected == 1)
                     await Task.Delay(responseDelayMs > 0 ? responseDelayMs : 1200, stop.Token);
+                await responsesReady.Task.WaitAsync(stop.Token);
                 var body = "{\"choices\":[{\"message\":{\"content\":\"ok\"}}],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":2}}";
                 var response = Encoding.UTF8.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {Encoding.UTF8.GetByteCount(body)}\r\nConnection: close\r\n\r\n{body}");
                 foreach (var client in clients) await client.GetStream().WriteAsync(response, stop.Token);

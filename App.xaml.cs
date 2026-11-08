@@ -11,6 +11,7 @@ public partial class App : System.Windows.Application
 {
     System.IO.FileStream? librarySessionLease;
     PostgresLibraryRuntimeSession? postgresRuntimeSession;
+    Mutex? instanceGate;
     internal bool SystemSessionEnding { get; private set; }
     internal bool RecoveryShutdownRequested { get; private set; }
 
@@ -83,6 +84,9 @@ public partial class App : System.Windows.Application
         }
         finally
         {
+            try { if (instanceGate is not null) instanceGate.ReleaseMutex(); } catch { }
+            instanceGate?.Dispose();
+            instanceGate = null;
             librarySessionLease?.Dispose();
             base.OnExit(e);
         }
@@ -319,6 +323,30 @@ public partial class App : System.Windows.Application
             Shutdown(motionResult);
             return;
         }
+        if (e.Args.Length > 1 && e.Args[0] == "--diagnose-account-about")
+        {
+            // Never construct a window before proving this is a new isolated
+            // fixture. In particular, do not let a missing override read the
+            // normal library or start legacy cache migration.
+            var isolated = AppPaths.DataDirectory;
+            if (!AppPaths.IsRedirected || AppPaths.RedirectError is not null ||
+                string.Equals(isolated.TrimEnd('\\'), AppPaths.DefaultDataDirectory.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase) ||
+                (System.IO.Directory.Exists(isolated) && System.IO.Directory.EnumerateFileSystemEntries(isolated).Any()))
+            {
+                Shutdown(2);
+                return;
+            }
+            System.IO.Directory.CreateDirectory(isolated);
+            var probe = new MainWindow { ShowActivated = false, ShowInTaskbar = false };
+            MainWindow = probe;
+            // Keep the fixture window unshown: Loaded starts background library
+            // work, which is outside this routing/control diagnostic.
+            var result = await probe.WriteAccountAboutDiagnosticAsync(e.Args[1]);
+            RecoveryShutdownRequested = true;
+            probe.Close();
+            Shutdown(result);
+            return;
+        }
         // --diagnose-ui-theme <输出目录>：所有界面模式 × 三档窗口 × 关键页面截图。
         if (e.Args.Length > 1 && e.Args[0] == "--diagnose-ui-theme")
         {
@@ -480,6 +508,25 @@ public partial class App : System.Windows.Application
         // them in the background so a failed prune can never delay or block startup.
         _ = Task.Run(() => UpdateBackupJanitor.TryRun(System.IO.Path.GetDirectoryName(Environment.ProcessPath)));
         var dataDir = AppPaths.DataDirectory;
+        // Claim the per-library instance before migration/database startup. A
+        // second launch during slow PostgreSQL initialization must wake the
+        // first process instead of racing its lock and showing a false error.
+        try
+        {
+            instanceGate = new Mutex(false, SingleInstanceActivation.InstanceMutexNameFor(dataDir));
+            if (!instanceGate.WaitOne(0))
+            {
+                if (await SingleInstanceActivation.WaitForExistingAsync(dataDir,
+                        TimeSpan.FromSeconds(30)))
+                    Shutdown();
+                else
+                    YinggeVideoLibrary.ThemeMessageBox.Show(
+                        "映格正在启动，已有实例尚未准备好。请稍后再试。",
+                        "映格视频库", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+        }
+        catch (AbandonedMutexException) { }
         // A previous window may be hidden in the notification area. Wake it
         // before touching migration, backup or database files.
         if (SingleInstanceActivation.TryActivateExisting(dataDir, 100))

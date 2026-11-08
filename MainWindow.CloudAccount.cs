@@ -14,11 +14,23 @@ using TextBox = System.Windows.Controls.TextBox;
 
 namespace YinggeVideoLibrary;
 
-// Cloud account UI. Every network call is user initiated and awaited off the
-// library path; a failure only changes the status line.
+// Cloud account UI. Requests run when entering the account page or invoking an
+// account action; a failure only changes the status line, never the library.
 public partial class MainWindow
 {
     CloudAccountRuntime? cloudAccount;
+
+    void EnsureAccountPage()
+    {
+        if (AccountPanel.Child is not null) return;
+        var body = new StackPanel();
+        body.Children.Add(new TextBlock { Text = "云端账号", FontSize = 22,
+            FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextPrimaryBrush });
+        body.Children.Add(new TextBlock { Text = "管理登录与主动提交的错误报告。", Margin = new Thickness(0, 6, 0, 8),
+            Foreground = UiTheme.TextSecondaryBrush, TextWrapping = TextWrapping.Wrap });
+        body.Children.Add(BuildCloudAccountSettingsEntry(accountPage: true));
+        AccountPanel.Child = body;
+    }
 
     CloudAccountRuntime CloudAccount(CloudAccountSettings settings)
     {
@@ -27,8 +39,17 @@ public partial class MainWindow
         return cloudAccount;
     }
 
-    FrameworkElement BuildCloudAccountSettingsEntry()
+    FrameworkElement BuildCloudAccountSettingsEntry(bool accountPage = false)
     {
+        // The settings section keeps a discoverable jump; the complete form
+        // belongs to the account page and must have only one live instance.
+        if (!accountPage)
+        {
+            var entry = new Button { Content = "打开账号页面 · 登录与错误报告",
+                Style = (Style)FindResource("Action"), HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch };
+            entry.Click += (_, _) => ShowView("account");
+            return entry;
+        }
         var body = new StackPanel { Margin = new Thickness(0, 16, 0, 8) };
         body.Children.Add(new TextBlock
         {
@@ -50,15 +71,57 @@ public partial class MainWindow
         {
             Text = "密码", Foreground = UiTheme.TextPrimaryBrush, Margin = new Thickness(0, 4, 0, 2)
         });
-        var password = new PasswordBox { Height = 34, Width = 480, Padding = new Thickness(8, 4, 8, 4),
-            HorizontalAlignment = System.Windows.HorizontalAlignment.Left };
+        var password = new PasswordBox { Height = 34, MaxWidth = 480, Padding = new Thickness(8, 4, 8, 4),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch };
         body.Children.Add(password);
 
         var status = new TextBlock
         {
-            Text = "未登录。", TextWrapping = TextWrapping.Wrap, Foreground = UiTheme.TextSecondaryBrush,
+            Text = "登录状态尚未确认。", TextWrapping = TextWrapping.Wrap, Foreground = UiTheme.TextSecondaryBrush,
             Margin = new Thickness(0, 8, 0, 6)
         };
+        string? lastKnownSession = null;
+        string? lastKnownServer = null;
+        var sessionRevision = 0;
+        var restoringSession = false;
+
+        async Task RestoreAccountStatusAsync()
+        {
+            if (restoringSession || !AccountPanel.IsVisible || view != "account" ||
+                Environment.GetCommandLineArgs().Any(arg => arg.StartsWith("--diagnose-", StringComparison.Ordinal) ||
+                    arg.StartsWith("--self-test-", StringComparison.Ordinal)) ||
+                status.Text == "正在处理…" || status.Text == "正在上传…") return;
+            var endpoint = server.Text.Trim();
+            var revision = sessionRevision;
+            var known = string.Equals(lastKnownServer, endpoint, StringComparison.OrdinalIgnoreCase)
+                ? lastKnownSession : null;
+            var checking = known is null ? "正在恢复登录状态…" : known + " 正在刷新…";
+            status.Text = checking;
+            restoringSession = true;
+            try
+            {
+                // An independent client avoids disposing an in-flight upload
+                // when this lightweight status refresh starts.
+                using var runtime = new CloudAccountRuntime(new CloudAccountSettings { ServerUrl = endpoint });
+                var session = await runtime.GetStatusAsync(CancellationToken.None);
+                if (revision != sessionRevision || server.Text.Trim() != endpoint || status.Text != checking) return;
+                lastKnownServer = endpoint;
+                lastKnownSession = session is null ? "当前没有有效登录，请先登录。"
+                    : $"已登录：{session.Username}，会话有效至 {session.ExpiresAt.ToLocalTime():yyyy-MM-dd HH:mm}；24 小时内已上传 {session.UploadsLast24Hours}/{session.DailyUploadLimit} 份。";
+                if (session is not null && string.IsNullOrWhiteSpace(username.Text)) username.Text = session.Username;
+                status.Text = lastKnownSession;
+            }
+            catch (Exception exception) when (exception is CloudAccountException or InvalidOperationException or
+                ArgumentException or IOException or UnauthorizedAccessException or System.Net.Http.HttpRequestException)
+            {
+                if (revision == sessionRevision && server.Text.Trim() == endpoint && status.Text == checking)
+                    status.Text = (known is null ? "登录状态暂时无法确认。" : known + " ") +
+                        "刷新失败，可稍后重试：" + exception.Message;
+            }
+            finally { restoringSession = false; }
+        }
+        body.IsVisibleChanged += async (_, _) => { if (body.IsVisible) await RestoreAccountStatusAsync(); };
+        body.Loaded += async (_, _) => await RestoreAccountStatusAsync();
 
         var buttons = new WrapPanel();
         var login = new Button { Content = "登录", Style = (Style)FindResource("Action") };
@@ -83,10 +146,12 @@ public partial class MainWindow
 
         login.Click += (_, _) => RunCloudAction(status, async () =>
         {
+            sessionRevision++;
             var auth = await CloudAccount(Current()).LoginAsync(username.Text.Trim(), password.Password,
                 CancellationToken.None);
             password.Clear();
-            return $"已登录：{auth.Username}，会话有效至 {auth.ExpiresAt.ToLocalTime():yyyy-MM-dd HH:mm}。";
+            lastKnownServer = server.Text.Trim();
+            return lastKnownSession = $"已登录：{auth.Username}，会话有效至 {auth.ExpiresAt.ToLocalTime():yyyy-MM-dd HH:mm}。";
         });
 
         register.Click += (_, _) =>
@@ -104,17 +169,21 @@ public partial class MainWindow
 
         logout.Click += (_, _) => RunCloudAction(status, async () =>
         {
+            sessionRevision++;
             var result = await CloudAccount(Current()).LogoutAsync(CancellationToken.None);
-            return result.RevokedOnServer
+            lastKnownServer = server.Text.Trim();
+            return lastKnownSession = result.RevokedOnServer
                 ? "已退出登录，服务器会话已撤销。"
                 : "本地已退出；服务器暂时无法连接，会话将在到期后失效。";
         });
 
         check.Click += (_, _) => RunCloudAction(status, async () =>
         {
+            sessionRevision++;
             var runtime = CloudAccount(Current());
             var session = await runtime.GetStatusAsync(CancellationToken.None);
-            return session is null
+            lastKnownServer = server.Text.Trim();
+            return lastKnownSession = session is null
                 ? "当前没有有效登录，请先登录。"
                 : $"已登录：{session.Username}；24 小时内已上传 {session.UploadsLast24Hours}/{session.DailyUploadLimit} 份。";
         });
@@ -139,8 +208,8 @@ public partial class MainWindow
         body.Children.Add(buttons);
         body.Children.Add(status);
 
-        if (CloudAccountSettings.Load().IsConfigured)
-            status.Text = "已保存服务器地址。登录状态需点击“检查登录状态”确认。";
+        if (saved.IsConfigured)
+            status.Text = "进入账号页面后将自动确认登录状态。";
         return body;
     }
 
@@ -152,8 +221,8 @@ public partial class MainWindow
         });
         var box = new TextBox
         {
-            Text = value, Height = 34, Width = 480, Padding = new Thickness(8, 4, 8, 4),
-            HorizontalAlignment = System.Windows.HorizontalAlignment.Left
+            Text = value, Height = 34, MaxWidth = 480, Padding = new Thickness(8, 4, 8, 4),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch
         };
         body.Children.Add(box);
         return box;

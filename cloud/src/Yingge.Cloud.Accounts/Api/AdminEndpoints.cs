@@ -1,5 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Diagnostics;
+using System.IO;
+using Npgsql;
 using Microsoft.AspNetCore.Identity;
 using Yingge.Cloud.Accounts.Data;
 using Yingge.Cloud.Accounts.Security;
@@ -16,6 +19,7 @@ internal static class AdminEndpoints
     {
         var group = app.MapGroup("/api/v1/admin").RequireRateLimiting(RateLimitSetup.Session);
         group.MapGet("/overview", Overview);
+        group.MapGet("/resources", Resources);
         group.MapGet("/accounts", Accounts);
         group.MapPost("/accounts/{username}/status/{status}", AccountStatus);
         group.MapGet("/invites", Invites);
@@ -62,6 +66,35 @@ internal static class AdminEndpoints
         return Results.Json(new { mustChangePassword = false, accounts = await accounts.CountAsync(ct),
             pendingInvites = await invites.CountPendingAsync(ct), activeSessions = await sessions.CountActiveAsync(ct),
             reportsLive = live, reportsDeleted = deleted });
+    }
+
+    static async Task<IResult> Resources(HttpContext http, SessionAuthenticator auth,
+        AccountRepository accounts, NpgsqlDataSource db, CloudOptions options, CancellationToken ct)
+    {
+        var (account, error) = await AuthorizeAsync(http, auth, accounts, options, ct);
+        if (error is not null) return error;
+        if (account!.MustChangePassword) return Results.Json(new { mustChangePassword = true });
+        using var process = Process.GetCurrentProcess();
+        var drive = new DriveInfo(Path.GetPathRoot(options.Storage.RootPath) ?? options.Storage.RootPath);
+        long databaseBytes = 0;
+        await using (var connection = await db.OpenConnectionAsync(ct))
+        await using (var command = new NpgsqlCommand("select pg_database_size(current_database())", connection))
+        {
+            command.CommandTimeout = 5;
+            databaseBytes = Convert.ToInt64(await command.ExecuteScalarAsync(ct));
+        }
+        var reportUsage = await Task.Run(() => AdminStorageUsage.Measure(options.Storage.RootPath, ct), ct);
+        return Results.Json(new
+        {
+            capturedAt = DateTimeOffset.UtcNow,
+            processWorkingSetBytes = process.WorkingSet64,
+            processCpuTimeMs = process.TotalProcessorTime.TotalMilliseconds,
+            storageFreeBytes = drive.AvailableFreeSpace,
+            storageTotalBytes = drive.TotalSize,
+            databaseBytes,
+            reportStorageBytes = reportUsage.Bytes,
+            reportStorageComplete = reportUsage.Complete
+        });
     }
 
     static async Task<IResult> Accounts(HttpContext http, SessionAuthenticator auth,

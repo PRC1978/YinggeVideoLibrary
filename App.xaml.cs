@@ -323,6 +323,30 @@ public partial class App : System.Windows.Application
             Shutdown(motionResult);
             return;
         }
+        if (e.Args.Length > 1 && e.Args[0] == "--diagnose-account-about")
+        {
+            // Never construct a window before proving this is a new isolated
+            // fixture. In particular, do not let a missing override read the
+            // normal library or start legacy cache migration.
+            var isolated = AppPaths.DataDirectory;
+            if (!AppPaths.IsRedirected || AppPaths.RedirectError is not null ||
+                string.Equals(isolated.TrimEnd('\\'), AppPaths.DefaultDataDirectory.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase) ||
+                (System.IO.Directory.Exists(isolated) && System.IO.Directory.EnumerateFileSystemEntries(isolated).Any()))
+            {
+                Shutdown(2);
+                return;
+            }
+            System.IO.Directory.CreateDirectory(isolated);
+            var probe = new MainWindow { ShowActivated = false, ShowInTaskbar = false };
+            MainWindow = probe;
+            // Keep the fixture window unshown: Loaded starts background library
+            // work, which is outside this routing/control diagnostic.
+            var result = await probe.WriteAccountAboutDiagnosticAsync(e.Args[1]);
+            RecoveryShutdownRequested = true;
+            probe.Close();
+            Shutdown(result);
+            return;
+        }
         // --diagnose-ui-theme <输出目录>：所有界面模式 × 三档窗口 × 关键页面截图。
         if (e.Args.Length > 1 && e.Args[0] == "--diagnose-ui-theme")
         {

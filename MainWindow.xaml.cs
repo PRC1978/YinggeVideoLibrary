@@ -4354,6 +4354,20 @@ public partial class MainWindow : Window
         ReviewSelectAllButton.IsEnabled = records.Any(review => review.Status is "pending" or "rejected");
         ReviewSelectLowButton.IsEnabled = records.Any(review => (review.Status is "pending" or "rejected") && review.Confidence < ReviewManualThreshold);
         ReviewClearButton.IsEnabled = reviewSelection.Count > 0;
+        var reviewSummaryWithoutSelection = records.Count == 0 ? "暂无搜刮记录" :
+            $"待审核 {records.Count(item => item.Status == "pending")} · 已通过 {records.Count(item => item.Status == "approved")} · 未找到 {unmatched} · 低可信度 {low}";
+        void UpdateSelectionActions()
+        {
+            // Selection does not change ordering or filters. Keep the existing
+            // controls alive so keyboard focus, scroll and decoded covers survive.
+            var count = reviewSelection.Count(id => ids.Contains(id));
+            ReviewSummary.Text = reviewSummaryWithoutSelection + (count > 0 ? $" · 已选 {count}" : "");
+            var actionable = reviewSelection.Any(id => config.AiReviews.TryGetValue(id, out var item)
+                && (item.Status is "pending" or "rejected"));
+            ReviewApproveButton.IsEnabled = actionable;
+            ReviewRejectButton.IsEnabled = actionable;
+            ReviewClearButton.IsEnabled = reviewSelection.Count > 0;
+        }
         if (records.Count == 0)
         {
             ReviewQueuePanel.Children.Add(new TextBlock { Text = "搜刮结果会先经过可信度判断。低于阈值的匹配会出现在这里。", Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(8, 15, 8, 15), TextWrapping = TextWrapping.Wrap });
@@ -4364,6 +4378,7 @@ public partial class MainWindow : Window
         foreach (var review in records.Skip(reviewPageIndex * ReviewPageSize).Take(ReviewPageSize))
         {
             var row = new Border { Background = UiTheme.SurfaceBrush, BorderBrush = UiTheme.BorderBrushToken, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(11), Padding = new Thickness(12), Margin = new Thickness(0, 0, 0, 9) };
+            row.BorderBrush = reviewSelection.Contains(review.VideoId) ? UiTheme.AccentBrush : UiTheme.BorderBrushToken;
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(74) });
@@ -4374,7 +4389,8 @@ public partial class MainWindow : Window
             check.Click += (_, _) =>
             {
                 if (check.IsChecked == true) reviewSelection.Add(review.VideoId); else reviewSelection.Remove(review.VideoId);
-                RefreshReviewQueue();
+                row.BorderBrush = check.IsChecked == true ? UiTheme.AccentBrush : UiTheme.BorderBrushToken;
+                UpdateSelectionActions();
             };
             Grid.SetColumn(check, 0); grid.Children.Add(check);
             var scoreLabel = review.Status switch { "rejected" => ReviewRejectLabel(review), "unmatched" => "未找到", "approved" => "已通过", _ => "待审核" };

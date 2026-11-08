@@ -276,6 +276,7 @@ public partial class MainWindow
         if (selected.Count == 0 || batchOperationInProgress) return;
         batchOperationInProgress = true;
         batchOperationCancellation = new CancellationTokenSource();
+        var previousUndo = lastBatchUndo;
         var undo = new BatchUndoRecord { Kind = kind, Label = label, Entries = new List<BatchUndoEntry>(selected.Count) };
         lastBatchUndo = undo;
         batchProgressText = $"正在{label} 0 / {selected.Count:N0}…";
@@ -287,6 +288,12 @@ public partial class MainWindow
                 undo.Entries.Add(CaptureBatchState(video, config, kind, favorites, autoAmateur));
                 apply(video);
             }, done => SelectionSummary.Text = $"正在{label} {done:N0} / {selected.Count:N0}…", batchOperationCancellation.Token);
+            batchOperationCancellation.Token.ThrowIfCancellationRequested();
+            // Once persistence begins, cancellation must not claim that a
+            // committed operation was discarded.
+            batchOperationCancellation.Dispose();
+            batchOperationCancellation = null;
+            BatchCancelAction.IsEnabled = false;
             finish?.Invoke(undo);
             batchProgressText = $"正在保存 {selected.Count:N0} 部视频…";
             SelectionSummary.Text = batchProgressText;
@@ -297,8 +304,11 @@ public partial class MainWindow
         }
         catch (OperationCanceledException)
         {
-            SelectionSummary.Text = $"已取消{label}，未保存本次批量修改。";
-            lastBatchUndo = null;
+            await ProcessBatchChunksAsync(undo.Entries,
+                entry => RestoreBatchState(entry, config, kind, favorites, autoAmateur));
+            lastBatchUndo = previousUndo;
+            if (view is "all" or "recent" or "favorites" or "categories") RenderCards();
+            Log($"已取消{label}，已还原 {undo.Entries.Count:N0} 部视频的本次修改。");
         }
         catch (Exception error)
         {
@@ -398,6 +408,27 @@ public partial class MainWindow
                 entry => RestoreBatchState(entry, scratch, BatchChangeKind.Category)));
             if (scratch.Categories.Count != 0 || scratch.MultiCategories.Count != 0)
                 throw new InvalidOperationException("批量分类撤销未恢复原状态");
+
+            using (var cancellation = new CancellationTokenSource())
+            {
+                var partial = new List<BatchUndoEntry>();
+                var cancelled = false;
+                try
+                {
+                    await ProcessBatchChunksAsync(items, video =>
+                    {
+                        partial.Add(CaptureBatchState(video, scratch, BatchChangeKind.Category));
+                        ApplyBatchCategoryValue(video, scratch, "cancel-probe", false);
+                    }, done => cancellation.Cancel(), cancellation.Token);
+                }
+                catch (OperationCanceledException) { cancelled = true; }
+                await ProcessBatchChunksAsync(partial,
+                    entry => RestoreBatchState(entry, scratch, BatchChangeKind.Category));
+                if (!cancelled || partial.Count == 0 || partial.Count >= count ||
+                    scratch.Categories.Count != 0 || scratch.MultiCategories.Count != 0 ||
+                    items.Any(video => video.CategoryList.Contains("cancel-probe")))
+                    throw new InvalidOperationException("取消批量分类后内存或配置仍残留部分修改");
+            }
 
             var autoAmateur = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var tags = new[] { "probe-tag" };

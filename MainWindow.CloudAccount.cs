@@ -20,6 +20,18 @@ public partial class MainWindow
 {
     CloudAccountRuntime? cloudAccount;
 
+    void EnsureAccountPage()
+    {
+        if (AccountPanel.Child is not null) return;
+        var body = new StackPanel();
+        body.Children.Add(new TextBlock { Text = "云端账号", FontSize = 22,
+            FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextPrimaryBrush });
+        body.Children.Add(new TextBlock { Text = "管理登录与主动提交的错误报告。", Margin = new Thickness(0, 6, 0, 8),
+            Foreground = UiTheme.TextSecondaryBrush, TextWrapping = TextWrapping.Wrap });
+        body.Children.Add(BuildCloudAccountSettingsEntry(accountPage: true));
+        AccountPanel.Child = body;
+    }
+
     CloudAccountRuntime CloudAccount(CloudAccountSettings settings)
     {
         cloudAccount?.Dispose();
@@ -27,8 +39,17 @@ public partial class MainWindow
         return cloudAccount;
     }
 
-    FrameworkElement BuildCloudAccountSettingsEntry()
+    FrameworkElement BuildCloudAccountSettingsEntry(bool accountPage = false)
     {
+        // The settings section keeps a discoverable jump; the complete form
+        // belongs to the account page and must have only one live instance.
+        if (!accountPage)
+        {
+            var entry = new Button { Content = "打开账号页面 · 登录与错误报告",
+                Style = (Style)FindResource("Action"), HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch };
+            entry.Click += (_, _) => ShowView("account");
+            return entry;
+        }
         var body = new StackPanel { Margin = new Thickness(0, 16, 0, 8) };
         body.Children.Add(new TextBlock
         {
@@ -50,8 +71,8 @@ public partial class MainWindow
         {
             Text = "密码", Foreground = UiTheme.TextPrimaryBrush, Margin = new Thickness(0, 4, 0, 2)
         });
-        var password = new PasswordBox { Height = 34, Width = 480, Padding = new Thickness(8, 4, 8, 4),
-            HorizontalAlignment = System.Windows.HorizontalAlignment.Left };
+        var password = new PasswordBox { Height = 34, MaxWidth = 480, Padding = new Thickness(8, 4, 8, 4),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch };
         body.Children.Add(password);
 
         var status = new TextBlock
@@ -152,8 +173,8 @@ public partial class MainWindow
         });
         var box = new TextBox
         {
-            Text = value, Height = 34, Width = 480, Padding = new Thickness(8, 4, 8, 4),
-            HorizontalAlignment = System.Windows.HorizontalAlignment.Left
+            Text = value, Height = 34, MaxWidth = 480, Padding = new Thickness(8, 4, 8, 4),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch
         };
         body.Children.Add(box);
         return box;

@@ -1,4 +1,4 @@
-#define MyAppVersion "1.7.3.2"
+#define MyAppVersion "1.7.3.3"
 #ifndef PortableSource
   #define PortableSource "..\发布\映格视频库.exe"
 #endif
@@ -43,7 +43,7 @@ SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
-VersionInfoVersion=1.7.3.2
+VersionInfoVersion=1.7.3.3
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "快捷方式："; Flags: unchecked

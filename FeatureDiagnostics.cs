@@ -587,7 +587,7 @@ internal static class FeatureDiagnostics
                 "<a href=\"/v/def456\" class=\"box\"><img title=\"作品乙\" src=\"https://c0.jdbstatic.com/b.jpg\"><strong>DEF-456</strong></a>");
             bool catalogRateLimitThrows;
             try { JavDbScraper.ParseCatalogPage("<html><body>操作過於頻繁，請等一会再試</body></html>"); catalogRateLimitThrows = false; }
-            catch (InvalidOperationException) { catalogRateLimitThrows = true; }
+            catch (ScrapeSourceUnavailableException) { catalogRateLimitThrows = true; }
             findings["javDbCatalogCardsAndRateLimit"] = catalogCards.Count == 2
                 && catalogCards[0].Code == "ABC-123" && catalogCards[1].Code == "DEF-456"
                 && catalogRateLimitThrows;
@@ -618,6 +618,7 @@ internal static class FeatureDiagnostics
                     && !AniListScraper.TryMediaId("http://anilist.co/anime/123", out _);
             }
             var javDbTitle = JavDbScraper.ParseTitleSearch("<a href=\"/v/sample\" class=\"box\"><img title=\"作品甲\" src=\"https://c0.jdbstatic.com/a.jpg\"><strong>ABC-123</strong></a>");
+            foreach (var check in JavDbFailureDiagnostics.Verify()) findings[check.Key] = check.Value;
             findings["javDbTitleCandidate"] = javDbTitle.Count == 1 && javDbTitle[0].Code == "ABC-123"
                 && javDbTitle[0].SourceUrl == "https://javdb.com/v/sample" && !javDbTitle[0].DetailFetched;
             var javDatabase = JavDatabaseScraper.ParseDetail(new MovieMetadata

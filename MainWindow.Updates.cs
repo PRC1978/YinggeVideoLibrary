@@ -695,20 +695,24 @@ public partial class MainWindow
                 updater.ArgumentList.Add(current);
                 updater.ArgumentList.Add(Environment.ProcessId.ToString());
                 updater.ArgumentList.Add(release.Sha256);
+                // The worker must use the same library as the running copy,
+                // including an explicitly configured custom data directory.
+                updater.Environment[AppPaths.DataDirectoryVariable] = DataDir;
+                File.WriteAllText(Path.Combine(targetDir, "last-update-result.txt"),
+                    $"更新进行中：已校验 {release.Tag}，正在启动更新助手；{DateTimeOffset.Now:O}");
                 using var helper = Process.Start(updater) ?? throw new IOException("无法启动更新助手");
                 updateCloseAllowed = true;
                 updateExitRequested = true;
+                // WPF schedules Shutdown on the dispatcher. Closed (and thus
+                // isClosing) need not have run when this method returns.
+                // Killing the helper here races the queued shutdown and leaves
+                // a downloaded update with the old executable unchanged.
                 System.Windows.Application.Current.Shutdown();
-                if (!isClosing)
-                {
-                    updateCloseAllowed = false;
-                    try { if (!helper.HasExited) helper.Kill(); } catch { }
-                    throw new InvalidOperationException("窗口仍在完成批量保存，更新助手已停止；请稍后重试。");
-                }
             }
         }
         catch (Exception ex)
         {
+            updateExitRequested = false;
             SetUpdateStatus("更新失败：" + ex.Message);
         }
         finally

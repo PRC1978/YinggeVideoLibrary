@@ -211,6 +211,34 @@ public partial class MainWindow
                 finally { scrapeQueueChanging = false; UpdateScrapeQueueStatus(); }
             };
             actions.Children.Add(scrapeQueueRetryButton);
+            var failureReasons = new Button
+            {
+                Content = "查看失败原因", Style = (Style)FindResource("Action"),
+                Margin = new Thickness(0, 0, 9, 6),
+                ToolTip = "按原因汇总失败数量，不显示文件名、查询标题或路径"
+            };
+            failureReasons.Click += async (_, _) =>
+            {
+                failureReasons.IsEnabled = false;
+                try
+                {
+                    // Load through the storage-mode bridge: database mode must
+                    // not inspect an obsolete JSON queue. Only fixed categories
+                    // and counts leave this background task, never raw errors.
+                    var summary = await Task.Run(() => ScrapeQueueFailureSummary.Build(
+                        queueBridge.Load().Where(item => item.Failed).Select(item => item.LastError)));
+                    if (!isClosing)
+                        MessageBox.Show(this, summary, "搜刮失败原因", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                catch
+                {
+                    if (!isClosing)
+                        MessageBox.Show(this, "暂时无法读取失败记录，请稍后重试。现有队列没有改变。",
+                            "搜刮失败原因", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+                finally { failureReasons.IsEnabled = true; }
+            };
+            actions.Children.Add(failureReasons);
             scrapeQueueClearButton = new Button
             {
                 Content = "取消待处理", Style = (Style)FindResource("Action"),
@@ -660,6 +688,11 @@ public partial class MainWindow
             && AttemptsAfterRetry(exhausted.Attempts, refusal) == exhausted.Attempts
             && refusal.RetryAt is { } refusalUntil && refusalUntil - now >= TimeSpan.FromMinutes(59)
             && ScrapeRetryDelay(1, refusal) >= TimeSpan.FromMinutes(59)
+            && ShouldRetryScrapeItem(new ScrapeQueueItem(),
+                new IOException("sharing violation", unchecked((int)0x80070020)))
+            && !ShouldRetryScrapeItem(exhausted,
+                new IOException("sharing violation", unchecked((int)0x80070020)))
+            && !IsTemporaryScrapeFailure(new IOException("disk full", unchecked((int)0x80070070)))
             && FankuHubScraper.IsAccessInterstitial("<html><script src=\"/cdn-cgi/challenge-platform/cf-chl\"></script></html>")
             // A credentialed source that answers 403 is a real permission
             // problem and stays permanent; only the explicit refusal type above
@@ -673,6 +706,9 @@ public partial class MainWindow
         ScrapeSourceUnavailableException => true,
         HttpRequestException http => http.StatusCode is null || http.StatusCode == HttpStatusCode.TooManyRequests
             || http.StatusCode == HttpStatusCode.RequestTimeout || (int?)http.StatusCode >= 500,
+        // Sharing/lock violations may clear after another reader or writer exits.
+        // Keep the finite item retry budget; permission and disk errors stay visible.
+        IOException io when (io.HResult & 0xFFFF) is 32 or 33 => true,
         TaskCanceledException => true,
         TimeoutException => true,
         _ => false

@@ -16,8 +16,8 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <DefaultItemExcludes>$(DefaultItemExcludes);artifacts\**</DefaultItemExcludes>
     <AssemblyName>映格视频库</AssemblyName>
-    <Version>1.7.3.2</Version>
-    <FileVersion>1.7.3.2</FileVersion>
+    <Version>1.7.3.3</Version>
+    <FileVersion>1.7.3.3</FileVersion>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <Copyright>Copyright (c) 2026 PRC1978</Copyright>
     <!-- Program icon: v3 line-field play mark. The original

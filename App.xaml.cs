@@ -106,6 +106,42 @@ public partial class App : System.Windows.Application
             Shutdown(await Task.Run(() => PortableUpdateWorker.Apply(e.Args)));
             return;
         }
+        if (e.Args.Length > 1 && e.Args[0] == "--diagnose-update-shutdown")
+        {
+            Shutdown(await UpdateShutdownDiagnostics.RunAsync(e.Args[1]));
+            return;
+        }
+        if (e.Args.Length > 2 && e.Args[0] == "--diagnose-update-handoff")
+        {
+            try
+            {
+                global::YinggeVideoLibrary.MainWindow.PrepareIsolatedUpdateHandoff(e.Args[1], e.Args[2]);
+                var handoffProbe = new MainWindow { ShowActivated = false, ShowInTaskbar = false };
+                MainWindow = handoffProbe;
+                // Never Show: the old host must exercise production update
+                // shutdown without Loaded starting scans or auto-update checks.
+                if (!await handoffProbe.RunIsolatedUpdateHandoffAsync(e.Args[1], e.Args[2]))
+                    Shutdown(1);
+            }
+            catch (Exception error)
+            {
+                System.Diagnostics.Trace.WriteLine("Isolated handoff rejected: " + error);
+                Shutdown(2);
+            }
+            return;
+        }
+        if (e.Args.Length > 1 && e.Args[0] == "--diagnose-update-shutdown-child")
+        {
+            UpdateShutdownDiagnostics.StartWindowProbe(this, e.Args[1]);
+            return;
+        }
+        if (e.Args.Length > 1 && e.Args[0] == "--diagnose-update-shutdown-helper")
+        {
+            System.IO.File.WriteAllText(e.Args[1], "ready");
+            await Task.Delay(TimeSpan.FromSeconds(30));
+            Shutdown(0);
+            return;
+        }
         if (e.Args.Length > 2 && e.Args[0] == "--diagnose-review-recovery")
         {
             Shutdown(ReviewTransactionRecoveryDiagnostics.RecoverCopyToFile(e.Args[1], e.Args[2]));
@@ -144,6 +180,12 @@ public partial class App : System.Windows.Application
         if (e.Args.Length > 1 && e.Args[0] == "--self-test-features")
         {
             Shutdown(await FeatureDiagnostics.RunAsync(e.Args[1]));
+            return;
+        }
+        if (e.Args.Length > 1 && e.Args[0] is "--self-test-javdb-failures" or "--diagnose-javdb-public-pages")
+        {
+            Shutdown(await JavDbFailureDiagnostics.RunAsync(e.Args[1], e.Args[0] == "--diagnose-javdb-public-pages",
+                e.Args.Length > 2 && e.Args[0] == "--self-test-javdb-failures" ? e.Args[2] : null));
             return;
         }
         if (e.Args.Length > 4 && e.Args[0] == "--diagnose-r18-offline")

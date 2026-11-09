@@ -37,6 +37,9 @@ internal static class PortableUpdateWorker
                 || newVersion <= oldVersion)
                 throw new InvalidDataException("更新程序或目标不是预期的映格版本");
 
+            Directory.CreateDirectory(Path.GetDirectoryName(resultFile)!);
+            File.WriteAllText(resultFile, $"更新进行中：更新助手已启动，正在等待旧版退出；{DateTimeOffset.Now:O}");
+
             try
             {
                 using var previous = Process.GetProcessById(oldPid);
@@ -45,7 +48,9 @@ internal static class PortableUpdateWorker
             catch (ArgumentException) { /* The old process has already exited. */ }
             previousExited = true;
 
-            WaitForLibraryLeaseRelease(TimeSpan.FromSeconds(60));
+            // Test replacement operates only on its temporary executable; it
+            // must never inspect or wait on the user's production library.
+            if (!testOnly) WaitForLibraryLeaseRelease(TimeSpan.FromSeconds(60));
 
             // The 1.6.8 updater can download only the new EXE. Its worker is
             // this new binary, so stop here when the installed directory lacks

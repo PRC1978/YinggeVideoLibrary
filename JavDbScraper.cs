@@ -439,6 +439,7 @@ public static partial class JavDbScraper
     static readonly Regex DetailStrong = new(@"<strong\b(?<attributes>[^>]*)>(?<value>.*?)</strong>", RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
     static readonly Regex CurrentTitleClass = new(@"\bclass\s*=\s*(['""'])[^'""']*\bcurrent-title\b[^'""']*\1", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     static readonly Regex EmptySearchMessage = new(@"(?:沒有|没有|未能|找不到|未找到|暂无|暫無).{0,24}(?:搜尋結果|搜索结果|影片|视频)|(?:no|zero)\s+(?:matching\s+)?(?:results|videos)(?:\s+found)?", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+    static readonly Regex EmptySearchBlock = new(@"<(?:div|p)\b[^>]*\bclass\s*=\s*(['""'])[^'""']*\bempty-message\b[^'""']*\1[^>]*>\s*(?:暫無內容|暂无内容|沒有結果|没有结果)\s*</(?:div|p)>", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     static readonly Regex DetailPath = new(@"^/v/[A-Za-z0-9_-]{2,64}/?$", RegexOptions.Compiled);
     static readonly HttpClient Client = CreateClient();
 
@@ -519,14 +520,14 @@ public static partial class JavDbScraper
             if (results.Count == limit) break;
         }
         if (results.Count > 0) return results;
-        if (cards.Count > 0) throw new InvalidOperationException("JavDB 搜索结果缺少可核对的标题或番号，页面结构可能已变化。");
+        if (cards.Count > 0) throw UnavailablePage("JavDB 搜索结果缺少可核对的标题或番号，页面结构可能已变化。");
 
         // A blank/blocked/changed page is not evidence that the title was not
         // found. Return an empty list only for a recognizable JavDB empty page.
         var plain = CleanHtml(html);
         var looksLikeJavDb = html.Contains("javdb", StringComparison.OrdinalIgnoreCase);
-        if (looksLikeJavDb && EmptySearchMessage.IsMatch(plain)) return results;
-        throw new InvalidOperationException(searchPage
+        if (looksLikeJavDb && (EmptySearchMessage.IsMatch(plain) || EmptySearchBlock.IsMatch(html))) return results;
+        throw UnavailablePage(searchPage
             ? "JavDB 未返回可识别的搜索结果页，无法判断是否没有匹配。"
             : "JavDB 未返回可识别的关系目录页，无法判断是否没有作品。");
     }
@@ -543,9 +544,11 @@ public static partial class JavDbScraper
         EnsureReadablePage(html);
         var result = ParseJavDbDetails(candidate, html);
         if (!result.DetailFetched)
-            throw new InvalidOperationException(result.DetailNote?.Contains("不一致", StringComparison.Ordinal) == true
-                ? "JavDB 详情页番号与搜索候选不一致，请人工核对。"
-                : "JavDB 详情页没有可识别的字段，无法确认完整资料。");
+        {
+            if (result.DetailNote?.Contains("不一致", StringComparison.Ordinal) == true)
+                throw new InvalidOperationException("JavDB 详情页番号与搜索候选不一致，请人工核对。");
+            throw UnavailablePage("JavDB 详情页没有可识别的字段，无法确认完整资料。");
+        }
         return result;
     }
 
@@ -553,6 +556,10 @@ public static partial class JavDbScraper
     {
         if (!response.IsSuccessStatusCode)
         {
+            // This public source has no user API credential: a 403 is an
+            // access refusal, not a permanent fault in every queued video.
+            if (response.StatusCode == HttpStatusCode.Forbidden)
+                throw UnavailablePage("JavDB 拒绝公开页面访问（403），来源已冷却；请稍后重试。", 60);
             var retryHeader = response.Headers.RetryAfter;
             var retryAfter = retryHeader?.Delta ?? (retryHeader?.Date is DateTimeOffset date ? date - DateTimeOffset.UtcNow : null);
             throw new ScrapeHttpException($"JavDB 返回 {(int)response.StatusCode}，请稍后重试。", response.StatusCode, retryAfter);
@@ -563,29 +570,41 @@ public static partial class JavDbScraper
             throw new InvalidOperationException("JavDB 将请求转向了其他站点，未读取该页面。");
     }
 
+    internal static void EnsureSuccessfulResponseForDiagnostics(HttpResponseMessage response) => EnsureSuccessfulResponse(response);
+
+    static ScrapeSourceUnavailableException UnavailablePage(string message, int minutes = 30) =>
+        new(message, DateTimeOffset.UtcNow.AddMinutes(minutes));
+
     static void EnsureReadablePage(string html)
     {
-        if (string.IsNullOrWhiteSpace(html)) throw new InvalidOperationException("JavDB 返回了空白页面，无法判断匹配情况。");
+        if (string.IsNullOrWhiteSpace(html)) throw UnavailablePage("JavDB 返回了空白页面，无法判断匹配情况。");
         if (Regex.IsMatch(html, @"<title\b[^>]*>\s*(?:登入|登录|Log\s*in)\b", RegexOptions.IgnoreCase))
-            throw new InvalidOperationException("JavDB 要求登录后才能读取此目录；不会把它当作没有作品。");
+            throw UnavailablePage("JavDB 要求登录后才能读取此目录；不会把它当作没有作品。", 60);
         if (html.Contains("操作過於頻繁", StringComparison.OrdinalIgnoreCase)
             || html.Contains("操作过于频繁", StringComparison.OrdinalIgnoreCase)
             || html.Contains("too many requests", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("JavDB 提示操作过于频繁，请稍后再试；当前不会把它当作未找到作品。");
+            throw UnavailablePage("JavDB 提示操作过于频繁，请稍后再试；当前不会把它当作未找到作品。", 60);
         if (html.Contains("Due to copyright restrictions", StringComparison.OrdinalIgnoreCase)
             || html.Contains("版權限制", StringComparison.OrdinalIgnoreCase)
             || html.Contains("版权限制", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("JavDB 限制了当前地区的访问，暂时无法搜刮此来源。");
+            throw UnavailablePage("JavDB 限制了当前地区的访问，暂时无法搜刮此来源。", 60);
         var hasSourceContent = Cards.IsMatch(html) || DetailBlocks.IsMatch(html);
+        // The site's ordinary result pages embed an inactive sign-in modal
+        // containing rucaptcha inputs. Its mere presence is not a challenge.
+        // Only an explicit source empty-state may disambiguate that generic
+        // word; strong challenge markers and verification titles still win.
+        var explicitSourceEmpty = html.Contains("javdb", StringComparison.OrdinalIgnoreCase) && EmptySearchBlock.IsMatch(html);
         if (!hasSourceContent && (html.Contains("cf-chl-", StringComparison.OrdinalIgnoreCase)
             || html.Contains("Just a moment", StringComparison.OrdinalIgnoreCase)
-            || html.Contains("captcha", StringComparison.OrdinalIgnoreCase)))
-            throw new InvalidOperationException("JavDB 返回了访问验证页面，暂时无法读取公开资料。");
+            || html.Contains("verify you are human", StringComparison.OrdinalIgnoreCase)
+            || Regex.IsMatch(html, @"<title\b[^>]*>[^<]*(?:captcha|驗證|验证)", RegexOptions.IgnoreCase)
+            || html.Contains("captcha", StringComparison.OrdinalIgnoreCase) && !explicitSourceEmpty))
+            throw UnavailablePage("JavDB 返回了访问验证页面，暂时无法读取公开资料。", 60);
         if (!hasSourceContent && (html.Contains("age verification", StringComparison.OrdinalIgnoreCase)
             || html.Contains("age gate", StringComparison.OrdinalIgnoreCase)
             || html.Contains("年齡驗證", StringComparison.OrdinalIgnoreCase)
             || html.Contains("年龄验证", StringComparison.OrdinalIgnoreCase)))
-            throw new InvalidOperationException("JavDB 返回了年龄验证页面，暂时无法读取公开资料。");
+            throw UnavailablePage("JavDB 返回了年龄验证页面，暂时无法读取公开资料。", 60);
     }
 
     static bool TryCandidateUrl(string value, out string url)
@@ -617,6 +636,22 @@ public static partial class JavDbScraper
         using var response = await Client.GetAsync(searchUrl, HttpCompletionOption.ResponseContentRead, cancellationToken);
         EnsureSuccessfulResponse(response);
         var html = await response.Content.ReadAsStringAsync(cancellationToken);
+        var matched = FindExactResultCard(html, code);
+        var title = WebUtility.HtmlDecode(Title.Match(matched.Value).Groups["value"].Value.Trim());
+        if (title.Length == 0) title = code;
+        if (!TryCandidateUrl(matched.Groups["href"].Value, out var detail))
+            throw new InvalidOperationException("JavDB 结果卡片包含无效详情链接，未读取该页面。");
+        var posterUrl = WebUtility.HtmlDecode(Image.Match(matched.Groups["body"].Value).Groups["value"].Value);
+        var record = new MovieMetadata { Code = code, Title = title, Source = "JavDB", SourceUrl = detail, PosterUrl = SafePosterUrl(posterUrl) };
+        record.StampAvailableFields("搜索结果");
+        // Transport/structure failures must reach the queue's source cooldown.
+        record = await RequireVerifiedDetailsAsync(record, FetchCandidateDetailsAsync, cancellationToken);
+        await AdditionalScrapers.DownloadPosterAsync(record, videoId, dataDir, cancellationToken);
+        return record;
+    }
+
+    internal static Match FindExactResultCard(string html, string code)
+    {
         EnsureReadablePage(html);
         Match? matched = null;
         foreach (Match card in Cards.Matches(html))
@@ -627,20 +662,12 @@ public static partial class JavDbScraper
         if (matched is null)
         {
             if (Cards.Matches(html).Count > 0) throw new ScrapeNotFoundException("JavDB 返回了结果，但没有完全匹配的番号。");
-            throw new InvalidOperationException("JavDB 没有返回可识别的结果，可能无结果或页面结构已变化。");
+            if (html.Contains("javdb", StringComparison.OrdinalIgnoreCase)
+                && (EmptySearchMessage.IsMatch(CleanHtml(html)) || EmptySearchBlock.IsMatch(html)))
+                throw new ScrapeNotFoundException("JavDB 明确返回没有搜索结果。");
+            throw UnavailablePage("JavDB 没有返回可识别的结果，无法确认是否无匹配；来源已冷却。");
         }
-        var title = WebUtility.HtmlDecode(Title.Match(matched.Value).Groups["value"].Value.Trim());
-        if (title.Length == 0) title = code;
-        if (!TryCandidateUrl(matched.Groups["href"].Value, out var detail))
-            throw new InvalidOperationException("JavDB 结果卡片包含无效详情链接，未读取该页面。");
-        var posterUrl = WebUtility.HtmlDecode(Image.Match(matched.Groups["body"].Value).Groups["value"].Value);
-        var record = new MovieMetadata { Code = code, Title = title, Source = "JavDB", SourceUrl = detail, PosterUrl = SafePosterUrl(posterUrl) };
-        record.StampAvailableFields("搜索结果");
-        // The queue must see detail transport errors (especially 429 and timeouts)
-        // so it can cool this source. A search card is never a successful scrape.
-        record = await RequireVerifiedDetailsAsync(record, FetchCandidateDetailsAsync, cancellationToken);
-        await AdditionalScrapers.DownloadPosterAsync(record, videoId, dataDir, cancellationToken);
-        return record;
+        return matched;
     }
 
     internal static async Task<MovieMetadata> RequireVerifiedDetailsAsync(MovieMetadata candidate,

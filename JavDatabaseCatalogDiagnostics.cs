@@ -60,12 +60,18 @@ internal static class JavDatabaseCatalogDiagnostics
                 && Rejects(() => JavDatabaseCatalog.ParseVerifiedCatalogPage(link, link.Url,
                     CatalogPage(heading: "Different Person - JAV Profile")))
                 && Rejects(() => JavDatabaseCatalog.ParseVerifiedCatalogPage(series, series.Url,
-                    CatalogPage(canonical: SeriesUrl, heading: "Different Series JAV Videos")))
-                && Rejects(() => JavDatabaseCatalog.ParseVerifiedCatalogPage(link, link.Url,
+                    CatalogPage(canonical: SeriesUrl, heading: "Different Series JAV Videos"))),
+            ["nativeCatalogMalformedCandidatePageIsUnavailable"] = SourceUnavailable(() => JavDatabaseCatalog.ParseVerifiedCatalogPage(link, link.Url,
                     CatalogPage(code: "NOT A CODE"))),
             ["nativeCatalogUnavailableNotEmpty"] = Rejects(() => JavDatabaseCatalog.ParseVerifiedCatalogPage(link,
                 link.Url, "<html>Just a moment...</html>"))
         };
+    }
+
+    static bool SourceUnavailable(Action action)
+    {
+        try { action(); return false; }
+        catch (ScrapeSourceUnavailableException ex) { return ex.RetryAt > DateTimeOffset.UtcNow; }
     }
 
     static bool Rejects(Action action)

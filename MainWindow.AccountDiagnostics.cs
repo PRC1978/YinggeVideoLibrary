@@ -36,6 +36,11 @@ public partial class MainWindow
                 Check(theme + ".navigationHighlight", Equals(AccountNav.Tag, "active"));
                 var buttons = Descendants(AccountPanel).OfType<Button>().Select(button => button.Content?.ToString()).ToHashSet();
                 Check(theme + ".accountActions", new[] { "登录", "退出登录", "用邀请码注册", "上传错误日志" }.All(buttons.Contains));
+                var accountText = Descendants(AccountPanel).OfType<TextBlock>().Select(item => item.Text).ToArray();
+                Check(theme + ".accountIdentity", accountText.Contains("登录映格账号") &&
+                    Descendants(AccountPanel).OfType<Border>().Any(item =>
+                        System.Windows.Automation.AutomationProperties.GetName(item) == "账号头像"));
+                Check(theme + ".noServerInput", !accountText.Any(item => item.Contains("服务器地址", StringComparison.Ordinal)));
                 Check(theme + ".noVideoLayout", Cards.Visibility == Visibility.Collapsed && AllListPanel.Visibility == Visibility.Collapsed);
                 ShowView("settings");
                 Check(theme + ".settingsReturn", AccountPanel.Visibility == Visibility.Collapsed && SettingsPanel.Visibility == Visibility.Visible);

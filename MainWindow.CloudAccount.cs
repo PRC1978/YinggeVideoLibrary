@@ -24,10 +24,6 @@ public partial class MainWindow
     {
         if (AccountPanel.Child is not null) return;
         var body = new StackPanel();
-        body.Children.Add(new TextBlock { Text = "云端账号", FontSize = 22,
-            FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextPrimaryBrush });
-        body.Children.Add(new TextBlock { Text = "管理登录与主动提交的错误报告。", Margin = new Thickness(0, 6, 0, 8),
-            Foreground = UiTheme.TextSecondaryBrush, TextWrapping = TextWrapping.Wrap });
         body.Children.Add(BuildCloudAccountSettingsEntry(accountPage: true));
         AccountPanel.Child = body;
     }
@@ -50,30 +46,66 @@ public partial class MainWindow
             entry.Click += (_, _) => ShowView("account");
             return entry;
         }
-        var body = new StackPanel { Margin = new Thickness(0, 16, 0, 8) };
-        body.Children.Add(new TextBlock
+        var body = new StackPanel { MaxWidth = 700, HorizontalAlignment = System.Windows.HorizontalAlignment.Left };
+        // The official endpoint is fixed for this account service. A previously
+        // saved custom address must not silently receive credentials now that
+        // the address is no longer editable or visible on this page.
+        var endpoint = new CloudAccountSettings().ServerUrl;
+        var identity = new Grid { Margin = new Thickness(0, 2, 0, 22) };
+        identity.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        identity.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var avatar = new Border
         {
-            Text = "云端账号（错误日志）", FontWeight = FontWeights.SemiBold,
-            Foreground = UiTheme.TextPrimaryBrush
-        });
-        body.Children.Add(new TextBlock
+            Width = 58, Height = 58, CornerRadius = new CornerRadius(16),
+            BorderBrush = UiTheme.AccentBrush, BorderThickness = new Thickness(1),
+            Background = UiTheme.SurfaceBrush, Margin = new Thickness(0, 0, 16, 0)
+        };
+        System.Windows.Automation.AutomationProperties.SetName(avatar, "账号头像");
+        var avatarLetter = new TextBlock
         {
-            Text = "邀请制。登录后只上传错误日志文字，已在本机脱敏；视频文件、封面、索引、配置和 API Key 不会上传。"
-                 + "会话令牌只保存在 Windows 凭据管理器。",
-            TextWrapping = TextWrapping.Wrap, Foreground = UiTheme.TextSecondaryBrush,
-            Margin = new Thickness(0, 4, 0, 8)
-        });
+            Text = "映", FontSize = 24, FontWeight = FontWeights.SemiBold,
+            Foreground = UiTheme.AccentBrush, HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        avatar.Child = avatarLetter;
+        identity.Children.Add(avatar);
+        var identityText = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        var displayName = new TextBlock { Text = "登录映格账号", FontSize = 21,
+            FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextPrimaryBrush };
+        var identitySubtitle = new TextBlock { Text = "登录后管理你主动提交的错误报告", Margin = new Thickness(0, 5, 0, 0),
+            Foreground = UiTheme.TextSecondaryBrush, TextWrapping = TextWrapping.Wrap };
+        identityText.Children.Add(displayName);
+        identityText.Children.Add(identitySubtitle);
+        Grid.SetColumn(identityText, 1);
+        identity.Children.Add(identityText);
+        body.Children.Add(identity);
 
-        var saved = CloudAccountSettings.Load();
-        var server = LabeledInput(body, "服务器地址（HTTPS，例如 https://reports.yingevideo.top）", saved.ServerUrl);
-        var username = LabeledInput(body, "账号名", "");
-        body.Children.Add(new TextBlock
-        {
-            Text = "密码", Foreground = UiTheme.TextPrimaryBrush, Margin = new Thickness(0, 4, 0, 2)
-        });
+        var loginForm = new StackPanel { Width = 420, MaxWidth = 480,
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left };
+        var username = LabeledInput(loginForm, "账号名", "");
+        loginForm.Children.Add(new TextBlock { Text = "密码", Foreground = UiTheme.TextPrimaryBrush,
+            Margin = new Thickness(0, 14, 0, 5) });
         var password = new PasswordBox { Height = 34, MaxWidth = 480, Padding = new Thickness(8, 4, 8, 4),
             HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch };
-        body.Children.Add(password);
+        loginForm.Children.Add(password);
+        body.Children.Add(loginForm);
+
+        var authActions = new WrapPanel { Margin = new Thickness(0, 16, 0, 0) };
+        var sessionActions = new StackPanel { Visibility = Visibility.Collapsed };
+
+        void ShowIdentity(string? name, DateTimeOffset? expiresAt = null)
+        {
+            var signedIn = !string.IsNullOrWhiteSpace(name);
+            avatarLetter.Text = signedIn ? name!.Trim()[..1].ToUpperInvariant() : "映";
+            displayName.Text = signedIn ? name! : "登录映格账号";
+            identitySubtitle.Text = signedIn
+                ? expiresAt is null ? "已登录 · 可管理错误报告"
+                    : $"已登录 · 会话有效至 {expiresAt.Value.ToLocalTime():yyyy-MM-dd HH:mm}"
+                : "登录后管理你主动提交的错误报告";
+            loginForm.Visibility = signedIn ? Visibility.Collapsed : Visibility.Visible;
+            authActions.Visibility = signedIn ? Visibility.Collapsed : Visibility.Visible;
+            sessionActions.Visibility = signedIn ? Visibility.Visible : Visibility.Collapsed;
+        }
 
         var status = new TextBlock
         {
@@ -91,7 +123,6 @@ public partial class MainWindow
                 Environment.GetCommandLineArgs().Any(arg => arg.StartsWith("--diagnose-", StringComparison.Ordinal) ||
                     arg.StartsWith("--self-test-", StringComparison.Ordinal)) ||
                 status.Text == "正在处理…" || status.Text == "正在上传…") return;
-            var endpoint = server.Text.Trim();
             var revision = sessionRevision;
             var known = string.Equals(lastKnownServer, endpoint, StringComparison.OrdinalIgnoreCase)
                 ? lastKnownSession : null;
@@ -104,17 +135,18 @@ public partial class MainWindow
                 // when this lightweight status refresh starts.
                 using var runtime = new CloudAccountRuntime(new CloudAccountSettings { ServerUrl = endpoint });
                 var session = await runtime.GetStatusAsync(CancellationToken.None);
-                if (revision != sessionRevision || server.Text.Trim() != endpoint || status.Text != checking) return;
+                if (revision != sessionRevision || status.Text != checking) return;
                 lastKnownServer = endpoint;
                 lastKnownSession = session is null ? "当前没有有效登录，请先登录。"
                     : $"已登录：{session.Username}，会话有效至 {session.ExpiresAt.ToLocalTime():yyyy-MM-dd HH:mm}；24 小时内已上传 {session.UploadsLast24Hours}/{session.DailyUploadLimit} 份。";
                 if (session is not null && string.IsNullOrWhiteSpace(username.Text)) username.Text = session.Username;
+                ShowIdentity(session?.Username, session?.ExpiresAt);
                 status.Text = lastKnownSession;
             }
             catch (Exception exception) when (exception is CloudAccountException or InvalidOperationException or
                 ArgumentException or IOException or UnauthorizedAccessException or System.Net.Http.HttpRequestException)
             {
-                if (revision == sessionRevision && server.Text.Trim() == endpoint && status.Text == checking)
+                if (revision == sessionRevision && status.Text == checking)
                     status.Text = (known is null ? "登录状态暂时无法确认。" : known + " ") +
                         "刷新失败，可稍后重试：" + exception.Message;
             }
@@ -123,25 +155,18 @@ public partial class MainWindow
         body.IsVisibleChanged += async (_, _) => { if (body.IsVisible) await RestoreAccountStatusAsync(); };
         body.Loaded += async (_, _) => await RestoreAccountStatusAsync();
 
-        var buttons = new WrapPanel();
-        var login = new Button { Content = "登录", Style = (Style)FindResource("Action") };
+        var login = new Button { Content = "登录", MinWidth = 112,
+            Style = (Style)FindResource("Primary") };
         var register = new Button { Content = "用邀请码注册", Style = (Style)FindResource("Action") };
         var logout = new Button { Content = "退出登录", Style = (Style)FindResource("Action") };
         var check = new Button { Content = "检查登录状态", Style = (Style)FindResource("Action") };
-        var upload = new Button { Content = "上传错误日志", Style = (Style)FindResource("Action") };
+        var upload = new Button { Content = "上传错误日志", Style = (Style)FindResource("Primary") };
         var pending = new Button { Content = "补传待上传日志", Style = (Style)FindResource("Action") };
         var mine = new Button { Content = "查看/删除我的上传", Style = (Style)FindResource("Action") };
 
         CloudAccountSettings Current()
         {
-            var settings = new CloudAccountSettings { ServerUrl = server.Text.Trim() };
-            if (settings.IsConfigured)
-            {
-                try { settings.Save(); }
-                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-                { /* Non-fatal: the endpoint is only a convenience setting. */ }
-            }
-            return settings;
+            return new CloudAccountSettings { ServerUrl = endpoint };
         }
 
         login.Click += (_, _) => RunCloudAction(status, async () =>
@@ -150,7 +175,8 @@ public partial class MainWindow
             var auth = await CloudAccount(Current()).LoginAsync(username.Text.Trim(), password.Password,
                 CancellationToken.None);
             password.Clear();
-            lastKnownServer = server.Text.Trim();
+            lastKnownServer = endpoint;
+            ShowIdentity(auth.Username, auth.ExpiresAt);
             return lastKnownSession = $"已登录：{auth.Username}，会话有效至 {auth.ExpiresAt.ToLocalTime():yyyy-MM-dd HH:mm}。";
         });
 
@@ -171,7 +197,8 @@ public partial class MainWindow
         {
             sessionRevision++;
             var result = await CloudAccount(Current()).LogoutAsync(CancellationToken.None);
-            lastKnownServer = server.Text.Trim();
+            lastKnownServer = endpoint;
+            ShowIdentity(null);
             return lastKnownSession = result.RevokedOnServer
                 ? "已退出登录，服务器会话已撤销。"
                 : "本地已退出；服务器暂时无法连接，会话将在到期后失效。";
@@ -182,7 +209,8 @@ public partial class MainWindow
             sessionRevision++;
             var runtime = CloudAccount(Current());
             var session = await runtime.GetStatusAsync(CancellationToken.None);
-            lastKnownServer = server.Text.Trim();
+            lastKnownServer = endpoint;
+            ShowIdentity(session?.Username, session?.ExpiresAt);
             return lastKnownSession = session is null
                 ? "当前没有有效登录，请先登录。"
                 : $"已登录：{session.Username}；24 小时内已上传 {session.UploadsLast24Hours}/{session.DailyUploadLimit} 份。";
@@ -198,18 +226,32 @@ public partial class MainWindow
         });
         mine.Click += async (_, _) => await ShowMyCloudReportsAsync(Current(), status);
 
-        buttons.Children.Add(login);
-        buttons.Children.Add(register);
-        buttons.Children.Add(logout);
-        buttons.Children.Add(check);
-        buttons.Children.Add(upload);
-        buttons.Children.Add(pending);
-        buttons.Children.Add(mine);
-        body.Children.Add(buttons);
+        authActions.Children.Add(login);
+        authActions.Children.Add(register);
+        body.Children.Add(authActions);
+        var reportTitle = new TextBlock { Text = "错误报告", FontSize = 16,
+            FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextPrimaryBrush,
+            Margin = new Thickness(0, 4, 0, 5) };
+        sessionActions.Children.Add(reportTitle);
+        sessionActions.Children.Add(new TextBlock
+        {
+            Text = "仅在你确认后上传脱敏错误文字；本地视频、封面、资料库和密钥不会上传。",
+            Foreground = UiTheme.TextSecondaryBrush, TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 12)
+        });
+        var reportActions = new WrapPanel();
+        reportActions.Children.Add(upload);
+        reportActions.Children.Add(mine);
+        reportActions.Children.Add(pending);
+        sessionActions.Children.Add(reportActions);
+        var accountActions = new WrapPanel { Margin = new Thickness(0, 18, 0, 0) };
+        accountActions.Children.Add(check);
+        accountActions.Children.Add(logout);
+        sessionActions.Children.Add(accountActions);
+        body.Children.Add(sessionActions);
         body.Children.Add(status);
 
-        if (saved.IsConfigured)
-            status.Text = "进入账号页面后将自动确认登录状态。";
+        status.Text = "进入账号页面后将自动确认登录状态。";
         return body;
     }
 

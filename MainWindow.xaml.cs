@@ -1883,9 +1883,28 @@ public partial class MainWindow : Window
         {
             AllListTitle.Text = view == "categories" ? "分类视频" : SectionTitle.Text;
             AllListCount.Text = $"{resultSummary} · 完整列表";
-            virtualColumns = ComputeVirtualColumns();
-            virtualRows = list.Chunk(virtualColumns).Select(row => row.ToList()).ToList();
-            VirtualCards.ItemsSource = virtualRows;
+            var columns = ComputeVirtualColumns();
+            // A changed query may produce the exact same ordered rows. Keep
+            // the existing virtualized source in that case: replacing it
+            // forces WPF to discard and realize the visible rows again.
+            var sameRows = columns == virtualColumns &&
+                ReferenceEquals(VirtualCards.ItemsSource, virtualRows) &&
+                virtualRows.Count == (list.Count + columns - 1) / columns;
+            if (sameRows)
+            {
+                for (var i = 0; i < list.Count; i++)
+                {
+                    if (ReferenceEquals(virtualRows[i / columns][i % columns], list[i])) continue;
+                    sameRows = false;
+                    break;
+                }
+            }
+            virtualColumns = columns;
+            if (!sameRows)
+            {
+                virtualRows = list.Chunk(columns).Select(row => row.ToList()).ToList();
+                VirtualCards.ItemsSource = virtualRows;
+            }
             Cards.ItemsSource = null;
             pageItems = [];
             Pager.Visibility = Visibility.Collapsed;
@@ -2136,10 +2155,61 @@ public partial class MainWindow : Window
     // colon are accepted too. Unknown prefixes stay ordinary search text.
     static bool TryGetSearchMatch(VideoItem video, string query, out double score, out string reason)
     {
+        var parts = query.Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return TryGetSearchMatch(video, parts, out score, out reason);
+    }
+
+    static bool TryGetSearchMatch(VideoItem video, string[] parts, out double score, out string reason)
+    {
         score = 0;
         reason = "";
-        var parts = query.Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (parts.Length == 0) return false;
+        var singleTitleScore = double.NaN;
+        if (parts.Length == 1)
+        {
+            var term = parts[0];
+            if (TryParseSearchDirective(term, out var key, out var value))
+            {
+                if (key == "收藏")
+                {
+                    var favorite = ParseFavoriteValue(value);
+                    if (favorite is null || video.Favorite != favorite.Value) { score = -1; return false; }
+                    score = 1.08; reason = "收藏"; return true;
+                }
+                if (key == "状态")
+                {
+                    if (!MatchesWatchStatus(video.WatchStatus, value)) { score = -1; return false; }
+                    score = 1.08; reason = "状态"; return true;
+                }
+                var field = key switch
+                {
+                    "标签" => string.Join(" ", video.Tags),
+                    "分类" => video.CategoryList.Count == 0 ? video.Category : string.Join(" ", video.CategoryList),
+                    "文件夹" => $"{System.IO.Path.GetFileName(video.Folder.TrimEnd('\\', '/'))} {video.Folder}",
+                    _ => ""
+                };
+                if (string.IsNullOrWhiteSpace(value) || string.IsNullOrWhiteSpace(field)) { score = -1; return false; }
+                var match = SearchFieldScore(field, value);
+                if (match <= 0) { score = -1; return false; }
+                score = Math.Min(1.08, match + .08); reason = key; return true;
+            }
+            if (term.Equals("收藏", StringComparison.CurrentCultureIgnoreCase) ||
+                term.Equals("favorite", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!video.Favorite) { score = -1; return false; }
+                score = 1.08; reason = "收藏"; return true;
+            }
+            if (IsKnownWatchStatus(term))
+            {
+                if (!MatchesWatchStatus(video.WatchStatus, term)) { score = -1; return false; }
+                score = 1.08; reason = "状态"; return true;
+            }
+            singleTitleScore = SearchFieldScore(video.DisplayTitle, term);
+            if (singleTitleScore == 1d)
+            {
+                score = 1d; reason = "标题"; return true;
+            }
+        }
         var categoryValues = video.CategoryList.Count == 0 ? new[] { video.Category } : video.CategoryList.ToArray();
         var fields = new (string Name, string Value)[]
         {
@@ -2207,7 +2277,8 @@ public partial class MainWindow : Window
             foreach (var field in fields)
             {
                 if (string.IsNullOrWhiteSpace(field.Value)) continue;
-                var candidate = SearchFieldScore(field.Value, part);
+                var candidate = parts.Length == 1 && field.Name == "标题"
+                    ? singleTitleScore : SearchFieldScore(field.Value, part);
                 if (candidate > best) { best = candidate; bestName = field.Name; }
             }
             if (best <= 0) { score = -1; reason = ""; return false; }

@@ -19,6 +19,41 @@ public partial class MainWindow
     double lastSearchRenderFinalMs;
     double lastSearchRetireMaxChunkMs;
     double lastSearchPopulateMaxChunkMs;
+    List<VideoItem>? searchCopySource;
+    int searchCopySourceCount;
+    readonly Dictionary<VideoItem, VideoItem> searchCopies = new(ReferenceEqualityComparer.Instance);
+
+    static bool SearchCopyIsCurrent(VideoItem original, VideoItem copy)
+    {
+        if (original.Id != copy.Id || original.Path != copy.Path ||
+            original.Title != copy.Title || original.Folder != copy.Folder ||
+            original.Size != copy.Size || original.Modified != copy.Modified ||
+            original.Category != copy.Category || original.Code != copy.Code ||
+            original.WatchStatus != copy.WatchStatus || original.Favorite != copy.Favorite ||
+            original.DisplayTitle != copy.DisplayTitle ||
+            original.Tags.Count != copy.Tags.Count ||
+            original.CategoryList.Count != copy.CategoryList.Count) return false;
+        for (var i = 0; i < original.Tags.Count; i++)
+            if (original.Tags[i] != copy.Tags[i]) return false;
+        for (var i = 0; i < original.CategoryList.Count; i++)
+            if (original.CategoryList[i] != copy.CategoryList[i]) return false;
+        return true;
+    }
+
+    static VideoItem MakeSearchCopy(VideoItem original)
+    {
+        var copy = new VideoItem
+        {
+            Id = original.Id, Path = original.Path, Title = original.Title,
+            Folder = original.Folder, Size = original.Size, Modified = original.Modified,
+            Category = original.Category, Code = original.Code,
+            WatchStatus = original.WatchStatus, Favorite = original.Favorite,
+            DisplayTitle = original.DisplayTitle
+        };
+        copy.Tags.AddRange(original.Tags);
+        copy.CategoryList.AddRange(original.CategoryList);
+        return copy;
+    }
 
     // Capture mutable card data on the UI thread in bounded slices. The worker
     // then reads detached copies, so edits made while searching cannot race
@@ -44,21 +79,27 @@ public partial class MainWindow
                                      c.StartsWith(category + " / ", StringComparison.OrdinalIgnoreCase)) ||
              v.Category.Equals(category, StringComparison.OrdinalIgnoreCase))).ToArray();
         lastSearchEligibilityMs = eligibilityClock.Elapsed.TotalMilliseconds;
+        // Snapshots are immutable once handed to the worker. Validate every
+        // mutable search field before reuse so edits are visible on the next
+        // query without racing the worker or relying on UI notifications.
+        if (!ReferenceEquals(searchCopySource, source) || searchCopySourceCount != source.Count ||
+            searchCopies.Count > source.Count * 2)
+        {
+            searchCopies.Clear();
+            searchCopySource = source;
+            searchCopySourceCount = source.Count;
+        }
         var copies = new (VideoItem Original, VideoItem Search)[eligible.Length];
         var sliceClock = Stopwatch.StartNew();
         lastSearchCaptureMaxSliceMs = 0;
         for (var i = 0; i < eligible.Length; i++)
         {
             var v = eligible[i];
-            var copy = new VideoItem
+            if (!searchCopies.TryGetValue(v, out var copy) || !SearchCopyIsCurrent(v, copy))
             {
-                Id = v.Id, Path = v.Path, Title = v.Title, Folder = v.Folder,
-                Size = v.Size, Modified = v.Modified, Category = v.Category,
-                Code = v.Code, WatchStatus = v.WatchStatus, Favorite = v.Favorite,
-                DisplayTitle = v.DisplayTitle
-            };
-            copy.Tags.AddRange(v.Tags);
-            copy.CategoryList.AddRange(v.CategoryList);
+                copy = MakeSearchCopy(v);
+                searchCopies[v] = copy;
+            }
             copies[i] = (v, copy);
             if ((i & 127) == 127)
             {
@@ -69,12 +110,16 @@ public partial class MainWindow
                     !ReferenceEquals(source, videos) || targetView != view) return;
             }
         }
+        // Parse once per request. In a large library parsing the same query for
+        // every video creates tens of thousands of short-lived arrays.
+        var parts = query.Split([' ', '\t', '\r', '\n'],
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var result = await Task.Run(() =>
         {
             var hits = new List<(VideoItem Original, VideoItem Search, double Score, string Reason)>();
             foreach (var pair in copies)
             {
-                if (TryGetSearchMatch(pair.Search, query, out var score, out var reason) && score >= 0)
+                if (TryGetSearchMatch(pair.Search, parts, out var score, out var reason) && score >= 0)
                     hits.Add((pair.Original, pair.Search, score, reason));
             }
             var ranked = hits.OrderByDescending(hit => hit.Score);

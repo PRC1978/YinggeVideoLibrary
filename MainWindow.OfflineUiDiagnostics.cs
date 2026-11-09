@@ -111,12 +111,18 @@ public partial class MainWindow
                         // The production Window paints the backdrop behind its
                         // transparent content Grid. Rendering only that Grid
                         // drops this layer and falsely turns glass into white.
+                        // Rasterize the fixed content viewport first. A
+                        // VisualBrush's automatic viewbox includes overflowing
+                        // descendants; Stretch.Fill would shrink that oversized
+                        // drawing and distort text/navigation inside the viewport.
+                        var contentPixels = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+                        contentPixels.Render(root);
                         var composition = new DrawingVisual();
                         using (var drawing = composition.RenderOpen())
                         {
                             var viewport = new Rect(0, 0, width, height);
                             drawing.DrawRectangle(Background, null, viewport);
-                            drawing.DrawRectangle(new VisualBrush(root) { Stretch = Stretch.Fill }, null, viewport);
+                            drawing.DrawImage(contentPixels, viewport);
                         }
                         var result = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
                         result.Render(composition);
@@ -125,6 +131,25 @@ public partial class MainWindow
                     var bitmap = RenderContent();
                     var pixels = new byte[width * height * 4];
                     bitmap.CopyPixels(pixels, width * 4, 0);
+                    var sidebarBounds = Sidebar.TransformToAncestor(root)
+                        .TransformBounds(new Rect(new Point(), Sidebar.RenderSize));
+                    var rawContent = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+                    rawContent.Render(root);
+                    var rawPixels = new byte[pixels.Length];
+                    rawContent.CopyPixels(rawPixels, width * 4, 0);
+                    var opaqueGeometrySamples = 0;
+                    var movedOpaquePixels = 0;
+                    // Fully opaque pixels must stay byte-identical at the same
+                    // x/y when a background is drawn under this fixed bitmap.
+                    // This includes glyphs and the solid sidebar edge: any
+                    // scaling/viewbox shift breaks the position-sensitive test.
+                    for (var offset = 0; offset < rawPixels.Length; offset += 4)
+                    {
+                        if (rawPixels[offset + 3] != 255) continue;
+                        opaqueGeometrySamples++;
+                        if (BitConverter.ToInt32(rawPixels, offset) != BitConverter.ToInt32(pixels, offset)) movedOpaquePixels++;
+                    }
+                    checks[key + ".fixedViewportPixelGeometry"] = opaqueGeometrySamples > 0 && movedOpaquePixels == 0;
                     var titleBounds = PageTitle.TransformToAncestor(root)
                         .TransformBounds(new Rect(new Point(), PageTitle.RenderSize));
                     var previousTitleVisibility = PageTitle.Visibility;
@@ -164,6 +189,8 @@ public partial class MainWindow
                     layouts.Add(new { theme, width, height, page, imageFile, root.ActualWidth, root.ActualHeight,
                         windowActualWidth = ActualWidth, windowActualHeight = ActualHeight,
                         title = PageTitle.Text,
+                        sidebarBounds = new { sidebarBounds.X, sidebarBounds.Y, sidebarBounds.Width, sidebarBounds.Height },
+                        opaqueGeometrySamples, movedOpaquePixels,
                         titleBounds = new { titleBounds.X, titleBounds.Y, titleBounds.Width, titleBounds.Height },
                         titleChangedPixels, opaquePixels, distinctPixelCount = distinctPixels.Count,
                         buttons = buttonData, popupBackground = background.ToString(), popupText = foreground.ToString(), contrast,

@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using Button = System.Windows.Controls.Button;
 
 namespace YinggeVideoLibrary;
@@ -25,6 +26,28 @@ public partial class MainWindow
         try
         {
             Check("isolatedDirectory", AppPaths.IsRedirected && AppPaths.RedirectError is null);
+            if (AppPaths.IsRedirected)
+            {
+                var fixtureImage = Path.Combine(AppPaths.DataDirectory, "avatar-diagnostic-source.png");
+                Directory.CreateDirectory(AppPaths.DataDirectory);
+                var pixels = Enumerable.Repeat((byte)180, 12 * 8 * 4).ToArray();
+                var fixture = BitmapSource.Create(12, 8, 96, 96, PixelFormats.Bgra32,
+                    null, pixels, 12 * 4);
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(fixture));
+                using (var output = File.Create(fixtureImage)) encoder.Save(output);
+                const string endpoint = "https://reports.yingevideo.top";
+                LocalAccountAvatarStore.Save(endpoint, "avatar-test-a", fixtureImage);
+                var stored = LocalAccountAvatarStore.Load(endpoint, "avatar-test-a");
+                Check("avatar.savedAndCropped", stored is not null &&
+                    stored.PixelWidth == stored.PixelHeight && stored.PixelWidth > 0);
+                Check("avatar.accountIsolation", LocalAccountAvatarStore.Load(endpoint, "avatar-test-b") is null);
+                Check("avatar.noRawUsernameInPath", !LocalAccountAvatarStore.PathFor(endpoint, "avatar-test-a")
+                    .Contains("avatar-test-a", StringComparison.Ordinal));
+                LocalAccountAvatarStore.Delete(endpoint, "avatar-test-a");
+                Check("avatar.reset", LocalAccountAvatarStore.Load(endpoint, "avatar-test-a") is null);
+                File.Delete(fixtureImage);
+            }
             foreach (var theme in new[] { UiTheme.Classic, UiTheme.Glass, UiTheme.Cinema })
             {
                 UiTheme.Apply(theme);
@@ -35,7 +58,8 @@ public partial class MainWindow
                     && AccountPanel.Visibility == Visibility.Visible && SettingsPanel.Visibility == Visibility.Collapsed);
                 Check(theme + ".navigationHighlight", Equals(AccountNav.Tag, "active"));
                 var buttons = Descendants(AccountPanel).OfType<Button>().Select(button => button.Content?.ToString()).ToHashSet();
-                Check(theme + ".accountActions", new[] { "登录", "退出登录", "用邀请码注册", "上传错误日志" }.All(buttons.Contains));
+                Check(theme + ".accountActions", new[] { "登录", "退出登录", "用邀请码注册", "上传错误日志",
+                    "更换头像", "恢复默认头像" }.All(buttons.Contains));
                 var accountText = Descendants(AccountPanel).OfType<TextBlock>().Select(item => item.Text).ToArray();
                 Check(theme + ".accountIdentity", accountText.Contains("登录映格账号") &&
                     Descendants(AccountPanel).OfType<Border>().Any(item =>

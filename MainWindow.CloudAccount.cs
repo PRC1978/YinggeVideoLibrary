@@ -6,9 +6,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using Yingge.Cloud.Client;
 using Yingge.Cloud.Protocol;
 using Button = System.Windows.Controls.Button;
+using Image = System.Windows.Controls.Image;
 using MessageBox = YinggeVideoLibrary.ThemeMessageBox;
 using TextBox = System.Windows.Controls.TextBox;
 
@@ -67,7 +69,16 @@ public partial class MainWindow
             Foreground = UiTheme.AccentBrush, HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
-        avatar.Child = avatarLetter;
+        var avatarVisual = new Grid();
+        avatarVisual.Children.Add(avatarLetter);
+        var avatarImage = new Image
+        {
+            Width = 56, Height = 56, Stretch = Stretch.UniformToFill,
+            Clip = new RectangleGeometry(new Rect(0, 0, 56, 56), 15, 15),
+            Visibility = Visibility.Collapsed
+        };
+        avatarVisual.Children.Add(avatarImage);
+        avatar.Child = avatarVisual;
         identity.Children.Add(avatar);
         var identityText = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         var displayName = new TextBlock { Text = "登录映格账号", FontSize = 21,
@@ -92,11 +103,16 @@ public partial class MainWindow
 
         var authActions = new WrapPanel { Margin = new Thickness(0, 16, 0, 0) };
         var sessionActions = new StackPanel { Visibility = Visibility.Collapsed };
+        string? currentAccountName = null;
 
         void ShowIdentity(string? name, DateTimeOffset? expiresAt = null)
         {
             var signedIn = !string.IsNullOrWhiteSpace(name);
+            currentAccountName = signedIn ? name!.Trim() : null;
             avatarLetter.Text = signedIn ? name!.Trim()[..1].ToUpperInvariant() : "映";
+            var localImage = signedIn ? LocalAccountAvatarStore.Load(endpoint, currentAccountName!) : null;
+            avatarImage.Source = localImage;
+            avatarImage.Visibility = localImage is null ? Visibility.Collapsed : Visibility.Visible;
             displayName.Text = signedIn ? name! : "登录映格账号";
             identitySubtitle.Text = signedIn
                 ? expiresAt is null ? "已登录 · 可管理错误报告"
@@ -163,6 +179,47 @@ public partial class MainWindow
         var upload = new Button { Content = "上传错误日志", Style = (Style)FindResource("Primary") };
         var pending = new Button { Content = "补传待上传日志", Style = (Style)FindResource("Action") };
         var mine = new Button { Content = "查看/删除我的上传", Style = (Style)FindResource("Action") };
+        var chooseAvatar = new Button { Content = "更换头像", Style = (Style)FindResource("Action") };
+        var resetAvatar = new Button { Content = "恢复默认头像", Style = (Style)FindResource("Action") };
+
+        chooseAvatar.Click += (_, _) =>
+        {
+            if (currentAccountName is null) return;
+            var picker = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "选择账号头像",
+                Filter = "图片文件|*.png;*.jpg;*.jpeg;*.bmp;*.gif|所有文件|*.*",
+                CheckFileExists = true,
+                Multiselect = false
+            };
+            if (picker.ShowDialog(this) != true) return;
+            try
+            {
+                LocalAccountAvatarStore.Save(endpoint, currentAccountName, picker.FileName);
+                ShowIdentity(currentAccountName);
+                status.Text = "头像已保存在这台电脑，仅当前账号可见。";
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or
+                NotSupportedException or InvalidOperationException or FormatException or
+                System.Runtime.InteropServices.COMException)
+            {
+                status.Text = "头像保存失败：" + ex.Message;
+            }
+        };
+        resetAvatar.Click += (_, _) =>
+        {
+            if (currentAccountName is null) return;
+            try
+            {
+                LocalAccountAvatarStore.Delete(endpoint, currentAccountName);
+                ShowIdentity(currentAccountName);
+                status.Text = "已恢复默认头像。";
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                status.Text = "无法恢复默认头像：" + ex.Message;
+            }
+        };
 
         CloudAccountSettings Current()
         {
@@ -232,6 +289,10 @@ public partial class MainWindow
         var reportTitle = new TextBlock { Text = "错误报告", FontSize = 16,
             FontWeight = FontWeights.SemiBold, Foreground = UiTheme.TextPrimaryBrush,
             Margin = new Thickness(0, 4, 0, 5) };
+        var avatarActions = new WrapPanel { Margin = new Thickness(0, 0, 0, 16) };
+        avatarActions.Children.Add(chooseAvatar);
+        avatarActions.Children.Add(resetAvatar);
+        sessionActions.Children.Add(avatarActions);
         sessionActions.Children.Add(reportTitle);
         sessionActions.Children.Add(new TextBlock
         {

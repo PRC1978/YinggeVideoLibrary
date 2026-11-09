@@ -589,9 +589,16 @@ public static partial class JavDbScraper
             || html.Contains("版权限制", StringComparison.OrdinalIgnoreCase))
             throw UnavailablePage("JavDB 限制了当前地区的访问，暂时无法搜刮此来源。", 60);
         var hasSourceContent = Cards.IsMatch(html) || DetailBlocks.IsMatch(html);
+        // The site's ordinary result pages embed an inactive sign-in modal
+        // containing rucaptcha inputs. Its mere presence is not a challenge.
+        // Only an explicit source empty-state may disambiguate that generic
+        // word; strong challenge markers and verification titles still win.
+        var explicitSourceEmpty = html.Contains("javdb", StringComparison.OrdinalIgnoreCase) && EmptySearchBlock.IsMatch(html);
         if (!hasSourceContent && (html.Contains("cf-chl-", StringComparison.OrdinalIgnoreCase)
             || html.Contains("Just a moment", StringComparison.OrdinalIgnoreCase)
-            || html.Contains("captcha", StringComparison.OrdinalIgnoreCase)))
+            || html.Contains("verify you are human", StringComparison.OrdinalIgnoreCase)
+            || Regex.IsMatch(html, @"<title\b[^>]*>[^<]*(?:captcha|驗證|验证)", RegexOptions.IgnoreCase)
+            || html.Contains("captcha", StringComparison.OrdinalIgnoreCase) && !explicitSourceEmpty))
             throw UnavailablePage("JavDB 返回了访问验证页面，暂时无法读取公开资料。", 60);
         if (!hasSourceContent && (html.Contains("age verification", StringComparison.OrdinalIgnoreCase)
             || html.Contains("age gate", StringComparison.OrdinalIgnoreCase)

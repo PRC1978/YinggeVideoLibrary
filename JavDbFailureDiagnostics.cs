@@ -31,6 +31,10 @@ internal static class JavDbFailureDiagnostics
         checks["javDbPublicEmptyMarkupIsEmptyTitleSearch"] = JavDbScraper.ParseTitleSearch(actualEmpty).Count == 0;
         checks["javDbEmptyWordsInOrdinaryBodyRemainUnknown"] = Cooling(() => JavDbScraper.FindExactResultCard("<title>JavDB</title><p>暫無內容</p>", "ABC-123"));
         checks["javDbChallengeTakesPriorityOverEmptyMarkup"] = Cooling(() => JavDbScraper.FindExactResultCard(actualEmpty + "<script src='/cf-chl-test'></script>", "ABC-123"));
+        checks["javDbInactiveAuthCaptchaDoesNotOverrideExplicitEmpty"] = NotFound(() => JavDbScraper.FindExactResultCard(actualEmpty + "<div class='modal auth-modal' id='auth-modal'><input name='_rucaptcha'></div>", "ABC-123"));
+        checks["javDbGenericCaptchaWithoutEmptyStillCools"] = Cooling(() => JavDbScraper.FindExactResultCard("<title>JavDB</title><input name='captcha'>", "ABC-123"));
+        checks["javDbVerificationTitleStillOverridesEmpty"] = Cooling(() => JavDbScraper.FindExactResultCard(actualEmpty.Replace("<title>JavDB</title>", "<title>Captcha - JavDB</title>"), "ABC-123"));
+        checks["javDbExplicitHumanChallengeStillOverridesEmpty"] = Cooling(() => JavDbScraper.FindExactResultCard(actualEmpty + "<p>verify you are human</p>", "ABC-123"));
         checks["javDbUnknownStructureCoolsSource"] = Cooling(() => JavDbScraper.FindExactResultCard("<title>JavDB</title><main>changed</main>", "ABC-123"));
         checks["javDbBlankCoolsSource"] = Cooling(() => JavDbScraper.FindExactResultCard("", "ABC-123"));
         checks["javDbChallengeCoolsSource"] = Cooling(() => JavDbScraper.FindExactResultCard("<title>Just a moment</title><script src='/cf-chl-test'></script>", "ABC-123"));

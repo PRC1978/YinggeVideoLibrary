@@ -211,6 +211,34 @@ public partial class MainWindow
                 finally { scrapeQueueChanging = false; UpdateScrapeQueueStatus(); }
             };
             actions.Children.Add(scrapeQueueRetryButton);
+            var failureReasons = new Button
+            {
+                Content = "查看失败原因", Style = (Style)FindResource("Action"),
+                Margin = new Thickness(0, 0, 9, 6),
+                ToolTip = "按原因汇总失败数量，不显示文件名、查询标题或路径"
+            };
+            failureReasons.Click += async (_, _) =>
+            {
+                failureReasons.IsEnabled = false;
+                try
+                {
+                    // Load through the storage-mode bridge: database mode must
+                    // not inspect an obsolete JSON queue. Only fixed categories
+                    // and counts leave this background task, never raw errors.
+                    var summary = await Task.Run(() => ScrapeQueueFailureSummary.Build(
+                        queueBridge.Load().Where(item => item.Failed).Select(item => item.LastError)));
+                    if (!isClosing)
+                        MessageBox.Show(this, summary, "搜刮失败原因", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                catch
+                {
+                    if (!isClosing)
+                        MessageBox.Show(this, "暂时无法读取失败记录，请稍后重试。现有队列没有改变。",
+                            "搜刮失败原因", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+                finally { failureReasons.IsEnabled = true; }
+            };
+            actions.Children.Add(failureReasons);
             scrapeQueueClearButton = new Button
             {
                 Content = "取消待处理", Style = (Style)FindResource("Action"),

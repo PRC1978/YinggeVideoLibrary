@@ -6,6 +6,8 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Button = System.Windows.Controls.Button;
+using Point = System.Windows.Point;
+using Size = System.Windows.Size;
 
 namespace YinggeVideoLibrary;
 

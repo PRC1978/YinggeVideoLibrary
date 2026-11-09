@@ -24,7 +24,8 @@ internal static class PostgresLibraryBackupCoordinator
 
     internal static async Task<PostgresLibraryMigration.Result> RestoreToFreshPrivateLibraryAsync(
         string runtimeDirectory, string snapshotDirectory, string destination,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, Action? beforeReopen = null,
+        Action? beforeRollbackRename = null)
     {
         runtimeDirectory = Path.GetFullPath(runtimeDirectory);
         snapshotDirectory = Path.GetFullPath(snapshotDirectory);
@@ -76,24 +77,40 @@ internal static class PostgresLibraryBackupCoordinator
             // library and could be opened by the legacy writer.
             await File.WriteAllTextAsync(Path.Combine(staging,
                 PostgresStorageModeGuard.MarkerName), "postgresql-v1\n", cancellationToken);
+            // Publish with the guard already present. If reopening, rollback,
+            // or even a later guard write fails, our own target remains closed
+            // to both storage modes. Never mark an unrelated existing target.
+            PostgresStorageModeGuard.BeginRestore(staging,
+                "yingge_restore_fresh_publish", "yingge_prev_fresh_publish");
             Directory.Move(staging, destination);
             published = true;
 
             try
             {
-                await using var reopened = await PostgresPrivateCluster.OpenAsync(
-                    runtimeDirectory, destination, cancellationToken);
-                if (!await PostgresLibraryMigration.VerifyContentAsync(
-                    snapshotDirectory, reopened.ConnectionString, cancellationToken))
-                    throw new InvalidDataException("目标目录重开后校验失败。");
+                beforeReopen?.Invoke();
+                await using (var reopened = await PostgresPrivateCluster.OpenAsync(
+                    runtimeDirectory, destination, cancellationToken))
+                {
+                    if (!await PostgresLibraryMigration.VerifyContentAsync(
+                        snapshotDirectory, reopened.ConnectionString, cancellationToken))
+                        throw new InvalidDataException("目标目录重开后校验失败。");
+                }
+                PostgresStorageModeGuard.EndRestore(destination);
+                if (!PostgresStorageModeGuard.PostgresMayOpen(destination))
+                    throw new IOException("目标目录已核对，但恢复阻断标记未能清除。");
             }
             catch
             {
-                // Keep the active marker if a concurrent process prevents a
-                // safe rename back; the old file writer will still refuse it.
-                try { Directory.Move(destination, staging); published = false; }
+                // The pre-publication sentinel still protects a target whose
+                // reopening failed, even when a rename back also fails.
+                try
+                {
+                    beforeRollbackRename?.Invoke();
+                    Directory.Move(destination, staging);
+                    published = false;
+                }
                 catch { throw new InvalidDataException(
-                    "恢复目标无法重开且回退目录失败；保留 PostgreSQL 标记，禁止旧版写入。"); }
+                    "恢复目标无法重开且回退目录失败；已保留恢复阻断标记，禁止载入该副本。"); }
                 throw;
             }
             try { WindowsCredentialStore.Write(sourceCredentialName, ""); }

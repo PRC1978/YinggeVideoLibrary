@@ -69,6 +69,8 @@ internal static class PostgresRuntimeUpgradeDiagnostics
             checks["newMajorIsHigher"] = result.TargetMajor > result.SourceMajor;
             checks["allVideosImported"] = result.VideoCount == 12 && result.MetadataCount == 12;
             checks["snapshotValid"] = await PostgresLibraryExport.VerifyOfflineAsync(result.SnapshotDirectory);
+            checks["successfulTargetHasNoRestoreSentinel"] = !File.Exists(Path.Combine(
+                result.NewLibraryDirectory, PostgresStorageModeGuard.RestoreSentinelName));
             checks["sourceVersionRetained"] = originalVersion.SequenceEqual(await File.ReadAllBytesAsync(versionPath));
             await using (var reopened = await PostgresPrivateCluster.OpenAsync(oldRuntime, source))
                 checks["sourceReopensAndMatches"] = await PostgresLibraryMigration.VerifyContentAsync(
@@ -76,6 +78,27 @@ internal static class PostgresRuntimeUpgradeDiagnostics
             await using (var reopened = await PostgresPrivateCluster.OpenAsync(newRuntime, result.NewLibraryDirectory))
                 checks["targetReopensAndMatches"] = await PostgresLibraryMigration.VerifyContentAsync(
                     result.SnapshotDirectory, reopened.ConnectionString);
+            stage = "published-target-double-failure";
+            var failedPublishedTarget = Path.Combine(root, "failed-published-target");
+            var reopenInjected = false;
+            var rollbackInjected = false;
+            var doubleFailureObserved = false;
+            try
+            {
+                await PostgresLibraryBackupCoordinator.RestoreToFreshPrivateLibraryAsync(newRuntime,
+                    result.SnapshotDirectory, failedPublishedTarget,
+                    beforeReopen: () => { reopenInjected = true; throw new IOException("Injected target reopen failure"); },
+                    beforeRollbackRename: () => { rollbackInjected = true; throw new IOException("Injected rollback rename failure"); });
+            }
+            catch (InvalidDataException) { doubleFailureObserved = true; }
+            checks["publishedDoubleFailureHooksReached"] = reopenInjected && rollbackInjected && doubleFailureObserved;
+            checks["publishedDoubleFailureBlocksBothModes"] = Directory.Exists(failedPublishedTarget)
+                && PostgresStorageModeGuard.Current(failedPublishedTarget) == PostgresStorageModeGuard.StorageMode.Blocked
+                && !PostgresStorageModeGuard.PostgresMayOpen(failedPublishedTarget)
+                && !PostgresStorageModeGuard.LegacyFilesMayOpen(failedPublishedTarget);
+            checks["publishedDoubleFailureRetainsGuardAndData"] = File.Exists(Path.Combine(failedPublishedTarget,
+                    PostgresStorageModeGuard.RestoreSentinelName))
+                && File.Exists(Path.Combine(failedPublishedTarget, "postgres-data", "PG_VERSION"));
             foreach (var afterImport in new[] { false, true })
             {
                 stage = afterImport ? "failureAfterImport" : "failureAfterBackup";

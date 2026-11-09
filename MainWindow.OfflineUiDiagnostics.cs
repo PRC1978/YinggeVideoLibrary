@@ -3,6 +3,8 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Documents;
+using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Button = System.Windows.Controls.Button;
@@ -66,6 +68,20 @@ public partial class MainWindow
             checks["startupVeilRemovedAfterFixtureReady"] = StartupVeil.Visibility == Visibility.Collapsed;
             config.UiMotion = UiMotion.Smooth;
             var root = Content as FrameworkElement ?? throw new InvalidOperationException("Missing content root");
+            var inheritedDataContext = root.DataContext;
+            // An unshown Window can later remeasure its Content with an
+            // unconstrained size when dispatcher layout work is drained. Keep
+            // the production content tree, but detach it from that size owner.
+            Content = null;
+            root.DataContext = inheritedDataContext;
+            root.Resources.MergedDictionaries.Add(Resources);
+            root.SetBinding(TextElement.ForegroundProperty, new Binding("TextPrimaryBrush") { Source = UiThemeState.Instance });
+            root.SetBinding(TextElement.FontFamilyProperty, new Binding("BodyFontFamily") { Source = UiThemeState.Instance });
+            root.SetValue(TextElement.FontSizeProperty, FontSize);
+            root.FlowDirection = FlowDirection;
+            root.UseLayoutRounding = UseLayoutRounding;
+            root.SnapsToDevicePixels = SnapsToDevicePixels;
+            checks["contentDetachedFromUnshownWindow"] = root.Parent is null && Content is null;
             foreach (var theme in themes)
             {
                 UiTheme.Apply(theme, UiColorMode.Native);
@@ -74,11 +90,17 @@ public partial class MainWindow
                 foreach (var page in pages)
                 {
                     Width = width; Height = height;
+                    void LayoutContent()
+                    {
+                        root.Width = width; root.Height = height;
+                        root.Measure(new Size(width, height));
+                        root.Arrange(new Rect(0, 0, width, height));
+                        root.UpdateLayout();
+                    }
                     ShowView(page);
-                    root.Measure(new Size(width, height));
-                    root.Arrange(new Rect(0, 0, width, height));
-                    root.UpdateLayout();
+                    LayoutContent();
                     await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Background);
+                    LayoutContent();
                     var key = $"{theme}.{width}x{height}.{page}";
                     checks[key + ".noNativeWindow"] = PresentationSource.FromVisual(this) is null;
                     checks[key + ".contentViewport"] = Math.Abs(root.ActualWidth - width) < 1 && Math.Abs(root.ActualHeight - height) < 1;
@@ -108,6 +130,7 @@ public partial class MainWindow
                     checks[key + ".popupTextContrast"] = contrast >= 4.5;
                     RenderTargetBitmap RenderContent()
                     {
+                        LayoutContent();
                         // The production Window paints the backdrop behind its
                         // transparent content Grid. Rendering only that Grid
                         // drops this layer and falsely turns glass into white.
@@ -160,10 +183,10 @@ public partial class MainWindow
                         // bounds prove that the production heading actually
                         // painted, rather than accepting a plain background.
                         PageTitle.Visibility = Visibility.Hidden;
-                        root.UpdateLayout();
+                        LayoutContent();
                         withoutTitle = RenderContent();
                     }
-                    finally { PageTitle.Visibility = previousTitleVisibility; root.UpdateLayout(); }
+                    finally { PageTitle.Visibility = previousTitleVisibility; LayoutContent(); }
                     var baseline = new byte[pixels.Length];
                     withoutTitle.CopyPixels(baseline, width * 4, 0);
                     var titleChangedPixels = 0;
@@ -207,6 +230,7 @@ public partial class MainWindow
             passed, realLibraryRead = false, nativeWindowShown = false, inputInjected = false,
             startupVeilBypassedForOfflineCapture = true, contentRenderedEventRaised = false,
             windowBackgroundComposited = true,
+            contentDetachedForOfflineCapture = true,
             scope = "Offline production content Measure/Arrange/RenderTargetBitmap only. No native window, popup opening, OS chrome, or actual keyboard task validation.",
             keyboardPhysicalValidation = "not-performed", themeCount = themes.Length, themes,
             pages, skippedPages, declaredCaptureCount = themes.Length * 3 * pages.Length,

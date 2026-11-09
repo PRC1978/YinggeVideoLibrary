@@ -164,6 +164,7 @@ public partial class MainWindow
         await File.WriteAllTextAsync(Path.Combine(outputDirectory, "report.json"), JsonSerializer.Serialize(new
         {
             passed, realLibraryRead = false, nativeWindowShown = false, inputInjected = false,
+            startupVeilBypassedForOfflineCapture = true, contentRenderedEventRaised = false,
             scope = "Offline production content Measure/Arrange/RenderTargetBitmap only. No native window, popup opening, OS chrome, or actual keyboard task validation.",
             keyboardPhysicalValidation = "not-performed", themeCount = themes.Length, themes,
             pages, skippedPages, declaredCaptureCount = themes.Length * 3 * pages.Length,

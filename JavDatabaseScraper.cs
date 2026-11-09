@@ -60,7 +60,7 @@ public static class JavDatabaseScraper
             if (Regex.IsMatch(searchHtml, @"No results found\.|No Results Found", RegexOptions.IgnoreCase) ||
                 Anchors.Matches(searchHtml).Any(match => TryMovieUri(match.Groups["href"].Value, out _)))
                 throw new ScrapeNotFoundException("JAVDatabase 没有完全匹配的番号。");
-            throw new InvalidOperationException("JAVDatabase 搜索页没有可识别的结果，可能页面结构已变化或访问受到限制。");
+            throw UnavailablePage("JAVDatabase 搜索页没有可识别的结果，可能页面结构已变化或访问受到限制。");
         }
 
         var candidate = new MovieMetadata { Code = code, Title = code, Source = SourceName, SourceUrl = detailUrl.AbsoluteUri };
@@ -133,7 +133,7 @@ public static class JavDatabaseScraper
             if (found.Count == 12) break;
         }
         if (found.Count == 0 && !Regex.IsMatch(html, @"No results found\.|No Results Found|Nothing Found", RegexOptions.IgnoreCase))
-            throw new InvalidOperationException("JAVDatabase 搜索页没有可识别的候选，无法确认没有匹配结果。");
+            throw UnavailablePage("JAVDatabase 搜索页没有可识别的候选，无法确认没有匹配结果。");
         return found;
     }
 
@@ -152,6 +152,8 @@ public static class JavDatabaseScraper
         using var response = await Client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
+            if (response.StatusCode == HttpStatusCode.Forbidden)
+                throw UnavailablePage("JAVDatabase 拒绝公开页面访问（403），请稍后重试。", 60);
             var retryHeader = response.Headers.RetryAfter;
             var retryAfter = retryHeader?.Delta ?? (retryHeader?.Date is DateTimeOffset date ? date - DateTimeOffset.UtcNow : null);
             throw new ScrapeHttpException($"JAVDatabase 返回 {(int)response.StatusCode}，请检查来源是否在当前地区可用。", response.StatusCode, retryAfter);
@@ -165,11 +167,14 @@ public static class JavDatabaseScraper
         return html;
     }
 
+    static ScrapeSourceUnavailableException UnavailablePage(string message, int minutes = 30) =>
+        new(message, DateTimeOffset.UtcNow.AddMinutes(minutes));
+
     static void EnsureNormalPage(string html, string stage)
     {
         if (html.Length < 500 ||
             Regex.IsMatch(html, @"(?:Access Denied|not available in your region|Age Verification|verify you are human|cf-browser-verification|Just a moment\.\.\.)", RegexOptions.IgnoreCase))
-            throw new InvalidOperationException($"JAVDatabase {stage}页面不可用或需要验证；请在浏览器中确认来源可访问。");
+            throw UnavailablePage($"JAVDatabase {stage}页面不可用或需要验证；请在浏览器中确认来源可访问。", 60);
     }
 
     static Uri? FindExactResult(string html, string code)

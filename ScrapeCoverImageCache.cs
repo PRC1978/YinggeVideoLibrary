@@ -21,6 +21,18 @@ internal static class ScrapeCoverImageCache
     internal static (long Bytes, long Limit, int Entries, int Pending, long Hits, long Decodes, long Failures) Stats()
     { lock (Gate) return (bytes, LimitBytes, Images.Count, Pending.Count, hits, decodes, failures); }
 
+    internal static long EstimateDecodedBytes(int width, int height, int bitsPerPixel)
+    {
+        if (width <= 0 || height <= 0 || bitsPerPixel <= 0) return long.MaxValue;
+        try
+        {
+            // WIC may expose 24/48/64-bit pixels. Use a DWORD-aligned row
+            // stride, rather than assuming four bytes per pixel.
+            return checked((((long)width * bitsPerPixel + 31) / 32 * 4) * height);
+        }
+        catch (OverflowException) { return long.MaxValue; }
+    }
+
     internal static Task<BitmapSource?> GetAsync(string path, int decodeWidth)
     {
         Key key;
@@ -69,7 +81,7 @@ internal static class ScrapeCoverImageCache
             lock (Gate)
             {
                 decodes++;
-                var imageBytes = (long)image!.PixelWidth * image.PixelHeight * 4;
+                var imageBytes = EstimateDecodedBytes(image!.PixelWidth, image.PixelHeight, image.Format.BitsPerPixel);
                 if (imageBytes <= LimitBytes)
                 {
                     // Keep only the latest version of this file at this width.

@@ -4415,7 +4415,7 @@ public partial class MainWindow : Window
             var scoreLabel = review.Status switch { "rejected" => ReviewRejectLabel(review), "unmatched" => "未找到", "approved" => "已通过", _ => "待审核" };
             var score = new TextBlock { Text = $"{review.Confidence}%\n{scoreLabel}", Foreground = review.Confidence < ReviewRejectThreshold ? UiTheme.DangerBrush : UiTheme.WarningBrush, FontWeight = FontWeights.SemiBold, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, TextAlignment = TextAlignment.Center, ToolTip = "来源匹配可信度；审核前不会写入视频资料" };
             Grid.SetColumn(score, 1); grid.Children.Add(score);
-            var cover = CreateScrapeCover(review.ToMetadata(), 54, 76);
+            var cover = CreateScrapeCover(review.ToMetadata(), 54, 76, backgroundDecode: true);
             Grid.SetColumn(cover, 2); grid.Children.Add(cover);
             var detail = new StackPanel();
             detail.Children.Add(new TextBlock { Text = review.CandidateTitle, FontWeight = FontWeights.SemiBold, FontSize = 14, Foreground = UiTheme.TextPrimaryBrush, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = review.CandidateTitle });

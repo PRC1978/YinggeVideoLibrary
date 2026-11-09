@@ -165,7 +165,7 @@ public partial class MainWindow
         return dialog;
     }
 
-    FrameworkElement CreateScrapeCover(MovieMetadata record, double width = 120, double height = 170)
+    FrameworkElement CreateScrapeCover(MovieMetadata record, double width = 120, double height = 170, bool backgroundDecode = false)
     {
         var frame = new Border
         {
@@ -180,6 +180,27 @@ public partial class MainWindow
             var path = ManagedScrapeCoverPath(record);
             if (path is not null)
             {
+                if (backgroundDecode)
+                {
+                    var pending = ScrapeCoverImageCache.GetAsync(path, (int)Math.Ceiling(width * 2));
+                    if (pending.IsCompletedSuccessfully && pending.Result is { } cached)
+                        frame.Child = new Image { Source = cached, Stretch = Stretch.Uniform };
+                    else
+                    {
+                        var placeholder = new TextBlock
+                        {
+                            Text = "正在加载封面…", TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center,
+                            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(7),
+                            Foreground = UiTheme.TextTertiaryBrush, FontSize = 11
+                        };
+                        frame.Child = placeholder;
+                        var cancellation = new CancellationTokenSource();
+                        RoutedEventHandler unloaded = (_, _) => cancellation.Cancel();
+                        frame.Unloaded += unloaded;
+                        _ = PopulateReviewCoverAsync(frame, placeholder, pending, cancellation, unloaded);
+                    }
+                    return frame;
+                }
                 var bitmap = new BitmapImage();
                 bitmap.BeginInit();
                 bitmap.CacheOption = BitmapCacheOption.OnLoad;
@@ -203,5 +224,32 @@ public partial class MainWindow
             Foreground = UiTheme.TextTertiaryBrush, FontSize = 11
         };
         return frame;
+    }
+
+    static async Task PopulateReviewCoverAsync(Border frame, TextBlock placeholder,
+        Task<BitmapSource?> pending, CancellationTokenSource cancellation, RoutedEventHandler unloaded)
+    {
+        try
+        {
+            var image = await pending.WaitAsync(cancellation.Token).ConfigureAwait(false);
+            if (cancellation.IsCancellationRequested || frame.Dispatcher.HasShutdownStarted) return;
+            await frame.Dispatcher.InvokeAsync(() =>
+            {
+                if (cancellation.IsCancellationRequested || !ReferenceEquals(frame.Child, placeholder)) return;
+                if (image is not null) frame.Child = new Image { Source = image, Stretch = Stretch.Uniform };
+                else placeholder.Text = "封面无法读取";
+            });
+        }
+        catch (OperationCanceledException) { }
+        catch (InvalidOperationException) when (frame.Dispatcher.HasShutdownStarted) { }
+        finally
+        {
+            // Event removal and disposal share the UI dispatcher with Unloaded,
+            // so an Unloaded callback can never cancel an already disposed CTS.
+            if (!frame.Dispatcher.HasShutdownStarted)
+                try { await frame.Dispatcher.InvokeAsync(() => { frame.Unloaded -= unloaded; cancellation.Dispose(); }); }
+                catch (OperationCanceledException) { }
+                catch (InvalidOperationException) when (frame.Dispatcher.HasShutdownStarted) { }
+        }
     }
 }

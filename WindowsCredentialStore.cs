@@ -1,5 +1,7 @@
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace YinggeVideoLibrary;
@@ -9,7 +11,29 @@ internal static class WindowsCredentialStore
 {
     const int Generic = 1;
     const int LocalMachinePersistence = 2;
-    static string Target(string name) => "YinggeVideoLibrary/" + name;
+    static string? diagnosticScope;
+
+    // A redirected data directory alone does not isolate Windows credentials.
+    // Opt-in probes get a separate namespace, never the user's API/session keys.
+    internal static void EnableIsolatedDiagnostics()
+    {
+        var directory = Path.TrimEndingDirectorySeparator(AppPaths.DataDirectory);
+        if (!AppPaths.IsRedirected || AppPaths.RedirectError is not null ||
+            directory.Equals(Path.TrimEndingDirectorySeparator(AppPaths.DefaultDataDirectory), StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("隔离凭据必须使用独立的数据目录。");
+        var scope = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(directory.ToUpperInvariant())))[..24];
+        var previous = Interlocked.CompareExchange(ref diagnosticScope, scope, null);
+        if (previous is not null && previous != scope)
+            throw new InvalidOperationException("诊断凭据目录不能在运行期间改变。");
+    }
+
+    static string Target(string name)
+    {
+        if (diagnosticScope is null && Environment.GetCommandLineArgs()
+                .Any(argument => argument.Equals("--isolated-credentials", StringComparison.OrdinalIgnoreCase)))
+            EnableIsolatedDiagnostics();
+        return "YinggeVideoLibrary/" + (diagnosticScope is null ? "" : "Diagnostics/" + diagnosticScope + "/") + name;
+    }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     struct Credential

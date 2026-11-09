@@ -395,6 +395,25 @@ public partial class App : System.Windows.Application
             }
             return;
         }
+        if (e.Args.Length > 1 && e.Args[0] == "--diagnose-ui-offline")
+        {
+            try
+            {
+                global::YinggeVideoLibrary.MainWindow.PrepareOfflineUiDiagnostic(e.Args[1]);
+                var offlineProbe = new MainWindow { ShowActivated = false, ShowInTaskbar = false };
+                MainWindow = offlineProbe;
+                var result = await offlineProbe.WriteOfflineUiDiagnosticAsync(e.Args[1]);
+                RecoveryShutdownRequested = true;
+                offlineProbe.Close();
+                Shutdown(result);
+            }
+            catch (Exception error)
+            {
+                System.Diagnostics.Trace.WriteLine("Offline UI diagnostic rejected: " + error);
+                Shutdown(2);
+            }
+            return;
+        }
         if (e.Args.Length > 1 && e.Args[0] == "--diagnose-account-about")
         {
             // Never construct a window before proving this is a new isolated

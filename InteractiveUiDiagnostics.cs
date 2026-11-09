@@ -25,6 +25,7 @@ internal static class InteractiveUiDiagnostics
         var output = Path.GetFullPath(outputPath);
         if (output.StartsWith(data + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("Keep the evidence report outside the fixture library");
+        WindowsCredentialStore.EnableIsolatedDiagnostics();
         Directory.CreateDirectory(Path.GetDirectoryName(output)!);
         UiFixtureGenerator.Seed(data, 12, 20, 6);
         var configPath = Path.Combine(data, "config.json");

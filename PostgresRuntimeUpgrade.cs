@@ -25,11 +25,14 @@ internal static class PostgresRuntimeUpgrade
             Overlap(destination, newRuntime))
             throw new InvalidDataException("升级目标必须是原资料库和运行时目录之外的新目录。");
         NoLinks(sourceLibrary); NoLinks(destination); NoLinks(oldRuntime); NoLinks(newRuntime);
-        NoLinks(Path.Combine(sourceLibrary, "postgres-data"));
+        var sourceData = PostgresClusterLocation.DataPath(sourceLibrary);
+        if (Overlap(sourceData, destination))
+            throw new InvalidDataException("升级目标不能与原数据库目录重叠。");
+        NoLinks(sourceData);
         progress?.Report("检查数据库版本");
         var oldMajor = await RuntimeMajorAsync(oldRuntime, cancellationToken);
         var newMajor = await RuntimeMajorAsync(newRuntime, cancellationToken);
-        var versionPath = Path.Combine(sourceLibrary, "postgres-data", "PG_VERSION");
+        var versionPath = Path.Combine(sourceData, "PG_VERSION");
         var originalVersion = await File.ReadAllBytesAsync(versionPath, cancellationToken);
         if (!int.TryParse(System.Text.Encoding.UTF8.GetString(originalVersion).Trim(), out var dataMajor)
             || dataMajor != oldMajor)

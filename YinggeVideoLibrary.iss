@@ -123,6 +123,7 @@ begin
     '否：卸载程序后删除以下默认数据目录的全部内容：' + #13#10 +
     LibraryDataDir + #13#10 + #13#10 +
     '如使用自定义数据目录，下一步可选择该目录。' + #13#10 +
+    '移至其他磁盘的 PostgreSQL 数据库不会随此目录删除，请另行核对。' + #13#10 +
     '视频原文件不在资料目录内时不受影响。' + #13#10 +
     '取消：停止卸载。', mbConfirmation, MB_YESNOCANCEL);
   if Choice = IDCANCEL then

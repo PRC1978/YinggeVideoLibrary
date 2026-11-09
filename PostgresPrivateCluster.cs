@@ -60,7 +60,7 @@ internal sealed class PostgresPrivateCluster : IAsyncDisposable
         }
         try
         {
-            var data = Path.Combine(libraryDirectory, "postgres-data");
+            var data = PostgresClusterLocation.DataPath(libraryDirectory);
             var credentialName = CredentialNameFor(libraryDirectory);
             var credential = WindowsCredentialStore.Read(credentialName);
             var versionFile = Path.Combine(data, "PG_VERSION");

@@ -103,7 +103,7 @@ internal static class PortableUpdateWorker
     static void WaitForLibraryLeaseRelease(TimeSpan timeout)
     {
         var lease = Path.Combine(AppPaths.DataDirectory, ".postgres-cluster-owner.lock");
-        var pid = Path.Combine(AppPaths.DataDirectory, "postgres-data", "postmaster.pid");
+        var pid = Path.Combine(PostgresClusterLocation.DataPath(AppPaths.DataDirectory), "postmaster.pid");
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {

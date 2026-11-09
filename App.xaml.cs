@@ -229,6 +229,11 @@ public partial class App : System.Windows.Application
                 e.Args.Length > 3 && e.Args[3] == "--scale"));
             return;
         }
+        if (e.Args.Length > 2 && e.Args[0] == "--self-test-postgres-location")
+        {
+            Shutdown(await PostgresClusterLocationDiagnostics.RunToFileAsync(e.Args[1], e.Args[2]));
+            return;
+        }
         if (e.Args.Length > 2 && e.Args[0] == "--self-test-postgres-orphan")
         {
             Shutdown(await BundledPostgresRuntime.RunOrphanRecoveryToFileAsync(
@@ -712,7 +717,7 @@ public partial class App : System.Windows.Application
                 var noDatabaseWasCreated =
                     PostgresStorageModeGuard.Current(dataDir) ==
                         PostgresStorageModeGuard.StorageMode.LegacyFiles &&
-                    !System.IO.Directory.Exists(System.IO.Path.Combine(dataDir, "postgres-data"));
+                    !System.IO.Directory.Exists(PostgresClusterLocation.DefaultPath(dataDir));
                 if (noDatabaseWasCreated)
                 {
                     // Preflight failed before any database was created. Resume
@@ -745,8 +750,29 @@ public partial class App : System.Windows.Application
                 string importWarning = "";
                 librarySessionLease = LibraryBackupService.AcquireSessionLease(dataDir);
                 var runtimeDirectory = System.IO.Path.Combine(AppContext.BaseDirectory, "postgres");
-                postgresRuntimeSession = await OpenDatabaseOrActivateAsync(runtimeDirectory,
-                    dataDir);
+                var relocatedThisStart = false;
+                string locationWarning = "";
+                try { relocatedThisStart = await PostgresClusterLocation.ApplyPendingAsync(dataDir); }
+                catch (Exception error)
+                {
+                    // A failed copy leaves the authoritative pointer unchanged.
+                    // Keep the pending request so it can be canceled or retried
+                    // from Settings instead of locking the user out of the app.
+                    locationWarning = "数据库位置迁移未完成，已按当前有效位置继续打开：" + error.Message;
+                }
+                try
+                {
+                    postgresRuntimeSession = await OpenDatabaseOrActivateAsync(runtimeDirectory,
+                        dataDir);
+                }
+                catch when (relocatedThisStart)
+                {
+                    // No app write has happened yet. Restore the old pointer and
+                    // retry the untouched original cluster once.
+                    PostgresClusterLocation.RollbackRecent(dataDir);
+                    postgresRuntimeSession = await OpenDatabaseOrActivateAsync(runtimeDirectory,
+                        dataDir);
+                }
                 if (postgresRuntimeSession is null)
                 {
                     librarySessionLease.Dispose();
@@ -783,7 +809,8 @@ public partial class App : System.Windows.Application
                         return;
                     }
                 }
-                string backupWarning = importWarning;
+                string backupWarning = string.Join("\n", new[] { locationWarning, importWarning }
+                    .Where(message => message.Length > 0));
                 try
                 {
                     await PostgresBackupPlanStore.RunAtStartupAsync(

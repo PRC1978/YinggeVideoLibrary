@@ -465,6 +465,7 @@ public partial class MainWindow
         section.Children.Add(buttons);
         if (postgresSession is not null)
         {
+            AppendPostgresLocationControls(section);
             AppendPostgresBackupControls(section);
             return section;
         }

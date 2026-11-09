@@ -36,7 +36,10 @@ internal static class PostgresStorageModeGuard
         {
             // A missing marker beside an initialized cluster must not reopen
             // the stale JSON snapshot and fork the library's history.
-            var clusterDirectory = Path.Combine(dataDirectory, "postgres-data");
+            if (File.Exists(Path.Combine(dataDirectory, PostgresClusterLocation.MarkerName)) ||
+                File.Exists(Path.Combine(dataDirectory, PostgresClusterLocation.PendingName)))
+                return StorageMode.Blocked;
+            var clusterDirectory = PostgresClusterLocation.DefaultPath(dataDirectory);
             if (Directory.Exists(clusterDirectory) &&
                 Directory.EnumerateFileSystemEntries(clusterDirectory).Any())
                 return StorageMode.Blocked;

@@ -29,6 +29,8 @@ internal static class JavDbFailureDiagnostics
         const string actualEmpty = "<title>JavDB</title><div class=\"empty-message\">暫無內容</div>";
         checks["javDbPublicEmptyMarkupIsNotFound"] = NotFound(() => JavDbScraper.FindExactResultCard(actualEmpty, "ABC-123"));
         checks["javDbPublicEmptyMarkupIsEmptyTitleSearch"] = JavDbScraper.ParseTitleSearch(actualEmpty).Count == 0;
+        checks["javDbEmptyWordsInOrdinaryBodyRemainUnknown"] = Cooling(() => JavDbScraper.FindExactResultCard("<title>JavDB</title><p>暫無內容</p>", "ABC-123"));
+        checks["javDbChallengeTakesPriorityOverEmptyMarkup"] = Cooling(() => JavDbScraper.FindExactResultCard(actualEmpty + "<script src='/cf-chl-test'></script>", "ABC-123"));
         checks["javDbUnknownStructureCoolsSource"] = Cooling(() => JavDbScraper.FindExactResultCard("<title>JavDB</title><main>changed</main>", "ABC-123"));
         checks["javDbBlankCoolsSource"] = Cooling(() => JavDbScraper.FindExactResultCard("", "ABC-123"));
         checks["javDbChallengeCoolsSource"] = Cooling(() => JavDbScraper.FindExactResultCard("<title>Just a moment</title><script src='/cf-chl-test'></script>", "ABC-123"));
@@ -45,11 +47,20 @@ internal static class JavDbFailureDiagnostics
         return checks;
     }
 
-    public static async Task<int> RunAsync(string resultPath, bool publicSmoke)
+    public static async Task<int> RunAsync(string resultPath, bool publicSmoke, string? publicSnapshotPath = null)
     {
         var checks = Verify();
         foreach (var check in ScrapeQueueFailureSummary.VerifyForDiagnostics()) checks[check.Key] = check.Value;
         var observations = new List<object>();
+        if (publicSnapshotPath is not null)
+        {
+            // Explicit opt-in offline replay of a previously saved public HTML response.
+            var html = await File.ReadAllTextAsync(publicSnapshotPath);
+            try { JavDbScraper.FindExactResultCard(html, "YINGGEDIAGNOSTICNOMATCH-999999999"); checks["javDbSavedPublicEmptySnapshotIsNotFound"] = false; }
+            catch (ScrapeNotFoundException) { checks["javDbSavedPublicEmptySnapshotIsNotFound"] = true; }
+            checks["javDbSavedPublicEmptySnapshotHasNoTitleCandidates"] = JavDbScraper.ParseTitleSearch(html).Count == 0;
+            observations.Add(new { classification = "offline-public-empty-snapshot", sha256 = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(publicSnapshotPath))) });
+        }
         if (publicSmoke)
         {
             var directory = Path.GetDirectoryName(Path.GetFullPath(resultPath))!;

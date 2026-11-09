@@ -184,7 +184,8 @@ public partial class App : System.Windows.Application
         }
         if (e.Args.Length > 1 && e.Args[0] is "--self-test-javdb-failures" or "--diagnose-javdb-public-pages")
         {
-            Shutdown(await JavDbFailureDiagnostics.RunAsync(e.Args[1], e.Args[0] == "--diagnose-javdb-public-pages"));
+            Shutdown(await JavDbFailureDiagnostics.RunAsync(e.Args[1], e.Args[0] == "--diagnose-javdb-public-pages",
+                e.Args.Length > 2 && e.Args[0] == "--self-test-javdb-failures" ? e.Args[2] : null));
             return;
         }
         if (e.Args.Length > 4 && e.Args[0] == "--diagnose-r18-offline")

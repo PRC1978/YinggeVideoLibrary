@@ -102,12 +102,50 @@ public partial class MainWindow
                     checks[key + ".popupTextContrast"] = contrast >= 4.5;
                     var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
                     bitmap.Render(root);
+                    var pixels = new byte[width * height * 4];
+                    bitmap.CopyPixels(pixels, width * 4, 0);
+                    var titleBounds = PageTitle.TransformToAncestor(root)
+                        .TransformBounds(new Rect(new Point(), PageTitle.RenderSize));
+                    var previousTitleVisibility = PageTitle.Visibility;
+                    RenderTargetBitmap withoutTitle;
+                    try
+                    {
+                        // Hidden preserves geometry: differences inside these
+                        // bounds prove that the production heading actually
+                        // painted, rather than accepting a plain background.
+                        PageTitle.Visibility = Visibility.Hidden;
+                        root.UpdateLayout();
+                        withoutTitle = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+                        withoutTitle.Render(root);
+                    }
+                    finally { PageTitle.Visibility = previousTitleVisibility; root.UpdateLayout(); }
+                    var baseline = new byte[pixels.Length];
+                    withoutTitle.CopyPixels(baseline, width * 4, 0);
+                    var titleChangedPixels = 0;
+                    var opaquePixels = 0;
+                    var distinctPixels = new HashSet<int>();
+                    for (var offset = 0; offset < pixels.Length; offset += 4)
+                    {
+                        if (pixels[offset + 3] > 0) opaquePixels++;
+                        distinctPixels.Add(BitConverter.ToInt32(pixels, offset));
+                        var x = (offset / 4) % width;
+                        var y = (offset / 4) / width;
+                        if (x >= titleBounds.Left && x < titleBounds.Right &&
+                            y >= titleBounds.Top && y < titleBounds.Bottom &&
+                            BitConverter.ToInt32(pixels, offset) != BitConverter.ToInt32(baseline, offset))
+                            titleChangedPixels++;
+                    }
+                    checks[key + ".renderHasNonTransparentPixels"] = opaquePixels > 0;
+                    checks[key + ".productionTitlePainted"] = titleChangedPixels >= 8;
                     var encoder = new PngBitmapEncoder();
                     encoder.Frames.Add(BitmapFrame.Create(bitmap));
                     var imageFile = $"{theme}-{width}x{height}-{page}-content.png";
                     using (var stream = File.Create(Path.Combine(outputDirectory, imageFile))) encoder.Save(stream);
                     layouts.Add(new { theme, width, height, page, imageFile, root.ActualWidth, root.ActualHeight,
                         windowActualWidth = ActualWidth, windowActualHeight = ActualHeight,
+                        title = PageTitle.Text,
+                        titleBounds = new { titleBounds.X, titleBounds.Y, titleBounds.Width, titleBounds.Height },
+                        titleChangedPixels, opaquePixels, distinctPixelCount = distinctPixels.Count,
                         buttons = buttonData, popupBackground = background.ToString(), popupText = foreground.ToString(), contrast,
                         reviewRows = page == "review" ? ReviewQueuePanel.Children.Count : (int?)null });
                 }

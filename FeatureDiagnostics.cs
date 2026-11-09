@@ -149,6 +149,9 @@ internal static class FeatureDiagnostics
                 findings[name] = checkPassed;
             foreach (var (name, checkPassed) in R18OfflineDiagnostics.VerifyStatic())
                 findings[name] = checkPassed;
+            foreach (var (name, checkPassed) in await R18OfflineDownloadDiagnostics.VerifyAsync(
+                         Path.Combine(directory, "r18-download")))
+                findings[name] = checkPassed;
             foreach (var (name, checkPassed) in VerifiedWorkClustersDiagnostics.Verify())
                 findings[name] = checkPassed;
             foreach (var (name, checkPassed) in NativeMediaFieldsDiagnostics.Verify())

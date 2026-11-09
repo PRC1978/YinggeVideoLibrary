@@ -84,9 +84,13 @@ public partial class MainWindow
         var r18Import = new Button { Content = "导入 r18.dev 离线数据包…", Style = (Style)FindResource("Action"),
             HorizontalAlignment = System.Windows.HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 5),
             IsEnabled = postgresSession is not null };
-        var r18Cancel = new Button { Content = "取消导入", Style = (Style)FindResource("Action"),
+        var r18Download = new Button { Content = "下载官方数据包…", Style = (Style)FindResource("Action"),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 5),
+            ToolTip = "从 r18.dev 官方最新数据包入口下载；可选择保存文件夹，完成后再导入本机目录。" };
+        var r18Cancel = new Button { Content = "取消处理", Style = (Style)FindResource("Action"),
             HorizontalAlignment = System.Windows.HorizontalAlignment.Left, Margin = new Thickness(8, 0, 0, 5), IsEnabled = false };
-        var r18Buttons = new StackPanel { Orientation = Orientation.Horizontal };
+        var r18Buttons = new WrapPanel { Orientation = Orientation.Horizontal };
+        r18Buttons.Children.Add(r18Download);
         r18Buttons.Children.Add(r18Import);
         r18Buttons.Children.Add(r18Cancel);
         var r18Status = new TextBlock { Text = postgresSession is null ? "本机目录需要 PostgreSQL 存储模式。" :
@@ -96,25 +100,35 @@ public partial class MainWindow
         toggleGroup.Children.Add(r18Status);
         r18Cancel.Click += (_, _) => r18ImportCancellation?.Cancel();
         Closed += (_, _) => r18ImportCancellation?.Cancel();
-        r18Import.Click += async (_, _) =>
+        void SetR18Busy(bool busy)
+        {
+            r18Download.IsEnabled = !busy;
+            r18Import.IsEnabled = !busy && postgresSession is not null;
+            r18Cancel.IsEnabled = busy;
+        }
+        async Task ImportArchiveAsync(string archivePath, CancellationToken token)
         {
             if (postgresSession is null) return;
+            var progress = new Progress<string>(message => r18Status.Text = message);
+            var result = await Task.Run(() => R18OfflineCatalog.Import(postgresSession.ConnectionString, DataDir,
+                archivePath, token, progress), token);
+            r18CatalogInstalled = true;
+            r18EnabledBox.IsEnabled = true;
+            r18Status.Text = $"已导入 {result.VideoCount:N0} 部 · {result.Version}；可启用本机来源。";
+            MessageBox.Show(this, r18Status.Text, "离线目录导入完成");
+        }
+        r18Import.Click += async (_, _) =>
+        {
+            if (postgresSession is null || r18ImportCancellation is not null) return;
             var picker = new Microsoft.Win32.OpenFileDialog { Title = "选择 r18.dev 官方离线数据包", Filter = "r18.dev 数据包 (*.sql.gz)|*.sql.gz", CheckFileExists = true };
             if (picker.ShowDialog(this) != true) return;
             if (MessageBox.Show(this, "将把数据包导入本机 PostgreSQL。需要约 8 GB 可用空间；导入可能耗时较长，完成前现有离线目录保持可用。继续？",
                 "导入离线目录", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-            r18Import.IsEnabled = false;
-            r18Cancel.IsEnabled = true;
             r18ImportCancellation = new CancellationTokenSource();
-            var progress = new Progress<string>(message => r18Status.Text = message);
+            SetR18Busy(true);
             try
             {
-                var result = await Task.Run(() => R18OfflineCatalog.Import(postgresSession.ConnectionString, DataDir, picker.FileName,
-                    r18ImportCancellation.Token, progress));
-                r18CatalogInstalled = true;
-                r18EnabledBox.IsEnabled = true;
-                r18Status.Text = $"已导入 {result.VideoCount:N0} 部 · {result.Version}；可启用本机来源。";
-                MessageBox.Show(this, r18Status.Text, "离线目录导入完成");
+                await ImportArchiveAsync(picker.FileName, r18ImportCancellation.Token);
             }
             catch (OperationCanceledException) { r18Status.Text = "已取消导入；现有目录保持可用。"; }
             catch (Exception ex)
@@ -123,7 +137,57 @@ public partial class MainWindow
                 Log("r18.dev 离线目录导入失败：" + ex.Message);
                 MessageBox.Show(this, ex.Message, "离线目录导入失败", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
-            finally { r18ImportCancellation?.Dispose(); r18ImportCancellation = null; r18Cancel.IsEnabled = false; r18Import.IsEnabled = true; }
+            finally { r18ImportCancellation?.Dispose(); r18ImportCancellation = null; SetR18Busy(false); }
+        };
+        r18Download.Click += async (_, _) =>
+        {
+            if (r18ImportCancellation is not null) return;
+            r18ImportCancellation = new CancellationTokenSource();
+            SetR18Busy(true);
+            try
+            {
+                r18Status.Text = "正在向 r18.dev 查询最新数据包…";
+                using var client = R18OfflineDownload.CreateClient();
+                var info = await R18OfflineDownload.ResolveLatestAsync(client, r18ImportCancellation.Token);
+                r18ImportCancellation.Token.ThrowIfCancellationRequested();
+                using var folderPicker = new System.Windows.Forms.FolderBrowserDialog
+                {
+                    Description = $"选择保存 {info.FileName} 的文件夹",
+                    UseDescriptionForTitle = true, ShowNewFolderButton = true
+                };
+                if (folderPicker.ShowDialog() != System.Windows.Forms.DialogResult.OK)
+                {
+                    r18Status.Text = "已取消选择保存位置；没有下载数据包。";
+                    return;
+                }
+                var path = Path.Combine(folderPicker.SelectedPath, info.FileName);
+                if (File.Exists(path) && MessageBox.Show(this,
+                        $"保存位置已有 {info.FileName}。重新下载并替换这个文件？取消或下载失败时原文件保持不变。",
+                        "替换现有数据包", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                {
+                    r18Status.Text = "保留了现有数据包。";
+                    return;
+                }
+                var progress = new Progress<R18OfflineDownload.DownloadProgress>(value =>
+                    r18Status.Text = value.TotalBytes is > 0
+                        ? $"下载中：{value.BytesReceived / 1048576d:N1} / {value.TotalBytes.Value / 1048576d:N1} MiB"
+                        : $"下载中：{value.BytesReceived / 1048576d:N1} MiB");
+                path = await R18OfflineDownload.DownloadAsync(client, info, folderPicker.SelectedPath,
+                    progress, r18ImportCancellation.Token);
+                r18Status.Text = $"已保存到：{path}";
+                if (postgresSession is null || MessageBox.Show(this,
+                        "数据包已下载。现在导入本机 PostgreSQL 吗？导入至少需要约 8 GB 可用空间，现有目录在完成前保持可用。",
+                        "下载完成", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                await ImportArchiveAsync(path, r18ImportCancellation.Token);
+            }
+            catch (OperationCanceledException) { r18Status.Text = "已取消；未完成的下载文件已清理，已有数据包与目录保持不变。"; }
+            catch (Exception ex)
+            {
+                r18Status.Text = "下载或导入失败；已有数据包与目录保持不变。";
+                Log("r18.dev 官方数据包处理失败：" + ex.Message);
+                MessageBox.Show(this, ex.Message, "离线数据包处理失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            finally { r18ImportCancellation?.Dispose(); r18ImportCancellation = null; SetR18Busy(false); }
         };
         var ordinaryPreset = new Button
         {

@@ -231,6 +231,8 @@ public partial class MainWindow
             startupVeilBypassedForOfflineCapture = true, contentRenderedEventRaised = false,
             windowBackgroundComposited = true,
             contentDetachedForOfflineCapture = true,
+            responsiveWindowMeasurementVerified = false,
+            nativeWindowActualSizeValidity = "not-valid-for-unshown-window",
             scope = "Offline production content Measure/Arrange/RenderTargetBitmap only. No native window, popup opening, OS chrome, or actual keyboard task validation.",
             keyboardPhysicalValidation = "not-performed", themeCount = themes.Length, themes,
             pages, skippedPages, declaredCaptureCount = themes.Length * 3 * pages.Length,

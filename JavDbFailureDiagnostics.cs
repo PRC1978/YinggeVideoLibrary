@@ -25,6 +25,10 @@ internal static class JavDbFailureDiagnostics
         checks["javDbKnownCardRemainsExact"] = JavDbScraper.FindExactResultCard(card, "ABC-123").Success;
         checks["javDbOtherExactCodeIsNotFound"] = NotFound(() => JavDbScraper.FindExactResultCard(card, "ABC-124"));
         checks["javDbExplicitEmptyIsNotFound"] = NotFound(() => JavDbScraper.FindExactResultCard("<title>JavDB</title><p>No results found</p>", "ABC-123"));
+        // Fixed markup captured from the public synthetic no-match smoke on 2026-11-09.
+        const string actualEmpty = "<title>JavDB</title><div class=\"empty-message\">暫無內容</div>";
+        checks["javDbPublicEmptyMarkupIsNotFound"] = NotFound(() => JavDbScraper.FindExactResultCard(actualEmpty, "ABC-123"));
+        checks["javDbPublicEmptyMarkupIsEmptyTitleSearch"] = JavDbScraper.ParseTitleSearch(actualEmpty).Count == 0;
         checks["javDbUnknownStructureCoolsSource"] = Cooling(() => JavDbScraper.FindExactResultCard("<title>JavDB</title><main>changed</main>", "ABC-123"));
         checks["javDbBlankCoolsSource"] = Cooling(() => JavDbScraper.FindExactResultCard("", "ABC-123"));
         checks["javDbChallengeCoolsSource"] = Cooling(() => JavDbScraper.FindExactResultCard("<title>Just a moment</title><script src='/cf-chl-test'></script>", "ABC-123"));

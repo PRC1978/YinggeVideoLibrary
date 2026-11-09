@@ -439,6 +439,7 @@ public static partial class JavDbScraper
     static readonly Regex DetailStrong = new(@"<strong\b(?<attributes>[^>]*)>(?<value>.*?)</strong>", RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
     static readonly Regex CurrentTitleClass = new(@"\bclass\s*=\s*(['""'])[^'""']*\bcurrent-title\b[^'""']*\1", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     static readonly Regex EmptySearchMessage = new(@"(?:沒有|没有|未能|找不到|未找到|暂无|暫無).{0,24}(?:搜尋結果|搜索结果|影片|视频)|(?:no|zero)\s+(?:matching\s+)?(?:results|videos)(?:\s+found)?", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+    static readonly Regex EmptySearchBlock = new(@"<(?:div|p)\b[^>]*\bclass\s*=\s*(['""'])[^'""']*\bempty-message\b[^'""']*\1[^>]*>\s*(?:暫無內容|暂无内容|沒有結果|没有结果)\s*</(?:div|p)>", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     static readonly Regex DetailPath = new(@"^/v/[A-Za-z0-9_-]{2,64}/?$", RegexOptions.Compiled);
     static readonly HttpClient Client = CreateClient();
 
@@ -525,7 +526,7 @@ public static partial class JavDbScraper
         // found. Return an empty list only for a recognizable JavDB empty page.
         var plain = CleanHtml(html);
         var looksLikeJavDb = html.Contains("javdb", StringComparison.OrdinalIgnoreCase);
-        if (looksLikeJavDb && EmptySearchMessage.IsMatch(plain)) return results;
+        if (looksLikeJavDb && (EmptySearchMessage.IsMatch(plain) || EmptySearchBlock.IsMatch(html))) return results;
         throw UnavailablePage(searchPage
             ? "JavDB 未返回可识别的搜索结果页，无法判断是否没有匹配。"
             : "JavDB 未返回可识别的关系目录页，无法判断是否没有作品。");
@@ -654,7 +655,8 @@ public static partial class JavDbScraper
         if (matched is null)
         {
             if (Cards.Matches(html).Count > 0) throw new ScrapeNotFoundException("JavDB 返回了结果，但没有完全匹配的番号。");
-            if (html.Contains("javdb", StringComparison.OrdinalIgnoreCase) && EmptySearchMessage.IsMatch(CleanHtml(html)))
+            if (html.Contains("javdb", StringComparison.OrdinalIgnoreCase)
+                && (EmptySearchMessage.IsMatch(CleanHtml(html)) || EmptySearchBlock.IsMatch(html)))
                 throw new ScrapeNotFoundException("JavDB 明确返回没有搜索结果。");
             throw UnavailablePage("JavDB 没有返回可识别的结果，无法确认是否无匹配；来源已冷却。");
         }

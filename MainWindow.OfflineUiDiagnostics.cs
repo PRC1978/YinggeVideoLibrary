@@ -106,8 +106,23 @@ public partial class MainWindow
                     var contrast = ThemeContrast(OpaqueOver(foreground, background), background);
                     checks[key + ".popupOpaque"] = background.A == 255;
                     checks[key + ".popupTextContrast"] = contrast >= 4.5;
-                    var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
-                    bitmap.Render(root);
+                    RenderTargetBitmap RenderContent()
+                    {
+                        // The production Window paints the backdrop behind its
+                        // transparent content Grid. Rendering only that Grid
+                        // drops this layer and falsely turns glass into white.
+                        var composition = new DrawingVisual();
+                        using (var drawing = composition.RenderOpen())
+                        {
+                            var viewport = new Rect(0, 0, width, height);
+                            drawing.DrawRectangle(Background, null, viewport);
+                            drawing.DrawRectangle(new VisualBrush(root) { Stretch = Stretch.Fill }, null, viewport);
+                        }
+                        var result = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+                        result.Render(composition);
+                        return result;
+                    }
+                    var bitmap = RenderContent();
                     var pixels = new byte[width * height * 4];
                     bitmap.CopyPixels(pixels, width * 4, 0);
                     var titleBounds = PageTitle.TransformToAncestor(root)
@@ -121,8 +136,7 @@ public partial class MainWindow
                         // painted, rather than accepting a plain background.
                         PageTitle.Visibility = Visibility.Hidden;
                         root.UpdateLayout();
-                        withoutTitle = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
-                        withoutTitle.Render(root);
+                        withoutTitle = RenderContent();
                     }
                     finally { PageTitle.Visibility = previousTitleVisibility; root.UpdateLayout(); }
                     var baseline = new byte[pixels.Length];
@@ -165,6 +179,7 @@ public partial class MainWindow
         {
             passed, realLibraryRead = false, nativeWindowShown = false, inputInjected = false,
             startupVeilBypassedForOfflineCapture = true, contentRenderedEventRaised = false,
+            windowBackgroundComposited = true,
             scope = "Offline production content Measure/Arrange/RenderTargetBitmap only. No native window, popup opening, OS chrome, or actual keyboard task validation.",
             keyboardPhysicalValidation = "not-performed", themeCount = themes.Length, themes,
             pages, skippedPages, declaredCaptureCount = themes.Length * 3 * pages.Length,

@@ -182,6 +182,11 @@ public partial class App : System.Windows.Application
             Shutdown(await FeatureDiagnostics.RunAsync(e.Args[1]));
             return;
         }
+        if (e.Args.Length > 1 && e.Args[0] is "--self-test-javdb-failures" or "--diagnose-javdb-public-pages")
+        {
+            Shutdown(await JavDbFailureDiagnostics.RunAsync(e.Args[1], e.Args[0] == "--diagnose-javdb-public-pages"));
+            return;
+        }
         if (e.Args.Length > 4 && e.Args[0] == "--diagnose-r18-offline")
         {
             Shutdown(R18OfflineDiagnostics.Run(e.Args[1], e.Args[2], e.Args[3], e.Args[4]));

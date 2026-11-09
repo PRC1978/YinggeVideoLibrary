@@ -42,7 +42,7 @@ internal static class JavDbCatalogDiagnostics
             && actors[0].Name == "三上悠亜" && actors[0].Url == "https://javdb.com/actors/Av2e";
         findings["directActorSearchDistinguishesEmptyAndLogin"] =
             JavDbScraper.ParseActorSearch("<html><title>演员搜索 | JavDB</title><div id='actors'><div class='empty-message'>暫無內容</div></div></html>").Count == 0
-            && ActorSearchFails("<html><title>登入 | JavDB 成人影片數據庫</title><div id='actors'><div class='empty-message'>暫無內容</div></div></html>")
+            && ActorSearchFails("<html><title>登入 | JavDB 成人影片數據庫</title><div id='actors'><div class='empty-message'>暫無內容</div></div></html>", sourceUnavailable: true)
             && ActorSearchFails("<html><title>unknown</title></html>");
         const string actorPage = "<nav class='pagination'><a rel='next' class='pagination-next' href='/actors/Av2e?page=2'>下一頁</a></nav>";
         const string tagPage = "<nav class='pagination'><a href='/tags?c3=43&page=2' rel='next'>下一頁</a></nav>";
@@ -103,9 +103,11 @@ internal static class JavDbCatalogDiagnostics
         catch (System.IO.InvalidDataException) { return true; }
     }
 
-    static bool ActorSearchFails(string html)
+    static bool ActorSearchFails(string html, bool sourceUnavailable = false)
     {
         try { _ = JavDbScraper.ParseActorSearch(html); return false; }
-        catch (InvalidOperationException) { return true; }
+        catch (ScrapeSourceUnavailableException ex) when (sourceUnavailable)
+        { return ex.RetryAt > DateTimeOffset.UtcNow; }
+        catch (InvalidOperationException) when (!sourceUnavailable) { return true; }
     }
 }

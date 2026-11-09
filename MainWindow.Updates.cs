@@ -107,8 +107,8 @@ public partial class MainWindow
             IsChecked = config.UpdateAutoCheck,
             Margin = new Thickness(0, 2, 0, 10)
         };
-        autoCheck.Checked += (_, _) => { config.UpdateAutoCheck = true; SaveConfig(); };
-        autoCheck.Unchecked += (_, _) => { config.UpdateAutoCheck = false; SaveConfig(); };
+        autoCheck.Checked += (_, _) => { if (config.UpdateAutoCheck) return; config.UpdateAutoCheck = true; QueueSettingsSave(); };
+        autoCheck.Unchecked += (_, _) => { if (!config.UpdateAutoCheck) return; config.UpdateAutoCheck = false; QueueSettingsSave(); };
         section.Children.Add(autoCheck);
         var updateChannel = new ComboBox { Width = 220, HorizontalAlignment = WpfHorizontalAlignment.Left,
             Margin = new Thickness(0, 0, 0, 10) };
@@ -117,9 +117,11 @@ public partial class MainWindow
         updateChannel.SelectedIndex = config.UpdateChannel == "preview" ? 1 : 0;
         updateChannel.SelectionChanged += (_, _) =>
         {
-            config.UpdateChannel = updateChannel.SelectedIndex == 1 ? "preview" : "stable";
+            var selected = updateChannel.SelectedIndex == 1 ? "preview" : "stable";
+            if (config.UpdateChannel == selected) return;
+            config.UpdateChannel = selected;
             availableUpdate = null;
-            SaveConfig();
+            QueueSettingsSave();
         };
         section.Children.Add(updateChannel);
         section.Children.Add(new TextBlock

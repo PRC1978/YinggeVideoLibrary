@@ -108,18 +108,20 @@ public partial class MainWindow
                 UiTheme.Apply(id, config.UiColorMode);
                 // Structural chrome (nav set, review page host, status cards)
                 // follows the mode immediately; the current page is kept.
-                ApplyInterfaceMode();
+                ApplyInterfaceMode(refreshView: view != "settings");
                 // The complete list uses row virtualization. Recompute its
                 // column count after the new card width and page width settle.
                 var layoutVersion = ++themeLayoutVersion;
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     if (layoutVersion != themeLayoutVersion || UiTheme.Current != id) return;
-                    UpdateLayout();
-                    ReflowVirtualRows();
-                    if (view is "all" or "recent" or "favorites") RenderCards();
+                    if (view is "all" or "recent" or "favorites")
+                    {
+                        ReflowVirtualRows();
+                        RenderCards();
+                    }
                 }), DispatcherPriority.Loaded);
-                SaveConfig();
+                QueueSettingsSave();
             };
             themeModeButtons.Add(choice);
             if (PresentationRegistry.Find(id) is null) extraThemeRow.Children.Add(choice);
@@ -155,8 +157,8 @@ public partial class MainWindow
                 config.UiColorMode = mode;
                 UiTheme.Apply(config.UiTheme, mode);
                 lastCategoryRenderVersion = -1;
-                ShowView(view);
-                SaveConfig();
+                if (view != "settings") ShowView(view);
+                QueueSettingsSave();
             };
             colorModeButtons.Add(choice);
             colorModeRow.Children.Add(choice);
@@ -179,9 +181,8 @@ public partial class MainWindow
                 choice.IsChecked = Equals(choice.Tag, UiTheme.Classic);
             foreach (var choice in colorModeButtons)
                 choice.IsChecked = Equals(choice.Tag, UiColorMode.Native);
-            ApplyInterfaceMode();
-            SaveConfig();
-            ShowView("settings");
+            ApplyInterfaceMode(refreshView: view != "settings");
+            QueueSettingsSave();
         };
         section.Children.Add(restoreTheme);
         section.Children.Add(new TextBlock { Text = "界面动画", FontWeight = FontWeights.SemiBold,
@@ -210,7 +211,7 @@ public partial class MainWindow
                     sphereMapSurface.ProjectedStrokeRadiusThreshold = id == UiMotion.Smooth ? 3.5 : 0;
                     sphereMapSurface.InvalidateVisual();
                 }
-                SaveConfig();
+                QueueSettingsSave();
             };
             motionButtons.Add(motion);
             motionRow.Children.Add(motion);
@@ -231,7 +232,7 @@ public partial class MainWindow
         {
             if (choices.SelectedItem is not int count || config.CardPageSize == count) return;
             config.CardPageSize = count;
-            SaveConfig();
+            QueueSettingsSave();
             pageIndex = 0;
             if (view is "all" or "recent" or "favorites" or "categories") RenderCards();
         };
@@ -332,8 +333,8 @@ public partial class MainWindow
             IsChecked = config.ScrapeRefreshIncompleteMetadata,
             Margin = new Thickness(0, 0, 0, 2)
         };
-        retry.Checked += (_, _) => { config.ScrapeRefreshIncompleteMetadata = true; SaveConfig(); };
-        retry.Unchecked += (_, _) => { config.ScrapeRefreshIncompleteMetadata = false; SaveConfig(); };
+        retry.Checked += (_, _) => { if (config.ScrapeRefreshIncompleteMetadata) return; config.ScrapeRefreshIncompleteMetadata = true; QueueSettingsSave(); };
+        retry.Unchecked += (_, _) => { if (!config.ScrapeRefreshIncompleteMetadata) return; config.ScrapeRefreshIncompleteMetadata = false; QueueSettingsSave(); };
         section.Children.Add(retry);
         section.Children.Add(SettingsHint("只重试尚未读取详情的 JavDB 旧记录；已有完整资料仍会跳过。"));
         var row = new StackPanel { Orientation = Orientation.Horizontal };
@@ -345,7 +346,7 @@ public partial class MainWindow
         {
             if (interval.SelectedItem is not double seconds || config.ScrapeRequestIntervalSeconds == seconds) return;
             config.ScrapeRequestIntervalSeconds = seconds;
-            SaveConfig();
+            QueueSettingsSave();
         };
         row.Children.Add(interval);
         row.Children.Add(new TextBlock { Text = "秒 / 项", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) });
@@ -378,7 +379,7 @@ public partial class MainWindow
                 if (current.IntervalSeconds == value) return;
                 current.IntervalSeconds = value;
                 config.ScrapeSourcePolicies[source] = current;
-                SaveConfig();
+                QueueSettingsSave();
             };
             sourceRow.Children.Add(sourceInterval);
             sourceRow.Children.Add(new TextBlock { Text = "秒   失败后冷却", Margin = new Thickness(8, 0, 8, 0),
@@ -394,7 +395,7 @@ public partial class MainWindow
                 if (current.ConsecutiveFailureLimit == value) return;
                 current.ConsecutiveFailureLimit = value;
                 config.ScrapeSourcePolicies[source] = current;
-                SaveConfig();
+                QueueSettingsSave();
             };
             sourceRow.Children.Add(sourceRetries);
             section.Children.Add(sourceRow);
@@ -425,7 +426,7 @@ public partial class MainWindow
                 config.PosterCacheLimitMb == limit) return;
             config.PosterCacheLimitMb = limit;
             VideoItem.ConfigurePosterCache(limit);
-            SaveConfig();
+            QueueSettingsSave();
             if (settingsCacheStatus is not null)
                 settingsCacheStatus.Text = limit == 0 ? "海报内存缓存已设为无限制。"
                     : $"海报内存缓存上限已设为 {limit} MB。";

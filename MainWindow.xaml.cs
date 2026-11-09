@@ -571,7 +571,11 @@ public partial class MainWindow : Window
         sphereGraphTimer.Tick += (_, _) => RotateSphereGraph();
         Closing += (_, e) =>
         {
-            if (updateExitRequested) return;
+            if (updateExitRequested)
+            {
+                if (DelayCloseForSettingsSave()) e.Cancel = true;
+                return;
+            }
             // A Windows sign-out/shutdown must close the window and release
             // the private database, regardless of the tray preference.
             if (System.Windows.Application.Current is App app &&
@@ -587,7 +591,9 @@ public partial class MainWindow : Window
             {
                 e.Cancel = true;
                 HideInTray();
+                return;
             }
+            if (DelayCloseForSettingsSave()) e.Cancel = true;
         };
         Closed += (_, _) =>
         {
@@ -4948,6 +4954,7 @@ public partial class MainWindow : Window
     {
         if (!IsLoaded || startupOptionsUpdating) return;
         var enabled = AutoStartBox.IsChecked == true;
+        if (config.AutoStart == enabled) return;
         if (!StartupRegistration.TrySetEnabled(enabled, out var error))
         {
             startupOptionsUpdating = true;
@@ -4957,16 +4964,16 @@ public partial class MainWindow : Window
             return;
         }
         config.AutoStart = enabled;
-        SaveConfig();
+        QueueSettingsSave();
         RefreshStartupStatus();
     }
-    void GpuChanged(object sender, RoutedEventArgs e) { if (!IsLoaded) return; config.GpuThumbnails = GpuBox.IsChecked == true; SaveConfig(); }
-    void DisplayModeChanged(object sender, RoutedEventArgs e) { if (!IsLoaded) return; config.ShowAll = ShowAllBox.IsChecked == true; SaveConfig(); if (view is "all" or "recent" or "favorites" or "categories") ShowView(view); }
+    void GpuChanged(object sender, RoutedEventArgs e) { if (!IsLoaded || config.GpuThumbnails == (GpuBox.IsChecked == true)) return; config.GpuThumbnails = GpuBox.IsChecked == true; QueueSettingsSave(); }
+    void DisplayModeChanged(object sender, RoutedEventArgs e) { if (!IsLoaded || config.ShowAll == (ShowAllBox.IsChecked == true)) return; config.ShowAll = ShowAllBox.IsChecked == true; QueueSettingsSave(); if (view is "all" or "recent" or "favorites" or "categories") ShowView(view); }
     void ExtensionSettingChanged(object sender, RoutedEventArgs e)
     {
-        if (!IsLoaded) return;
+        if (!IsLoaded || config.EnableExtension == (ExtensionBox.IsChecked == true)) return;
         config.EnableExtension = ExtensionBox.IsChecked == true;
-        SaveConfig();
+        QueueSettingsSave();
         ExtensionInfo.Text = "扩展开关已保存。重新启动映格后，内嵌浏览器会按新设置加载。";
     }
     void SaveTmdbToken(object sender, RoutedEventArgs e)

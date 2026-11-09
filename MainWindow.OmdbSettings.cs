@@ -25,8 +25,8 @@ public partial class MainWindow
         });
         var enabled = new CheckBox { Content = "启用 OMDb 手动搜刮", IsChecked = config.EnableOmdb,
             Margin = new Thickness(0, 0, 0, 10) };
-        enabled.Checked += (_, _) => { if (!IsLoaded) return; config.EnableOmdb = true; SaveConfig(); RefreshSourceDiagnostics(); };
-        enabled.Unchecked += (_, _) => { if (!IsLoaded) return; config.EnableOmdb = false; SaveConfig(); RefreshSourceDiagnostics(); };
+        enabled.Checked += (_, _) => { if (!IsLoaded || config.EnableOmdb) return; config.EnableOmdb = true; QueueSettingsSave(); RefreshSourceDiagnostics(); };
+        enabled.Unchecked += (_, _) => { if (!IsLoaded || !config.EnableOmdb) return; config.EnableOmdb = false; QueueSettingsSave(); RefreshSourceDiagnostics(); };
         section.Children.Add(enabled);
         var status = new TextBlock { Text = OmdbScraper.CredentialReady() ? "Windows 凭据中已有 OMDb API Key" : "尚未设置 OMDb API Key",
             Foreground = UiTheme.TextTertiaryBrush, Margin = new Thickness(0, 0, 0, 5) };

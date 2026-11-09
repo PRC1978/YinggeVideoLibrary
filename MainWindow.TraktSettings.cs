@@ -26,8 +26,8 @@ public partial class MainWindow
         });
         var enabled = new CheckBox { Content = "启用 Trakt 手动搜刮", IsChecked = config.EnableTrakt,
             Margin = new Thickness(0, 0, 0, 10) };
-        enabled.Checked += (_, _) => { if (!IsLoaded) return; config.EnableTrakt = true; SaveConfig(); RefreshSourceDiagnostics(); };
-        enabled.Unchecked += (_, _) => { if (!IsLoaded) return; config.EnableTrakt = false; SaveConfig(); RefreshSourceDiagnostics(); };
+        enabled.Checked += (_, _) => { if (!IsLoaded || config.EnableTrakt) return; config.EnableTrakt = true; QueueSettingsSave(); RefreshSourceDiagnostics(); };
+        enabled.Unchecked += (_, _) => { if (!IsLoaded || !config.EnableTrakt) return; config.EnableTrakt = false; QueueSettingsSave(); RefreshSourceDiagnostics(); };
         section.Children.Add(enabled);
         var status = new TextBlock
         {

@@ -194,7 +194,7 @@ public partial class MainWindow
         {
             if (page.SelectedValue is not string selected || selected == config.StartPage || !IsLoaded) return;
             config.StartPage = selected;
-            SaveConfig();
+            QueueSettingsSave();
         };
         section.Children.Add(StartupRow("启动页", "下次打开时默认显示的页面。", page));
 
@@ -275,7 +275,7 @@ public partial class MainWindow
     {
         if (!IsLoaded || startupOptionsUpdating) return;
         update();
-        SaveConfig();
+        QueueSettingsSave();
     }
 
     void RefreshStartupStatus(string? message = null)

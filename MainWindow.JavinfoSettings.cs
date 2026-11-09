@@ -34,8 +34,8 @@ public partial class MainWindow
         });
         javinfoEnabledBox = new CheckBox { Content = "启用 Javinfo 手动搜刮", IsChecked = config.EnableJavinfo,
             Margin = new Thickness(0, 0, 0, 10) };
-        javinfoEnabledBox.Checked += (_, _) => { if (!IsLoaded) return; config.EnableJavinfo = true; SaveConfig(); };
-        javinfoEnabledBox.Unchecked += (_, _) => { if (!IsLoaded) return; config.EnableJavinfo = false; SaveConfig(); };
+        javinfoEnabledBox.Checked += (_, _) => { if (!IsLoaded || config.EnableJavinfo) return; config.EnableJavinfo = true; QueueSettingsSave(); };
+        javinfoEnabledBox.Unchecked += (_, _) => { if (!IsLoaded || !config.EnableJavinfo) return; config.EnableJavinfo = false; QueueSettingsSave(); };
         section.Children.Add(javinfoEnabledBox);
         section.Children.Add(new TextBlock { Text = "Javinfo API Key", FontWeight = FontWeights.SemiBold });
         javinfoKeyBox = new PasswordBox { Password = config.JavinfoKey, Height = 36,

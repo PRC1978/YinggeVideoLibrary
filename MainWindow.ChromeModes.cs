@@ -18,6 +18,7 @@ public partial class MainWindow
     WrapPanel? librarySegments;
     RoleProfilesView? embeddedRoles;
     readonly List<TextBlock> modernSidebarHeadings = [];
+    bool? arrangedClassicMode;
 
     void EnsureSidebarGroups()
     {
@@ -104,18 +105,18 @@ public partial class MainWindow
 
     /// <summary>Apply the current interface mode's chrome. Called once during
     /// startup (after the scrape groups exist) and on every mode switch.</summary>
-    void ApplyInterfaceMode()
+    void ApplyInterfaceMode(bool refreshView = true)
     {
         UpdateHeaderResponsive();
         var classic = UiTheme.IsClassicMode;
         var navigationStyle = (Style)FindResource(classic ? "Nav" : "NavModern");
         foreach (var item in new[] { LibraryNav, AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, RolesNav, ScrapeNav, ReviewNav, OnlineNav, PluginsNav, SettingsNav })
-            item.Style = navigationStyle;
+            if (!ReferenceEquals(item.Style, navigationStyle)) item.Style = navigationStyle;
         var pagerStyle = (Style)FindResource(classic ? "Action" : "PagerModern");
-        foreach (var item in new[] { PreviousPage, NextPage, PageJumpButton }) item.Style = pagerStyle;
+        foreach (var item in new[] { PreviousPage, NextPage, PageJumpButton })
+            if (!ReferenceEquals(item.Style, pagerStyle)) item.Style = pagerStyle;
         foreach (var item in new[] { reviewPreviousPageButton, reviewNextPageButton, reviewTopPreviousPageButton, reviewTopNextPageButton })
-            if (item is not null) item.Style = pagerStyle;
-        ApplySidebarPresentation();
+            if (item is not null && !ReferenceEquals(item.Style, pagerStyle)) item.Style = pagerStyle;
         LibraryNav.Visibility = classic ? Visibility.Collapsed : Visibility.Visible;
         AllNav.Visibility = classic ? Visibility.Visible : Visibility.Collapsed;
         RecentNav.Visibility = classic ? Visibility.Visible : Visibility.Collapsed;
@@ -123,11 +124,18 @@ public partial class MainWindow
         StatusNav.Visibility = classic ? Visibility.Visible : Visibility.Collapsed;
         ReviewNav.Visibility = classic ? Visibility.Collapsed : Visibility.Visible;
         PluginsNav.Visibility = classic ? Visibility.Collapsed : Visibility.Visible;
-        ArrangeScrapeGroups();
-        RelocateStatusCards();
+        // These operations detach and rebuild whole pages. Their structure
+        // changes only at the classic/new interface boundary, not when the
+        // user switches between two modern palettes.
+        if (arrangedClassicMode != classic)
+        {
+            ArrangeScrapeGroups();
+            RelocateStatusCards();
+            ArrangeReviewSections();
+            arrangedClassicMode = classic;
+        }
         if (ReviewQueuePanel.Parent is ScrollViewer reviewScroll)
             ConfigureReviewQueueScrolling(reviewScroll);
-        ArrangeReviewSections();
         InvalidateAvailabilityChipTheme();
         // The sphere graph caches a rendered bitmap in the palette active at
         // construction time. Rebuild it after a theme switch so links and
@@ -138,7 +146,7 @@ public partial class MainWindow
         else if (classic && view is "roles") view = "all";
         else if (!classic && view is "status") view = "all";
         else if (UiTheme.Current == UiTheme.Atlas && view == "all") view = "categories";
-        ShowView(view);
+        if (refreshView) ShowView(view);
     }
 
     void NavLibrary(object sender, RoutedEventArgs e) => ShowView("all");

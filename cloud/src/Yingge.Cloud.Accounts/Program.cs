@@ -46,6 +46,7 @@ builder.Services.AddSingleton(serviceProvider =>
 builder.Services.AddSingleton<AuditRepository>();
 builder.Services.AddSingleton<InviteRepository>();
 builder.Services.AddSingleton<AccountRepository>();
+builder.Services.AddSingleton<AvatarRepository>();
 builder.Services.AddSingleton<SessionRepository>();
 builder.Services.AddSingleton<ReportRepository>();
 builder.Services.AddSingleton<AdminRepository>();
@@ -117,6 +118,7 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 app.MapAuthEndpoints();
+app.MapAvatarEndpoints();
 app.MapAdminEndpoints();
 app.MapReportEndpoints();
 app.MapHealthEndpoints();

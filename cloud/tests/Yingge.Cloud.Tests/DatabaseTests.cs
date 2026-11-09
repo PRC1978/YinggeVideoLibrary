@@ -16,7 +16,7 @@ public sealed class DatabaseTests(PostgresFixture fixture) : IAsyncLifetime
     public async Task Migrations_are_recorded_with_checksums_and_reapplying_is_a_no_op()
     {
         var catalog = MigrationCatalog.Load();
-        Assert.Equal(3, catalog.Count);
+        Assert.Equal(4, catalog.Count);
 
         var applied = await Migrator.ListAppliedAsync(fixture.OwnerDataSource, CancellationToken.None);
         Assert.Equal(catalog.Count, applied.Count);
@@ -66,7 +66,7 @@ public sealed class DatabaseTests(PostgresFixture fixture) : IAsyncLifetime
         await Migrator.ApplyAsync(dataSource, null, CancellationToken.None);
         var rolledBack = await Migrator.RollbackAsync(dataSource, "0001", null, CancellationToken.None);
 
-        Assert.Equal(2, rolledBack.Count);
+        Assert.Equal(MigrationCatalog.Load().Count - 1, rolledBack.Count);
         Assert.Equal(0, await ScalarAsync<int>(dataSource,
             "select count(*)::int from pg_tables where schemaname = 'public' and tablename = 'error_reports'"));
         Assert.Equal(1, await ScalarAsync<int>(dataSource,

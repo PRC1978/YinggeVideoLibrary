@@ -7,6 +7,20 @@ namespace Yingge.Cloud.Tests;
 public sealed class ClientTests(PostgresFixture fixture) : CloudTestBase(fixture)
 {
     [Fact]
+    public async Task Client_uploads_downloads_and_removes_its_avatar()
+    {
+        var account = await CreateAccountAsync();
+        using var client = CreateClient(new InMemorySessionStore(account.Token));
+        var png = AvatarTests.Png(22, 88, 122);
+
+        Assert.Null(await client.DownloadAvatarAsync());
+        await client.UploadAvatarAsync(png);
+        Assert.Equal(png, await client.DownloadAvatarAsync());
+        await client.DeleteAvatarAsync();
+        Assert.Null(await client.DownloadAvatarAsync());
+    }
+
+    [Fact]
     public async Task Client_registers_logs_in_and_uploads_an_redacted_report()
     {
         var invite = await TestSupport.CreateInviteAsync(Fixture);

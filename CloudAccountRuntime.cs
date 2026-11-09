@@ -55,5 +55,11 @@ internal sealed class CloudAccountRuntime : IDisposable
 
     internal Task DeleteReportAsync(Guid id, CancellationToken ct) => client.DeleteReportAsync(id, ct);
 
+    internal Task UploadAvatarAsync(byte[] png, CancellationToken ct) => client.UploadAvatarAsync(png, ct);
+
+    internal Task<byte[]?> DownloadAvatarAsync(CancellationToken ct) => client.DownloadAvatarAsync(ct);
+
+    internal Task DeleteAvatarAsync(CancellationToken ct) => client.DeleteAvatarAsync(ct);
+
     public void Dispose() => client.Dispose();
 }

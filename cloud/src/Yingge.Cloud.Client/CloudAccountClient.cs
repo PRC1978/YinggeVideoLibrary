@@ -147,6 +147,43 @@ public sealed class CloudAccountClient : IDisposable
         await SendAsync(request, ct);
     }
 
+    public async Task UploadAvatarAsync(byte[] png, CancellationToken ct = default)
+    {
+        if (png.Length is 0 or > 240 * 1024)
+            throw new CloudAccountException(ProblemCodes.PayloadTooLarge, 413, "头像不得超过 240 KB。");
+        if (await EnsureTokenAsync(ct) is null)
+            throw new CloudAccountException(ProblemCodes.Unauthorized, 401, "需要先登录再上传头像。");
+        using var request = Authorized(HttpMethod.Put, "/api/v1/account/avatar");
+        request.Content = new ByteArrayContent(png);
+        request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+        await SendAsync(request, ct);
+    }
+
+    public async Task<byte[]?> DownloadAvatarAsync(CancellationToken ct = default)
+    {
+        if (await EnsureTokenAsync(ct) is null) return null;
+        using var request = Authorized(HttpMethod.Get, "/api/v1/account/avatar");
+        try
+        {
+            var png = await SendAsync(request, ct);
+            if (png.Length is 0 or > 240 * 1024)
+                throw new CloudAccountException(ProblemCodes.PayloadTooLarge, null, "云端头像大小不合法。");
+            return png;
+        }
+        catch (CloudAccountException exception) when (exception.Code == ProblemCodes.NotFound)
+        {
+            return null;
+        }
+    }
+
+    public async Task DeleteAvatarAsync(CancellationToken ct = default)
+    {
+        if (await EnsureTokenAsync(ct) is null)
+            throw new CloudAccountException(ProblemCodes.Unauthorized, 401, "需要先登录再删除云端头像。");
+        using var request = Authorized(HttpMethod.Delete, "/api/v1/account/avatar");
+        await SendAsync(request, ct);
+    }
+
     public void Dispose()
     {
         if (ownsHttpClient) http.Dispose();

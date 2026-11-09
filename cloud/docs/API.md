@@ -1,6 +1,6 @@
 # API 契约 · 云端账号与错误日志
 
-所有路径以 `/api/v1` 开头，只接受 HTTPS。请求与响应均为 JSON（`application/json`），错误为
+所有路径以 `/api/v1` 开头，只接受 HTTPS。账号和报告请求与响应为 JSON（`application/json`）；头像为 PNG。错误为
 `application/problem+json`。未知字段一律拒绝（400），字段名区分大小写以外的写法不做兼容。
 
 ## 认证
@@ -21,6 +21,9 @@
 | POST | `/reports` | Bearer | 上传错误日志 |
 | GET | `/reports` | Bearer | 列出自己最近 50 份 |
 | DELETE | `/reports/{id}` | Bearer | 删除自己的一份日志 |
+| GET | `/account/avatar` | Bearer | 读取自己的头像；未设置返回 404 |
+| PUT | `/account/avatar` | Bearer | 上传自己的方形 PNG，最多 240 KB |
+| DELETE | `/account/avatar` | Bearer | 删除自己的云端头像 |
 | GET | `/health` | — | 数据库连通性 |
 
 ### POST /auth/register

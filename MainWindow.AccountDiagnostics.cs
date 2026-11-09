@@ -44,6 +44,15 @@ public partial class MainWindow
                 Check("avatar.accountIsolation", LocalAccountAvatarStore.Load(endpoint, "avatar-test-b") is null);
                 Check("avatar.noRawUsernameInPath", !LocalAccountAvatarStore.PathFor(endpoint, "avatar-test-a")
                     .Contains("avatar-test-a", StringComparison.Ordinal));
+                var cloudPng = LocalAccountAvatarStore.ReadForCloud(endpoint, "avatar-test-a");
+                Check("avatar.cloudPayloadBounded", cloudPng is { Length: > 0 and <= 240 * 1024 });
+                if (cloudPng is not null)
+                {
+                    LocalAccountAvatarStore.SaveBytes(endpoint, "avatar-test-b", cloudPng);
+                    Check("avatar.cloudRoundTrip", LocalAccountAvatarStore.Load(endpoint, "avatar-test-b") is { } downloaded &&
+                        downloaded.PixelWidth == downloaded.PixelHeight);
+                    LocalAccountAvatarStore.Delete(endpoint, "avatar-test-b");
+                }
                 LocalAccountAvatarStore.Delete(endpoint, "avatar-test-a");
                 Check("avatar.reset", LocalAccountAvatarStore.Load(endpoint, "avatar-test-a") is null);
                 File.Delete(fixtureImage);

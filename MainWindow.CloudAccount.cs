@@ -104,11 +104,13 @@ public partial class MainWindow
         var authActions = new WrapPanel { Margin = new Thickness(0, 16, 0, 0) };
         var sessionActions = new StackPanel { Visibility = Visibility.Collapsed };
         string? currentAccountName = null;
+        DateTimeOffset? currentAccountExpiry = null;
 
         void ShowIdentity(string? name, DateTimeOffset? expiresAt = null)
         {
             var signedIn = !string.IsNullOrWhiteSpace(name);
             currentAccountName = signedIn ? name!.Trim() : null;
+            currentAccountExpiry = signedIn ? expiresAt : null;
             avatarLetter.Text = signedIn ? name!.Trim()[..1].ToUpperInvariant() : "映";
             var localImage = signedIn ? LocalAccountAvatarStore.Load(endpoint, currentAccountName!) : null;
             avatarImage.Source = localImage;
@@ -131,11 +133,32 @@ public partial class MainWindow
         string? lastKnownSession = null;
         string? lastKnownServer = null;
         var sessionRevision = 0;
+        var avatarRevision = 0;
+        var avatarBusy = false;
         var restoringSession = false;
+
+        async Task PullAvatarAsync(string account, int revision)
+        {
+            try
+            {
+                using var runtime = new CloudAccountRuntime(new CloudAccountSettings { ServerUrl = endpoint });
+                var png = await runtime.DownloadAvatarAsync(CancellationToken.None);
+                if (png is null || revision != avatarRevision ||
+                    !string.Equals(account, currentAccountName, StringComparison.OrdinalIgnoreCase)) return;
+                LocalAccountAvatarStore.SaveBytes(endpoint, account, png);
+                ShowIdentity(account, currentAccountExpiry);
+            }
+            catch (Exception ex) when (ex is CloudAccountException or IOException or UnauthorizedAccessException or
+                ArgumentException or InvalidOperationException or NotSupportedException or FormatException or
+                System.Runtime.InteropServices.COMException)
+            {
+                // Login remains usable offline; the local avatar is retained.
+            }
+        }
 
         async Task RestoreAccountStatusAsync()
         {
-            if (restoringSession || !AccountPanel.IsVisible || view != "account" ||
+            if (restoringSession || avatarBusy || !AccountPanel.IsVisible || view != "account" ||
                 Environment.GetCommandLineArgs().Any(arg => arg.StartsWith("--diagnose-", StringComparison.Ordinal) ||
                     arg.StartsWith("--self-test-", StringComparison.Ordinal)) ||
                 status.Text == "正在处理…" || status.Text == "正在上传…") return;
@@ -158,6 +181,7 @@ public partial class MainWindow
                 if (session is not null && string.IsNullOrWhiteSpace(username.Text)) username.Text = session.Username;
                 ShowIdentity(session?.Username, session?.ExpiresAt);
                 status.Text = lastKnownSession;
+                if (session is not null) await PullAvatarAsync(session.Username, avatarRevision);
             }
             catch (Exception exception) when (exception is CloudAccountException or InvalidOperationException or
                 ArgumentException or IOException or UnauthorizedAccessException or System.Net.Http.HttpRequestException)
@@ -182,9 +206,9 @@ public partial class MainWindow
         var chooseAvatar = new Button { Content = "更换头像", Style = (Style)FindResource("Action") };
         var resetAvatar = new Button { Content = "恢复默认头像", Style = (Style)FindResource("Action") };
 
-        chooseAvatar.Click += (_, _) =>
+        chooseAvatar.Click += async (_, _) =>
         {
-            if (currentAccountName is null) return;
+            if (currentAccountName is null || avatarBusy) return;
             var picker = new Microsoft.Win32.OpenFileDialog
             {
                 Title = "选择账号头像",
@@ -193,31 +217,73 @@ public partial class MainWindow
                 Multiselect = false
             };
             if (picker.ShowDialog(this) != true) return;
+            avatarBusy = true;
+            chooseAvatar.IsEnabled = false;
+            resetAvatar.IsEnabled = false;
+            var localSaved = false;
             try
             {
                 LocalAccountAvatarStore.Save(endpoint, currentAccountName, picker.FileName);
-                ShowIdentity(currentAccountName);
-                status.Text = "头像已保存在这台电脑，仅当前账号可见。";
+                localSaved = true;
+                var account = currentAccountName;
+                var revision = ++avatarRevision;
+                ShowIdentity(currentAccountName, currentAccountExpiry);
+                status.Text = "头像已保存在本机，正在同步到云端…";
+                var png = LocalAccountAvatarStore.ReadForCloud(endpoint, account);
+                if (png is null) throw new IOException("本机头像无法读取。");
+                using var runtime = new CloudAccountRuntime(Current());
+                await runtime.UploadAvatarAsync(png, CancellationToken.None);
+                if (revision == avatarRevision && string.Equals(account, currentAccountName, StringComparison.OrdinalIgnoreCase))
+                    status.Text = "头像已同步到云端，其他设备登录后可使用。";
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or
                 NotSupportedException or InvalidOperationException or FormatException or
-                System.Runtime.InteropServices.COMException)
+                System.Runtime.InteropServices.COMException or CloudAccountException)
             {
-                status.Text = "头像保存失败：" + ex.Message;
+                status.Text = localSaved
+                    ? "头像已保存在本机，但云端同步失败，可重新选择头像重试：" + ex.Message
+                    : "头像保存失败：" + ex.Message;
+            }
+            finally
+            {
+                avatarBusy = false;
+                chooseAvatar.IsEnabled = true;
+                resetAvatar.IsEnabled = true;
             }
         };
-        resetAvatar.Click += (_, _) =>
+        resetAvatar.Click += async (_, _) =>
         {
-            if (currentAccountName is null) return;
+            if (currentAccountName is null || avatarBusy) return;
+            avatarBusy = true;
+            chooseAvatar.IsEnabled = false;
+            resetAvatar.IsEnabled = false;
+            var account = currentAccountName;
+            var revision = ++avatarRevision;
+            var cloudDeleted = false;
             try
             {
-                LocalAccountAvatarStore.Delete(endpoint, currentAccountName);
-                ShowIdentity(currentAccountName);
-                status.Text = "已恢复默认头像。";
+                status.Text = "正在删除云端头像…";
+                using var runtime = new CloudAccountRuntime(Current());
+                await runtime.DeleteAvatarAsync(CancellationToken.None);
+                cloudDeleted = true;
+                LocalAccountAvatarStore.Delete(endpoint, account);
+                if (revision == avatarRevision && string.Equals(account, currentAccountName, StringComparison.OrdinalIgnoreCase))
+                {
+                    ShowIdentity(account, currentAccountExpiry);
+                    status.Text = "已删除本机和云端头像，恢复默认头像。";
+                }
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CloudAccountException)
             {
-                status.Text = "无法恢复默认头像：" + ex.Message;
+                status.Text = cloudDeleted
+                    ? "云端头像已删除，本机头像删除失败：" + ex.Message
+                    : "云端头像未能删除，本机头像仍保留：" + ex.Message;
+            }
+            finally
+            {
+                avatarBusy = false;
+                chooseAvatar.IsEnabled = true;
+                resetAvatar.IsEnabled = true;
             }
         };
 
@@ -234,6 +300,7 @@ public partial class MainWindow
             password.Clear();
             lastKnownServer = endpoint;
             ShowIdentity(auth.Username, auth.ExpiresAt);
+            await PullAvatarAsync(auth.Username, avatarRevision);
             return lastKnownSession = $"已登录：{auth.Username}，会话有效至 {auth.ExpiresAt.ToLocalTime():yyyy-MM-dd HH:mm}。";
         });
 
@@ -268,6 +335,7 @@ public partial class MainWindow
             var session = await runtime.GetStatusAsync(CancellationToken.None);
             lastKnownServer = endpoint;
             ShowIdentity(session?.Username, session?.ExpiresAt);
+            if (session is not null) await PullAvatarAsync(session.Username, avatarRevision);
             return lastKnownSession = session is null
                 ? "当前没有有效登录，请先登录。"
                 : $"已登录：{session.Username}；24 小时内已上传 {session.UploadsLast24Hours}/{session.DailyUploadLimit} 份。";
@@ -293,6 +361,12 @@ public partial class MainWindow
         avatarActions.Children.Add(chooseAvatar);
         avatarActions.Children.Add(resetAvatar);
         sessionActions.Children.Add(avatarActions);
+        sessionActions.Children.Add(new TextBlock
+        {
+            Text = "更换头像会将裁切后的图片同步到云端；可随时恢复默认并删除云端头像。原图和本地视频不会上传。",
+            Foreground = UiTheme.TextSecondaryBrush, TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, -8, 0, 16)
+        });
         sessionActions.Children.Add(reportTitle);
         sessionActions.Children.Add(new TextBlock
         {

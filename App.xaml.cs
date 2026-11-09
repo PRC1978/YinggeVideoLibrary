@@ -99,8 +99,32 @@ public partial class App : System.Windows.Application
         // any window. Keep WPF alive until each path reports its real result.
         if (e.Args.Length > 0 && (e.Args[0].StartsWith("--self-test-", StringComparison.Ordinal)
             || e.Args[0].StartsWith("--diagnose-", StringComparison.Ordinal)
-            || e.Args[0] is "--apply-update" or "--test-apply-update"))
+            || e.Args[0] is "--apply-update" or "--test-apply-update" or "--postgres-upgrade"))
             ShutdownMode = System.Windows.ShutdownMode.OnExplicitShutdown;
+        if (e.Args.Length > 0 && e.Args[0] == "--postgres-upgrade")
+        {
+            Shutdown(e.Args.Length == 6
+                ? await PostgresRuntimeUpgradeDiagnostics.RunCommandAsync(e.Args[1], e.Args[2], e.Args[3], e.Args[4], e.Args[5])
+                : 2);
+            return;
+        }
+        if (e.Args.Length > 0 && e.Args[0] == "--self-test-postgres-runtime-upgrade")
+        {
+            Shutdown(e.Args.Length == 4
+                ? await PostgresRuntimeUpgradeDiagnostics.RunSelfTestAsync(e.Args[1], e.Args[2], e.Args[3])
+                : 2);
+            return;
+        }
+        if (e.Args.Length > 0 && e.Args[0] == "--self-test-credential-isolation")
+        {
+            Shutdown(e.Args.Length == 2 ? await CredentialIsolationDiagnostics.RunAsync(e.Args[1]) : 2);
+            return;
+        }
+        if (e.Args.Length > 0 && e.Args[0] == "--self-test-credential-scope-child")
+        {
+            Shutdown(e.Args.Length >= 4 ? CredentialIsolationDiagnostics.Child(e.Args[1], e.Args[2], e.Args[3]) : 2);
+            return;
+        }
         if (e.Args.Length > 0 && e.Args[0] is "--apply-update" or "--test-apply-update")
         {
             Shutdown(await Task.Run(() => PortableUpdateWorker.Apply(e.Args)));

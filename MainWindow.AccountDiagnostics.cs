@@ -12,6 +12,7 @@ public partial class MainWindow
     internal async Task<int> WriteAccountAboutDiagnosticAsync(string outputPath)
     {
         var checks = new Dictionary<string, bool>();
+        var popupEvidence = new List<object>();
         var originalTheme = UiTheme.Current;
         object? error = null;
         void Check(string name, bool value) => checks[name] = value;
@@ -44,6 +45,34 @@ public partial class MainWindow
                 ShowView("account");
                 Check(theme + ".formPreservedOnReturn", ReferenceEquals(accountBody, AccountPanel.Child));
                 Check(theme + ".readablePanel", AccountPanel.Background is SolidColorBrush brush && brush.Color.A > 0);
+                // Exercise the production application template without opening
+                // a native popup window or showing the isolated library.
+                var combo = new System.Windows.Controls.ComboBox
+                {
+                    Style = (Style)System.Windows.Application.Current.FindResource(typeof(System.Windows.Controls.ComboBox)),
+                    Width = 240
+                };
+                var item = new ComboBoxItem
+                {
+                    Content = "搜刮来源示例",
+                    Style = (Style)System.Windows.Application.Current.FindResource(typeof(ComboBoxItem))
+                };
+                combo.Items.Add(item);
+                var templateApplied = combo.ApplyTemplate();
+                var surface = combo.Template?.FindName("PopupSurface", combo) as Border;
+                surface?.GetBindingExpression(Border.BackgroundProperty)?.UpdateTarget();
+                item.GetBindingExpression(System.Windows.Controls.Control.ForegroundProperty)?.UpdateTarget();
+                var background = (surface?.Background as SolidColorBrush)?.Color;
+                var foreground = (item.Foreground as SolidColorBrush)?.Color;
+                var contrast = background is { } bg && foreground is { } fg
+                    ? ThemeContrast(OpaqueOver(fg, bg), bg) : 0;
+                Check(theme + ".popupTemplateApplied", templateApplied && surface is not null);
+                Check(theme + ".popupSurfaceOpaque", background?.A == 255);
+                Check(theme + ".popupTextContrast", contrast >= 4.5);
+                popupEvidence.Add(new { theme, templateApplied, surfaceFound = surface is not null,
+                    background = background?.ToString(), backgroundAlpha = background?.A,
+                    foreground = foreground?.ToString(), contrastRatio = contrast,
+                    minimumContrast = 4.5, popupOpened = false });
                 await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Background);
             }
         }
@@ -55,7 +84,7 @@ public partial class MainWindow
         {
             passed, realLibraryRead = false, networkRequests = 0,
             scope = "Unshown isolated window; route and control assertions only, no rendered screenshots or login interaction",
-            checks, error
+            checks, popupEvidence, error
         }, new JsonSerializerOptions { WriteIndented = true }));
         return passed ? 0 : 1;
     }

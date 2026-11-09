@@ -96,7 +96,7 @@
                             </ToggleButton>
                             <Popup x:Name="Popup" Placement="Bottom" AllowsTransparency="True" Focusable="False"
                                    IsOpen="{TemplateBinding IsDropDownOpen}" PopupAnimation="Slide">
-                                <Border Background="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"
+                                <Border x:Name="PopupSurface" Background="{Binding PopupSurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"
                                         BorderBrush="{Binding BorderStrongBrush, Source={x:Static local:UiThemeState.Instance}}"
                                         BorderThickness="1" CornerRadius="6" Padding="3"
                                         MinWidth="{TemplateBinding ActualWidth}" MaxHeight="320">

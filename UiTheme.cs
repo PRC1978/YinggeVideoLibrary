@@ -571,6 +571,22 @@ public sealed class UiThemeState : INotifyPropertyChanged
     public SolidColorBrush PageBackgroundBrush => UiTheme.DisplayBrush(UiTheme.PageBackground);
     public SolidColorBrush ChromeBackgroundBrush => UiTheme.DisplayBrush(UiTheme.ChromeBackground);
     public SolidColorBrush SurfaceBrush => UiTheme.DisplayBrush(UiTheme.Surface);
+    // Popups are separate native windows. A translucent glass surface there
+    // reveals unrelated controls underneath instead of a blurred backdrop.
+    public SolidColorBrush PopupSurfaceBrush
+    {
+        get
+        {
+            var surface = UiTheme.DisplayBrush(UiTheme.Surface).Color;
+            var page = UiTheme.DisplayBrush(UiTheme.PageBackground).Color;
+            byte Composite(byte foreground, byte background) =>
+                (byte)((foreground * surface.A + background * (255 - surface.A) + 127) / 255);
+            var brush = new SolidColorBrush(Color.FromRgb(Composite(surface.R, page.R),
+                Composite(surface.G, page.G), Composite(surface.B, page.B)));
+            brush.Freeze();
+            return brush;
+        }
+    }
     public SolidColorBrush SurfaceAltBrush => UiTheme.DisplayBrush(UiTheme.SurfaceAlt);
     public SolidColorBrush BorderBrushToken => UiTheme.DisplayBrush(UiTheme.Border);
     public SolidColorBrush BorderStrongBrush => UiTheme.DisplayBrush(UiTheme.BorderStrong);

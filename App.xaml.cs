@@ -365,6 +365,36 @@ public partial class App : System.Windows.Application
             Shutdown(motionResult);
             return;
         }
+        if (e.Args.Length > 3 && e.Args[0] == "--diagnose-postgres-real-copy")
+        {
+            Shutdown(await PostgresRealCopyDiagnostics.RunAsync(e.Args[1], e.Args[2], e.Args[3]));
+            return;
+        }
+        if (e.Args.Length > 3 && e.Args[0] == "--diagnose-ui-interactive")
+        {
+            try
+            {
+                if (!int.TryParse(e.Args[2], out var width) || !int.TryParse(e.Args[3], out var height))
+                    throw new ArgumentException("Expected numeric owned-window dimensions");
+                var theme = e.Args.Length > 4 && !e.Args[4].StartsWith("--", StringComparison.Ordinal)
+                    ? e.Args[4] : UiTheme.Glass;
+                InteractiveUiDiagnostics.Prepare(e.Args[1], width, height, theme);
+                var interactiveProbe = new MainWindow
+                {
+                    Width = width, Height = height, ShowActivated = false,
+                    ShowInTaskbar = true, WindowStartupLocation = WindowStartupLocation.CenterScreen
+                };
+                MainWindow = interactiveProbe;
+                InteractiveUiDiagnostics.Observe(interactiveProbe, this, e.Args[1], width, height);
+                interactiveProbe.Show();
+            }
+            catch (Exception error)
+            {
+                System.Diagnostics.Trace.WriteLine("Interactive UI diagnostic rejected: " + error);
+                Shutdown(2);
+            }
+            return;
+        }
         if (e.Args.Length > 1 && e.Args[0] == "--diagnose-account-about")
         {
             // Never construct a window before proving this is a new isolated

@@ -1876,7 +1876,10 @@ public partial class MainWindow : Window
         // The dense workbench has a purpose-built 25 px row presentation.
         // Keep its 60/90-item page bound; the normal full-list virtualization
         // remains available in every other presentation.
-        var full = config.ShowAll && !compactRows && !cinemaBelt;
+        // The empty-state panel belongs to LibraryScroll. Show that panel
+        // when a complete-list search has no hits, while retaining the last
+        // virtualized source for a possible return to the same result set.
+        var full = config.ShowAll && !compactRows && !cinemaBelt && list.Count > 0;
         AllListPanel.Visibility = full ? Visibility.Visible : Visibility.Collapsed;
         LibraryScroll.Visibility = full ? Visibility.Collapsed : Visibility.Visible;
         if (full)
@@ -2140,7 +2143,10 @@ public partial class MainWindow : Window
         // The non-virtualized page keeps its exact pageItems. In complete-list
         // mode cards are grouped in virtualRows, so flatten those rows instead.
         if (pageItems.Count > 0) return pageItems;
-        if (virtualRows.Count > 0) return virtualRows.SelectMany(row => row);
+        if (AllListPanel.Visibility == Visibility.Visible && virtualRows.Count > 0)
+            return virtualRows.SelectMany(row => row);
+        if (view is "all" or "recent" or "favorites" or "categories")
+            return currentFilteredVideos;
         return videos;
     }
 

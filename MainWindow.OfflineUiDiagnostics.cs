@@ -58,6 +58,12 @@ public partial class MainWindow
             ApplySavedFields(videos);
             foreach (var video in videos) VideoItem.PreloadPoster(video.Poster);
             checks["fixtureHasVideosAndReviews"] = videos.Count == 12 && invalidCount == 0 && config.AiReviews.Count == 4;
+            // Production removes this transient startup veil on ContentRendered.
+            // An intentionally unshown diagnostic cannot raise that native
+            // lifecycle event. The synthetic library is already loaded above,
+            // so remove only the veil before testing steady-state content.
+            StartupVeil.Visibility = Visibility.Collapsed;
+            checks["startupVeilRemovedAfterFixtureReady"] = StartupVeil.Visibility == Visibility.Collapsed;
             config.UiMotion = UiMotion.Smooth;
             var root = Content as FrameworkElement ?? throw new InvalidOperationException("Missing content root");
             foreach (var theme in themes)

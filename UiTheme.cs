@@ -445,32 +445,41 @@ public sealed class UiThemeState : INotifyPropertyChanged
     public double ControlHeight => UiTheme.Num(UiTheme.ControlHeight);
     // Six semantic type roles. System-installed faces have explicit fallbacks;
     // switching the presentation updates all bound text without rebuilding it.
+    // Reuse the same family instance when switching palettes. A fresh object
+    // on every binding read makes WPF remeasure text even if the face is equal.
+    static readonly FontFamily chineseHeadingFont = new("Microsoft YaHei UI");
+    static readonly FontFamily serifHeadingFont = new("SimSun");
+    static readonly FontFamily atlasHeadingFont = new("Segoe UI, Microsoft YaHei UI");
+    static readonly FontFamily cinemaDisplayFont = new("SimSun, Microsoft YaHei UI");
+    static readonly FontFamily chineseBodyFont = new("Microsoft YaHei UI, Segoe UI");
+    static readonly FontFamily compactBodyFont = new("Segoe UI, Microsoft YaHei UI");
+    static readonly FontFamily dataFont = new("Segoe UI, Microsoft YaHei UI");
+    static readonly FontFamily compactDataFont = new("Consolas, Segoe UI");
+    static readonly FontFamily monoFont = new("Consolas, Cascadia Mono");
+
     public FontFamily DisplayFontFamily => UiTheme.Current switch
     {
-        UiTheme.Cinema => new FontFamily("SimSun, Microsoft YaHei UI"),
-        UiTheme.Atlas => new FontFamily("Segoe UI, Microsoft YaHei UI"),
+        UiTheme.Cinema => cinemaDisplayFont,
+        UiTheme.Atlas => atlasHeadingFont,
         _ => HeadingFontFamily
     };
     public FontFamily HeadingFontFamily => UiTheme.Current switch
     {
-        UiTheme.Editorial => new FontFamily("SimSun"),
-        UiTheme.Cinema => new FontFamily("SimSun"),
-        UiTheme.LineField or UiTheme.Atlas => new FontFamily("Segoe UI, Microsoft YaHei UI"),
-        _ => new FontFamily("Microsoft YaHei UI")
+        UiTheme.Editorial or UiTheme.Cinema => serifHeadingFont,
+        UiTheme.LineField or UiTheme.Atlas => atlasHeadingFont,
+        _ => chineseHeadingFont
     };
     public FontFamily BodyFontFamily => UiTheme.Current switch
     {
-        UiTheme.Cinema => new FontFamily("Microsoft YaHei UI, Segoe UI"),
-        UiTheme.Compact => new FontFamily("Segoe UI, Microsoft YaHei UI"),
-        UiTheme.Atlas => new FontFamily("Segoe UI, Microsoft YaHei UI"),
-        _ => new FontFamily("Microsoft YaHei UI, Segoe UI")
+        UiTheme.Compact or UiTheme.Atlas => compactBodyFont,
+        _ => chineseBodyFont
     };
     public FontFamily DataFontFamily => UiTheme.Current switch
     {
-        UiTheme.Compact or UiTheme.Atlas => new FontFamily("Consolas, Segoe UI"),
-        _ => new FontFamily("Segoe UI, Microsoft YaHei UI")
+        UiTheme.Compact or UiTheme.Atlas => compactDataFont,
+        _ => dataFont
     };
-    public FontFamily MonoFontFamily => new("Consolas, Cascadia Mono");
+    public FontFamily MonoFontFamily => monoFont;
     public FontFamily CaptionFontFamily => BodyFontFamily;
     public FontFamily MetricFontFamily => DataFontFamily;
     public bool IsNeumorphism => UiTheme.Current == UiTheme.Neumorphism;

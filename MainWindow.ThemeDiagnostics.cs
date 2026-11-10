@@ -1,4 +1,5 @@
 using System.IO;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Media;
@@ -71,6 +72,33 @@ public partial class MainWindow
         try
         {
             Directory.CreateDirectory(outputDirectory);
+            // Measure the synchronous part of the same settings-page theme path
+            // used by a click. Screenshots below still cover every full page.
+            ShowView("settings");
+            var switchTimings = new List<object>();
+            for (var pass = 0; pass < 3; pass++)
+                foreach (var (themeId, _, _) in UiTheme.Modes)
+                {
+                    var watch = Stopwatch.StartNew();
+                    UiTheme.Apply(themeId, UiColorMode.Native);
+                    if (themeId is UiTheme.Glass or UiTheme.Neumorphism)
+                    {
+                        var effect = UiThemeState.Instance.SoftShadow;
+                        if (effect is null || !effect.IsFrozen ||
+                            !ReferenceEquals(effect, UiThemeState.Instance.SoftShadow))
+                            throw new InvalidOperationException($"{themeId} 阴影未复用冻结实例");
+                    }
+                    var applyMs = watch.Elapsed.TotalMilliseconds;
+                    ApplyInterfaceMode(refreshView: false);
+                    var chromeMs = watch.Elapsed.TotalMilliseconds - applyMs;
+                    UpdateLayout();
+                    watch.Stop();
+                    switchTimings.Add(new { pass, theme = themeId, applyMs, chromeMs,
+                        layoutMs = watch.Elapsed.TotalMilliseconds - applyMs - chromeMs,
+                        uiThreadMs = watch.Elapsed.TotalMilliseconds });
+                }
+            File.WriteAllText(Path.Combine(outputDirectory, "theme-interaction-timings.json"),
+                JsonSerializer.Serialize(switchTimings, new JsonSerializerOptions { WriteIndented = true }));
             var report = new List<object>();
             var measuredCardWidths = new List<(string Mode, double Expected, double Actual)>();
             foreach (var (mode, label, _) in UiTheme.Modes)

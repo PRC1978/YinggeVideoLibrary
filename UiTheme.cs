@@ -403,10 +403,19 @@ public sealed class UiThemeState : INotifyPropertyChanged
     public static readonly UiThemeState Instance = new();
     UiThemeState() { }
 
+    // Theme bindings are evaluated for every visible card. Reuse immutable
+    // effects within a theme instead of allocating a shadow for each binding.
+    Effect? softShadowCache;
+    Effect? softHighlightCache;
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    internal static void NotifyAll() =>
+    internal static void NotifyAll()
+    {
+        Instance.softShadowCache = null;
+        Instance.softHighlightCache = null;
         Instance.PropertyChanged?.Invoke(Instance, new PropertyChangedEventArgs(null));
+    }
 
     public double FontBase => UiTheme.Num(UiTheme.FontBase);
     public double FontSmall => UiTheme.Num(UiTheme.FontSmall);
@@ -553,17 +562,37 @@ public sealed class UiThemeState : INotifyPropertyChanged
         brush.Freeze();
         return brush;
     }
-    public Effect? SoftShadow => IsNeumorphism || IsGlass ? new DropShadowEffect
+    public Effect? SoftShadow
     {
-        Color = IsGlass ? Color.FromRgb(3, 7, 18) : Color.FromRgb(160, 169, 183),
-        Direction = 315, BlurRadius = IsGlass ? 40 : 12,
-        ShadowDepth = IsGlass ? 14 : 4, Opacity = IsGlass ? .55 : .52
-    } : null;
-    public Effect? SoftHighlight => IsNeumorphism ? new DropShadowEffect
+        get
+        {
+            if (!IsNeumorphism && !IsGlass) return null;
+            if (softShadowCache is not null) return softShadowCache;
+            var effect = new DropShadowEffect
+            {
+                Color = IsGlass ? Color.FromRgb(3, 7, 18) : Color.FromRgb(160, 169, 183),
+                Direction = 315, BlurRadius = IsGlass ? 40 : 12,
+                ShadowDepth = IsGlass ? 14 : 4, Opacity = IsGlass ? .55 : .52
+            };
+            effect.Freeze();
+            return softShadowCache = effect;
+        }
+    }
+    public Effect? SoftHighlight
     {
-        Color = System.Windows.Media.Color.FromRgb(255, 255, 255),
-        Direction = 135, BlurRadius = 12, ShadowDepth = 4, Opacity = 0.85
-    } : null;
+        get
+        {
+            if (!IsNeumorphism) return null;
+            if (softHighlightCache is not null) return softHighlightCache;
+            var effect = new DropShadowEffect
+            {
+                Color = Color.FromRgb(255, 255, 255),
+                Direction = 135, BlurRadius = 12, ShadowDepth = 4, Opacity = .85
+            };
+            effect.Freeze();
+            return softHighlightCache = effect;
+        }
+    }
 
     // Brush accessors for XAML binding (PropertyChanged(null) refreshes all).
     // These read the DISPLAY set: replaceable instances that style

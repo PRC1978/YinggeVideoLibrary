@@ -3979,7 +3979,7 @@ public partial class MainWindow : Window
         config.SearchHistory.RemoveAll(item => item.Equals(query, StringComparison.CurrentCultureIgnoreCase));
         config.SearchHistory.Insert(0, query);
         if (config.SearchHistory.Count > 12) config.SearchHistory.RemoveRange(12, config.SearchHistory.Count - 12);
-        SaveConfig();
+        QueueSettingsSave();
     }
 
     void SearchContextMenuOpening(object? sender, ContextMenuEventArgs e)
@@ -4104,7 +4104,7 @@ public partial class MainWindow : Window
         video.Favorite = value;
         if (value && !config.Favorites.Contains(video.Id, StringComparer.OrdinalIgnoreCase)) config.Favorites.Add(video.Id);
         if (!value) config.Favorites.RemoveAll(id => id.Equals(video.Id, StringComparison.OrdinalIgnoreCase));
-        SaveConfig();
+        QueueSettingsSave();
         Log((value ? "已收藏：" : "已取消收藏：") + video.DisplayTitle);
         RenderCards();
     }
@@ -4129,7 +4129,7 @@ public partial class MainWindow : Window
         // Explicit editing makes every retained tag manual, including "素人".
         config.AutoAmateurTags.RemoveAll(id => id.Equals(video.Id, StringComparison.OrdinalIgnoreCase));
         if (video.Tags.Count == 0) config.Tags.Remove(video.Id); else config.Tags[video.Id] = video.Tags.ToList();
-        SaveConfig(); RenderCards(); Log($"已更新标签：{video.DisplayTitle}");
+        QueueSettingsSave(); RenderCards(); Log($"已更新标签：{video.DisplayTitle}");
     }
     void CycleWatchStatus(object sender, RoutedEventArgs e)
     {
@@ -4141,7 +4141,7 @@ public partial class MainWindow : Window
     {
         video.WatchStatus = status;
         if (status == "未看") config.WatchStates.Remove(video.Id); else config.WatchStates[video.Id] = status;
-        SaveConfig();
+        QueueSettingsSave();
         Log($"观看状态：{video.DisplayTitle} · {video.WatchStatus}");
         RenderCards();
     }

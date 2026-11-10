@@ -66,7 +66,7 @@ public partial class MainWindow
         var section = new StackPanel { Name = "SettingsAppearanceOptions", Margin = new Thickness(0, 16, 0, 8) };
         section.Children.Add(new TextBlock { Text = "界面模式", FontWeight = FontWeights.SemiBold,
             Foreground = UiTheme.TextPrimaryBrush });
-        section.Children.Add(SettingsHint("五种常用布局分别适合浏览、观影、批量整理、查看关系和沉浸浏览。点击预览立即切换。"));
+        section.Children.Add(SettingsHint("五种常用布局分别适合浏览、观影、批量整理、查看关系和沉浸浏览。鼠标点击或按空格、回车切换；方向键只移动焦点。"));
         var themeRow = new WrapPanel();
         var extraThemeRow = new WrapPanel();
         foreach (var (id, label, hint) in UiTheme.Modes)
@@ -81,6 +81,26 @@ public partial class MainWindow
                 Tag = id
             };
             System.Windows.Automation.AutomationProperties.SetName(choice, label);
+            choice.PreviewKeyDown += (_, e) =>
+            {
+                if (e.Key is System.Windows.Input.Key.Left or System.Windows.Input.Key.Up
+                    or System.Windows.Input.Key.Right or System.Windows.Input.Key.Down)
+                {
+                    var visibleChoices = themeModeButtons.Where(button => button.IsVisible).ToList();
+                    var current = visibleChoices.IndexOf(choice);
+                    if (current >= 0 && visibleChoices.Count > 1)
+                    {
+                        var direction = e.Key is System.Windows.Input.Key.Left or System.Windows.Input.Key.Up ? -1 : 1;
+                        visibleChoices[(current + direction + visibleChoices.Count) % visibleChoices.Count].Focus();
+                        e.Handled = true;
+                    }
+                }
+                else if (e.Key == System.Windows.Input.Key.Enter)
+                {
+                    choice.IsChecked = true;
+                    e.Handled = true;
+                }
+            };
             var previewScale = new ScaleTransform(1, 1);
             choice.RenderTransform = previewScale;
             choice.RenderTransformOrigin = new System.Windows.Point(.5, .5);

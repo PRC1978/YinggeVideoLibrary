@@ -9,6 +9,19 @@ namespace YinggeVideoLibrary;
 
 public partial class MainWindow
 {
+    static readonly DropShadowEffect CinemaSelectedPosterShadow = CreateCinemaSelectedPosterShadow();
+
+    static DropShadowEffect CreateCinemaSelectedPosterShadow()
+    {
+        var shadow = new DropShadowEffect
+        {
+            Color = Color.FromRgb(231, 79, 105), BlurRadius = 18,
+            ShadowDepth = 0, Opacity = .55
+        };
+        shadow.Freeze();
+        return shadow;
+    }
+
     void SelectCinemaPoster(int index)
     {
         for (var i = 0; i < CinemaBeltCards.Items.Count; i++)
@@ -18,11 +31,7 @@ public partial class MainWindow
             var selected = i == index;
             item.RenderTransformOrigin = new System.Windows.Point(.5, .5);
             item.RenderTransform = new ScaleTransform(selected ? 1.045 : 1, selected ? 1.045 : 1);
-            item.Effect = selected ? new DropShadowEffect
-            {
-                Color = Color.FromRgb(231, 79, 105), BlurRadius = 18,
-                ShadowDepth = 0, Opacity = .55
-            } : null;
+            item.Effect = selected ? CinemaSelectedPosterShadow : null;
             System.Windows.Controls.Panel.SetZIndex(item, selected ? 1 : 0);
         }
     }

@@ -1,4 +1,7 @@
 using System.Windows.Threading;
+using System.Windows;
+using System.Windows.Controls;
+using Button = System.Windows.Controls.Button;
 
 namespace YinggeVideoLibrary;
 
@@ -8,6 +11,15 @@ public partial class MainWindow
     bool settingsSaveQueued;
     bool settingsSaveInProgress;
     bool closeAfterSettingsSave;
+    TextBlock? settingsSaveStatus;
+    Button? settingsSaveRetryButton;
+
+    void ShowSettingsSaveState(string message, bool canRetry = false)
+    {
+        if (settingsSaveStatus is not null) settingsSaveStatus.Text = message;
+        if (settingsSaveRetryButton is not null)
+            settingsSaveRetryButton.Visibility = canRetry ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     // A settings click updates the control immediately. The expensive config
     // merge and PostgreSQL write run after the next paint and coalesce rapid
@@ -18,6 +30,7 @@ public partial class MainWindow
         // in-memory setting with its earlier snapshot.
         configSaveVersion++;
         settingsSaveQueued = true;
+        ShowSettingsSaveState("正在保存设置…");
         if (settingsSaveInProgress) return;
         settingsSaveTimer ??= new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
         {
@@ -60,11 +73,13 @@ public partial class MainWindow
                 {
                     settingsSaveQueued = true;
                     closeAfterSettingsSave = false;
+                    ShowSettingsSaveState("保存失败；本次更改尚未写入。", canRetry: true);
                     Log("设置保存失败：" + ex.Message);
                     ThemeMessageBox.Show(this, "设置未能保存，请重试：" + ex.Message, "映格视频库");
                     return;
                 }
             }
+            ShowSettingsSaveState("设置已保存");
         }
         finally
         {

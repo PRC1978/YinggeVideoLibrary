@@ -187,6 +187,10 @@
                                 <Setter TargetName="ThemeCard" Property="BorderBrush" Value="{Binding BorderStrongBrush, Source={x:Static local:UiThemeState.Instance}}"/>
                             </MultiTrigger>
 
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="ThemeCard" Property="BorderBrush" Value="{Binding FocusRingBrush, Source={x:Static local:UiThemeState.Instance}}"/>
+                                <Setter TargetName="ThemeCard" Property="BorderThickness" Value="3"/>
+                            </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="ThemeCard" Property="Background" Value="{Binding CardPressedSurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"/>
                             </Trigger>

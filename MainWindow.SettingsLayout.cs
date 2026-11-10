@@ -130,6 +130,24 @@ public partial class MainWindow
             Text = "展开卡片调整设置；需要手动保存的选项保留保存按钮。",
             FontSize = 12, Foreground = Tint("#75859E"), Margin = new Thickness(0, 5, 0, 0)
         });
+        var saveFeedback = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+        settingsSaveStatus = new TextBlock
+        {
+            Text = "设置更改会自动保存", FontSize = 11, Foreground = UiTheme.TextSecondaryBrush,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        System.Windows.Automation.AutomationProperties.SetLiveSetting(settingsSaveStatus,
+            System.Windows.Automation.AutomationLiveSetting.Polite);
+        settingsSaveRetryButton = new Button
+        {
+            Content = "重试保存", Style = (Style)FindResource("Action"), Height = 28,
+            Padding = new Thickness(9, 0, 9, 0), Margin = new Thickness(8, 0, 0, 0),
+            Visibility = Visibility.Collapsed
+        };
+        settingsSaveRetryButton.Click += (_, _) => QueueSettingsSave();
+        saveFeedback.Children.Add(settingsSaveStatus);
+        saveFeedback.Children.Add(settingsSaveRetryButton);
+        introduction.Children.Add(saveFeedback);
         grid.Children.Add(introduction);
         var search = new TextBox
         {

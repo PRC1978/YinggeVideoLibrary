@@ -407,6 +407,20 @@ public sealed class UiThemeState : INotifyPropertyChanged
     // effects within a theme instead of allocating a shadow for each binding.
     Effect? softShadowCache;
     Effect? softHighlightCache;
+    Brush? panelEdgeCache;
+    Brush? inputSurfaceCache;
+    Brush? raisedSurfaceCache;
+    Brush? pressedSurfaceCache;
+    Brush? pageBackdropCache;
+    Brush? mainContentBackdropCache;
+    Brush? posterSurfaceCache;
+    SolidColorBrush? popupSurfaceCache;
+
+    static T Frozen<T>(T brush) where T : Brush
+    {
+        brush.Freeze();
+        return brush;
+    }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -414,6 +428,14 @@ public sealed class UiThemeState : INotifyPropertyChanged
     {
         Instance.softShadowCache = null;
         Instance.softHighlightCache = null;
+        Instance.panelEdgeCache = null;
+        Instance.inputSurfaceCache = null;
+        Instance.raisedSurfaceCache = null;
+        Instance.pressedSurfaceCache = null;
+        Instance.pageBackdropCache = null;
+        Instance.mainContentBackdropCache = null;
+        Instance.posterSurfaceCache = null;
+        Instance.popupSurfaceCache = null;
         Instance.PropertyChanged?.Invoke(Instance, new PropertyChangedEventArgs(null));
     }
 
@@ -432,8 +454,8 @@ public sealed class UiThemeState : INotifyPropertyChanged
     // changes appearance and SoftHighlight stays null.
     public Brush CardRaisedSurfaceBrush => IsNeumorphism ? RaisedSurfaceBrush : SurfaceBrush;
     public Brush PosterSurfaceBrush => IsGlass
-        ? new LinearGradientBrush(Color.FromArgb(52, 255, 255, 255),
-            Color.FromArgb(18, 255, 255, 255), 115)
+        ? posterSurfaceCache ??= Frozen(new LinearGradientBrush(Color.FromArgb(52, 255, 255, 255),
+            Color.FromArgb(18, 255, 255, 255), 115))
         : PosterFallbackBrush;
     public Brush PosterFallbackForegroundBrush => IsGlass && !UiTheme.IsDarkPalette
         ? TextPrimaryBrush : Brushes.White;
@@ -521,33 +543,34 @@ public sealed class UiThemeState : INotifyPropertyChanged
         return brush;
     }
     public Brush PanelEdgeBrush => IsNeumorphism
-        ? new LinearGradientBrush(Color.FromRgb(255, 255, 255), Color.FromRgb(174, 187, 203), 135)
+        ? panelEdgeCache ??= Frozen(new LinearGradientBrush(Color.FromRgb(255, 255, 255), Color.FromRgb(174, 187, 203), 135))
         : IsGlass
-            ? new LinearGradientBrush(Color.FromArgb(82, 255, 255, 255), Color.FromArgb(32, 2, 6, 16), 90)
+            ? panelEdgeCache ??= Frozen(new LinearGradientBrush(Color.FromArgb(82, 255, 255, 255), Color.FromArgb(32, 2, 6, 16), 90))
             : BorderBrushToken;
     public Brush InputSurfaceBrush => IsNeumorphism
-        ? new LinearGradientBrush(Color.FromRgb(210, 218, 229), Color.FromRgb(236, 241, 248), 135)
+        ? inputSurfaceCache ??= Frozen(new LinearGradientBrush(Color.FromRgb(210, 218, 229), Color.FromRgb(236, 241, 248), 135))
         : IsGlass
-            ? new LinearGradientBrush(Color.FromArgb(45, 255, 255, 255), Color.FromArgb(18, 255, 255, 255), 90)
+            ? inputSurfaceCache ??= Frozen(new LinearGradientBrush(Color.FromArgb(45, 255, 255, 255), Color.FromArgb(18, 255, 255, 255), 90))
             : SurfaceBrush;
     public Brush RaisedSurfaceBrush => IsNeumorphism
-        ? new LinearGradientBrush(Color.FromRgb(238, 243, 249), Color.FromRgb(214, 223, 234), 135)
+        ? raisedSurfaceCache ??= Frozen(new LinearGradientBrush(Color.FromRgb(238, 243, 249), Color.FromRgb(214, 223, 234), 135))
         : IsGlass
-            ? new LinearGradientBrush(Color.FromArgb(48, 255, 255, 255), Color.FromArgb(20, 255, 255, 255), 90)
+            ? raisedSurfaceCache ??= Frozen(new LinearGradientBrush(Color.FromArgb(48, 255, 255, 255), Color.FromArgb(20, 255, 255, 255), 90))
             : SurfaceBrush;
     public Brush PressedSurfaceBrush => IsNeumorphism
         ? InputSurfaceBrush
         : IsGlass
-            ? new SolidColorBrush(Color.FromArgb(67, 255, 255, 255))
+            ? pressedSurfaceCache ??= Frozen(new SolidColorBrush(Color.FromArgb(67, 255, 255, 255)))
             : SelectionBackgroundBrush;
-    public Brush PageBackdropBrush => IsGlass && UiTheme.IsDarkPalette ? new LinearGradientBrush(
-        Color.FromRgb(6, 10, 19), Color.FromRgb(11, 19, 34), 26) : PageBackgroundBrush;
+    public Brush PageBackdropBrush => IsGlass && UiTheme.IsDarkPalette
+        ? pageBackdropCache ??= Frozen(new LinearGradientBrush(
+            Color.FromRgb(6, 10, 19), Color.FromRgb(11, 19, 34), 26)) : PageBackgroundBrush;
     public Brush MainContentBackdropBrush => IsGlass
-        ? UiTheme.IsDarkPalette ? GlassSceneBrush : new LinearGradientBrush(
-            UiTheme.PageBackgroundBrush.Color, UiTheme.SurfaceAltBrush.Color, 35)
-        : IsCinema && UiTheme.IsDarkPalette ? new LinearGradientBrush(Color.FromRgb(10, 10, 10), Color.FromRgb(22, 22, 22), 155)
-        : new LinearGradientBrush(UiTheme.PageBackgroundBrush.Color,
-            UiTheme.SurfaceAltBrush.Color, 45);
+        ? UiTheme.IsDarkPalette ? GlassSceneBrush : mainContentBackdropCache ??= Frozen(new LinearGradientBrush(
+            UiTheme.PageBackgroundBrush.Color, UiTheme.SurfaceAltBrush.Color, 35))
+        : IsCinema && UiTheme.IsDarkPalette ? mainContentBackdropCache ??= Frozen(new LinearGradientBrush(Color.FromRgb(10, 10, 10), Color.FromRgb(22, 22, 22), 155))
+        : mainContentBackdropCache ??= Frozen(new LinearGradientBrush(UiTheme.PageBackgroundBrush.Color,
+            UiTheme.SurfaceAltBrush.Color, 45));
     // The glass surface needs a scene to refract. These soft light wells sit
     // behind every translucent panel, and are drawn once rather than blurred
     // per card. This keeps the visual depth while lists continue to scroll.
@@ -615,14 +638,13 @@ public sealed class UiThemeState : INotifyPropertyChanged
     {
         get
         {
+            if (popupSurfaceCache is not null) return popupSurfaceCache;
             var surface = UiTheme.DisplayBrush(UiTheme.Surface).Color;
             var page = UiTheme.DisplayBrush(UiTheme.PageBackground).Color;
             byte Composite(byte foreground, byte background) =>
                 (byte)((foreground * surface.A + background * (255 - surface.A) + 127) / 255);
-            var brush = new SolidColorBrush(Color.FromRgb(Composite(surface.R, page.R),
-                Composite(surface.G, page.G), Composite(surface.B, page.B)));
-            brush.Freeze();
-            return brush;
+            return popupSurfaceCache = Frozen(new SolidColorBrush(Color.FromRgb(Composite(surface.R, page.R),
+                Composite(surface.G, page.G), Composite(surface.B, page.B))));
         }
     }
     public SolidColorBrush SurfaceAltBrush => UiTheme.DisplayBrush(UiTheme.SurfaceAlt);

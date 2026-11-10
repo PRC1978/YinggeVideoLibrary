@@ -40,7 +40,8 @@ internal static class ThemeMessageBox
         var theme = UiThemeState.Instance;
         var choice = buttons switch
         {
-            MessageBoxButton.YesNo or MessageBoxButton.YesNoCancel => MessageBoxResult.No,
+            MessageBoxButton.YesNoCancel => MessageBoxResult.Cancel,
+            MessageBoxButton.YesNo => MessageBoxResult.No,
             MessageBoxButton.OKCancel => MessageBoxResult.Cancel,
             _ => MessageBoxResult.OK
         };

@@ -169,7 +169,7 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="RadioButton">
 
-                        <Grid><Border IsHitTestVisible="False" Background="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}" CornerRadius="12" Effect="{Binding SoftShadow, Source={x:Static local:UiThemeState.Instance}}"/><Border IsHitTestVisible="False" Background="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}" CornerRadius="12" Effect="{Binding SoftHighlight, Source={x:Static local:UiThemeState.Instance}}"/><Border x:Name="ThemeCard" Background="{Binding CardRaisedSurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"                                BorderBrush="{Binding BorderBrushToken, Source={x:Static local:UiThemeState.Instance}}"
+                        <Grid><Border IsHitTestVisible="False" Background="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}" CornerRadius="12" Effect="{Binding SoftShadow, Source={x:Static local:UiThemeState.Instance}}"/><Border IsHitTestVisible="False" Background="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}" CornerRadius="12" Effect="{Binding SoftHighlight, Source={x:Static local:UiThemeState.Instance}}"/><Border x:Name="FocusOutline" IsHitTestVisible="False" Visibility="Collapsed" BorderBrush="{Binding FocusRingBrush, Source={x:Static local:UiThemeState.Instance}}" BorderThickness="2" CornerRadius="15" Margin="-3,-3,5,5"/><Border x:Name="ThemeCard" Background="{Binding CardRaisedSurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"                                BorderBrush="{Binding BorderBrushToken, Source={x:Static local:UiThemeState.Instance}}"
                                 BorderThickness="1" CornerRadius="12" Padding="9" Margin="0,0,8,8">
                             <ContentPresenter HorizontalAlignment="Stretch"/>
                         </Border></Grid>
@@ -188,8 +188,7 @@
                             </MultiTrigger>
 
                             <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="ThemeCard" Property="BorderBrush" Value="{Binding FocusRingBrush, Source={x:Static local:UiThemeState.Instance}}"/>
-                                <Setter TargetName="ThemeCard" Property="BorderThickness" Value="3"/>
+                                <Setter TargetName="FocusOutline" Property="Visibility" Value="Visible"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="ThemeCard" Property="Background" Value="{Binding CardPressedSurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"/>

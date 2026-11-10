@@ -571,6 +571,9 @@ public partial class MainWindow : Window
         sphereGraphTimer.Tick += (_, _) => RotateSphereGraph();
         Closing += (_, e) =>
         {
+            // The user explicitly chose to leave after a failed save. Do not
+            // convert that second Close() into another save or tray hide.
+            if (discardUnsavedSettingsOnClose) return;
             if (updateExitRequested)
             {
                 if (DelayCloseForSettingsSave()) e.Cancel = true;

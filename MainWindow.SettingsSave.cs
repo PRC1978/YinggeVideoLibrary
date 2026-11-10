@@ -11,6 +11,7 @@ public partial class MainWindow
     bool settingsSaveQueued;
     bool settingsSaveInProgress;
     bool closeAfterSettingsSave;
+    bool discardUnsavedSettingsOnClose;
     TextBlock? settingsSaveStatus;
     Button? settingsSaveRetryButton;
 
@@ -19,7 +20,11 @@ public partial class MainWindow
         if (settingsSaveStatus is not null) settingsSaveStatus.Text = message;
         if (settingsSaveRetryButton is not null)
             settingsSaveRetryButton.Visibility = canRetry ? Visibility.Visible : Visibility.Collapsed;
+        GlobalSaveStatus.Text = message;
+        GlobalSaveStatusPanel.Visibility = canRetry ? Visibility.Visible : Visibility.Collapsed;
     }
+
+    void RetrySettingsSaveClick(object sender, RoutedEventArgs e) => QueueSettingsSave();
 
     // A settings click updates the control immediately. The expensive config
     // merge and PostgreSQL write run after the next paint and coalesce rapid
@@ -30,7 +35,7 @@ public partial class MainWindow
         // in-memory setting with its earlier snapshot.
         configSaveVersion++;
         settingsSaveQueued = true;
-        ShowSettingsSaveState("正在保存设置…");
+        ShowSettingsSaveState("正在保存更改…");
         if (settingsSaveInProgress) return;
         settingsSaveTimer ??= new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
         {
@@ -50,6 +55,7 @@ public partial class MainWindow
 
     bool DelayCloseForSettingsSave()
     {
+        if (discardUnsavedSettingsOnClose) return false;
         if (!settingsSaveQueued && !settingsSaveInProgress) return false;
         closeAfterSettingsSave = true;
         settingsSaveTimer?.Stop();
@@ -72,14 +78,35 @@ public partial class MainWindow
                 catch (Exception ex)
                 {
                     settingsSaveQueued = true;
-                    closeAfterSettingsSave = false;
                     ShowSettingsSaveState("保存失败；本次更改尚未写入。", canRetry: true);
-                    Log("设置保存失败：" + ex.Message);
-                    ThemeMessageBox.Show(this, "设置未能保存，请重试：" + ex.Message, "映格视频库");
+                    Log("更改保存失败：" + ex.Message);
+                    if (closeAfterSettingsSave)
+                    {
+                        closeAfterSettingsSave = false;
+                        var choice = ThemeMessageBox.Show(this,
+                            "更改未能保存：" + ex.Message + "\n\n是：重试保存\n否：放弃未保存的更改并退出\n取消：返回窗口",
+                            "映格视频库 · 保存失败", MessageBoxButton.YesNoCancel,
+                            MessageBoxImage.Warning, MessageBoxResult.Cancel);
+                        if (choice == MessageBoxResult.Yes)
+                        {
+                            closeAfterSettingsSave = true;
+                            _ = Dispatcher.BeginInvoke(new Action(QueueSettingsSave), DispatcherPriority.Background);
+                        }
+                        else if (choice == MessageBoxResult.No)
+                        {
+                            Log("用户选择放弃未保存的更改并退出");
+                            discardUnsavedSettingsOnClose = true;
+                            settingsSaveQueued = false;
+                            _ = Dispatcher.BeginInvoke(new Action(Close), DispatcherPriority.Background);
+                        }
+                    }
+                    else
+                        ThemeMessageBox.Show(this, "更改未能保存，请重试：" + ex.Message,
+                            "映格视频库", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
             }
-            ShowSettingsSaveState("设置已保存");
+            ShowSettingsSaveState("更改已保存");
         }
         finally
         {

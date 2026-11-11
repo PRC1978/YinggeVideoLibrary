@@ -63,10 +63,10 @@ public partial class MainWindow
             if (button.Content is not StackPanel content || content.Children.Count < 2) continue;
             content.Orientation = wide ? System.Windows.Controls.Orientation.Horizontal : System.Windows.Controls.Orientation.Vertical;
             content.HorizontalAlignment = wide ? System.Windows.HorizontalAlignment.Left : System.Windows.HorizontalAlignment.Center;
-            if (content.Children[0] is TextBlock icon)
+            if (content.Children[0] is FrameworkElement icon)
             {
-                icon.Width = wide ? 38 : double.NaN;
-                icon.TextAlignment = TextAlignment.Center;
+                icon.Width = 21;
+                icon.Margin = wide ? new Thickness(0, 0, 14, 0) : new Thickness(0, 1, 0, 1);
             }
             if (content.Children[1] is TextBlock label)
             {

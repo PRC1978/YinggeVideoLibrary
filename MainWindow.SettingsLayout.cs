@@ -15,6 +15,11 @@ namespace YinggeVideoLibrary;
 public partial class MainWindow
 {
     readonly Dictionary<string, Expander> settingsSections = new(StringComparer.Ordinal);
+    readonly Dictionary<string, Button> settingsNavigation = new(StringComparer.Ordinal);
+    Grid? settingsWorkspace;
+    StackPanel? settingsNavigationRail;
+    string activeSettingsSection = "appearance";
+    string settingsSearchQuery = string.Empty;
 
     // Keep the original controls alive: they carry the existing events, values and validation.
     // The startup initializers add their controls to the flat panel first; only then do we
@@ -114,6 +119,7 @@ public partial class MainWindow
         AddSection(panel, "updates", "软件更新", "检查新版本并在应用内更新、重启", "↻", "#EAF2FF", "#4D7BCB", buckets["updates"]);
         AddSection(panel, "data", "数据与备份", "本地备份、恢复和数据目录", "▤", "#F9F0EC", "#B6785A", buckets["data"]);
         panel.Children.Add(BuildAboutFooter());
+        BuildSettingsWorkspace(panel);
     }
 
     FrameworkElement CreateSettingsIntro()
@@ -155,19 +161,76 @@ public partial class MainWindow
             new Binding(nameof(UiThemeState.SurfaceBrush)) { Source = UiThemeState.Instance });
         search.TextChanged += (_, _) =>
         {
-            var query = search.Text.Trim();
-            foreach (var section in settingsSections.Values)
-            {
-                var text = section.Tag as string ?? string.Empty;
-                section.Visibility = query.Length == 0 || text.Contains(query, StringComparison.CurrentCultureIgnoreCase)
-                    ? Visibility.Visible : Visibility.Collapsed;
-                if (query.Length > 0 && section.Visibility == Visibility.Visible) section.IsExpanded = true;
-            }
+            settingsSearchQuery = search.Text.Trim();
+            UpdateSettingsNavigation();
         };
         var searchWithPlaceholder = UiTextInput.WithPlaceholder(search, "搜索设置主题");
         Grid.SetColumn(searchWithPlaceholder, 1);
         grid.Children.Add(searchWithPlaceholder);
         return grid;
+    }
+
+    void BuildSettingsWorkspace(StackPanel panel)
+    {
+        var sections = settingsSections.ToArray();
+        foreach (var (_, section) in sections) panel.Children.Remove(section);
+        settingsWorkspace = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        settingsWorkspace.SizeChanged += (_, _) => UpdateSettingsNavigation();
+        settingsWorkspace.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(204) });
+        settingsWorkspace.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
+        settingsWorkspace.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        settingsNavigationRail = new StackPanel { VerticalAlignment = VerticalAlignment.Top };
+        settingsWorkspace.Children.Add(settingsNavigationRail);
+        var content = new StackPanel { HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch };
+        foreach (var (key, section) in sections)
+        {
+            content.Children.Add(section);
+            var label = section.Header is Grid header && header.Children.OfType<StackPanel>().FirstOrDefault() is { } labels
+                ? labels.Children.OfType<TextBlock>().FirstOrDefault()?.Text ?? key : key;
+            var button = new Button
+            {
+                Content = label, Tag = key, Style = (Style)FindResource("Action"),
+                Height = 42, Margin = new Thickness(0, 0, 0, 5),
+                HorizontalContentAlignment = System.Windows.HorizontalAlignment.Left,
+                Padding = new Thickness(12, 0, 10, 0)
+            };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(button, "SettingsNav_" + key);
+            button.Click += (_, _) => { activeSettingsSection = key; UpdateSettingsNavigation(); };
+            settingsNavigationRail.Children.Add(button);
+            settingsNavigation[key] = button;
+        }
+        Grid.SetColumn(content, 2);
+        settingsWorkspace.Children.Add(content);
+        panel.Children.Insert(1, settingsWorkspace);
+        UpdateSettingsNavigation();
+    }
+
+    void UpdateSettingsNavigation()
+    {
+        if (settingsWorkspace is null || settingsNavigationRail is null) return;
+        var classic = UiTheme.IsClassicMode;
+        var available = settingsWorkspace.ActualWidth;
+        var narrow = available > 0 && available < 800;
+        settingsWorkspace.ColumnDefinitions[0].Width = new GridLength(classic || narrow ? 0 : 204);
+        settingsWorkspace.ColumnDefinitions[1].Width = new GridLength(classic || narrow ? 0 : 24);
+        settingsNavigationRail.Visibility = classic || narrow ? Visibility.Collapsed : Visibility.Visible;
+        var matches = settingsSections.Where(pair => settingsSearchQuery.Length == 0 ||
+            (pair.Value.Tag as string ?? string.Empty).Contains(settingsSearchQuery, StringComparison.CurrentCultureIgnoreCase))
+            .Select(pair => pair.Key).ToArray();
+        if (!classic && !narrow && matches.Length > 0 && !matches.Contains(activeSettingsSection))
+            activeSettingsSection = matches[0];
+        foreach (var (key, section) in settingsSections)
+        {
+            var matched = matches.Contains(key);
+            section.Visibility = matched && (classic || narrow || key == activeSettingsSection)
+                ? Visibility.Visible : Visibility.Collapsed;
+            if (!classic && !narrow && key == activeSettingsSection) section.IsExpanded = true;
+            if (!settingsNavigation.TryGetValue(key, out var button)) continue;
+            button.Visibility = matched ? Visibility.Visible : Visibility.Collapsed;
+            button.FontWeight = key == activeSettingsSection ? FontWeights.SemiBold : FontWeights.Normal;
+            button.SetBinding(Control.ForegroundProperty, new Binding(key == activeSettingsSection
+                ? nameof(UiThemeState.AccentBrush) : nameof(UiThemeState.TextSecondaryBrush)) { Source = UiThemeState.Instance });
+        }
     }
 
     void AddSection(StackPanel host, string key, string title, string detail, string icon,

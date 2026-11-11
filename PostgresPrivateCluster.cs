@@ -42,9 +42,15 @@ internal sealed class PostgresPrivateCluster : IAsyncDisposable
         var initBinary = Path.Combine(runtimeDirectory, "bin", "initdb.exe");
         var controlBinary = Path.Combine(runtimeDirectory, "bin", "pg_ctl.exe");
         var postgresBinary = Path.Combine(runtimeDirectory, "bin", "postgres.exe");
-        if (!File.Exists(initBinary) || !File.Exists(controlBinary) || !File.Exists(postgresBinary) ||
-            !File.Exists(Path.Combine(runtimeDirectory, "share", "postgres.bki")))
-            throw new InvalidDataException("随程序提供的 PostgreSQL 组件不完整。 ");
+        var requiredFiles = new[] { initBinary, controlBinary, postgresBinary,
+            Path.Combine(runtimeDirectory, "share", "postgres.bki") };
+        var missingFiles = requiredFiles.Where(path => !File.Exists(path))
+            .Select(path => Path.GetRelativePath(runtimeDirectory, path)).ToArray();
+        if (missingFiles.Length != 0)
+            throw new InvalidDataException(
+                "当前程序目录缺少 PostgreSQL 组件（" + string.Join("、", missingFiles) +
+                "）。请使用完整安装包，或将便携包完整解压后从包内启动；单独复制映格视频库.exe 无法使用数据库。程序目录：" +
+                Path.GetDirectoryName(runtimeDirectory));
         Directory.CreateDirectory(libraryDirectory);
         FileStream lease;
         try

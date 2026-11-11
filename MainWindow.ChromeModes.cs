@@ -16,6 +16,7 @@ namespace YinggeVideoLibrary;
 public partial class MainWindow
 {
     WrapPanel? librarySegments;
+    StackPanel? librarySegmentButtons;
     RoleProfilesView? embeddedRoles;
     readonly List<TextBlock> modernSidebarHeadings = [];
     bool? arrangedClassicMode;
@@ -45,18 +46,18 @@ public partial class MainWindow
     {
         EnsureSidebarGroups();
         var collapsed = SidebarColumn.Width.Value <= 28;
-        var wide = !UiTheme.IsClassicMode && !collapsed && ActualWidth >= 1180;
+        var wide = !UiTheme.IsClassicMode && !collapsed && ActualWidth >= 1100;
         if (!collapsed)
-            SidebarColumn.Width = new GridLength(UiTheme.IsClassicMode ? UiTheme.Num(UiTheme.SidebarWidth) : wide ? 188 : 88);
+            SidebarColumn.Width = new GridLength(UiTheme.IsClassicMode ? UiTheme.Num(UiTheme.SidebarWidth) : wide ? 200 : 72);
         foreach (var heading in modernSidebarHeadings)
             heading.Visibility = wide ? Visibility.Visible : Visibility.Collapsed;
         foreach (var button in new[] { LibraryNav, AllNav, RecentNav, FavoriteNav, RecommendationsNav,
             CategoriesNav, FoldersNav, StatusNav, RolesNav, ScrapeNav, ReviewNav, OnlineNav, PluginsNav, AccountNav, SettingsNav })
         {
-            button.Width = wide ? 176 : UiTheme.IsClassicMode ? 60 : 66;
-            button.Height = wide ? 46 : UiTheme.IsClassicMode ? 50 : 58;
+            button.Width = wide ? 188 : UiTheme.IsClassicMode ? 60 : 60;
+            button.Height = wide ? 43 : UiTheme.IsClassicMode ? 50 : 48;
             button.Margin = ReferenceEquals(button, SettingsNav) ? new Thickness(0, 0, 0, 15)
-                : wide ? new Thickness(0, 0, 0, 1) : new Thickness(0, 2, 0, 4);
+                : wide ? new Thickness(0, 0, 0, 2) : new Thickness(0, 0, 0, 2);
             button.HorizontalContentAlignment = wide ? System.Windows.HorizontalAlignment.Left : System.Windows.HorizontalAlignment.Center;
             button.Padding = wide ? new Thickness(10, 0, 0, 0) : new Thickness(0);
             if (button.Content is not StackPanel content || content.Children.Count < 2) continue;
@@ -83,19 +84,23 @@ public partial class MainWindow
         // spending most of the viewport on empty page chrome.
         var shortWindow = !UiTheme.IsClassicMode && ActualHeight > 0 && ActualHeight < 650;
         var dense = UiTheme.Current == UiTheme.Compact;
-        BrandEyebrow.Visibility = dense ? Visibility.Collapsed : Visibility.Visible;
+        BrandEyebrow.Visibility = UiTheme.IsClassicMode && !dense ? Visibility.Visible : Visibility.Collapsed;
         PageSubtitle.Visibility = dense ? Visibility.Collapsed : Visibility.Visible;
-        HeaderContent.Margin = dense ? new Thickness(0) : new Thickness(0, 8, 0, 0);
+        HeaderContent.Margin = UiTheme.IsClassicMode && !dense ? new Thickness(0, 8, 0, 0) : new Thickness(0);
+        HeaderToggle.Visibility = UiTheme.IsClassicMode ? Visibility.Visible : Visibility.Collapsed;
 
         var onlineLeft = SidebarColumn.Width.Value <= 28 ? 48 : 28;
         HeaderArea.Margin = view == "online" ? new Thickness(onlineLeft, 18, 28, 12)
             : UiTheme.IsClassicMode ? new Thickness(48, 42, 48, 25)
-            : UiTheme.Current == UiTheme.Cinema ? new Thickness(48, 10, 48, 8)
-            : dense ? new Thickness(48, 10, 48, 8)
-            : shortWindow ? new Thickness(48, 12, 48, 8)
-            : new Thickness(48, 26, 48, 16);
+            : UiTheme.Current == UiTheme.Cinema ? new Thickness(40, 14, 40, 16)
+            : dense ? new Thickness(40, 12, 40, 12)
+            : shortWindow ? new Thickness(40, 14, 40, 12)
+            : new Thickness(40, 24, 40, 20);
+        UpdateSettingsNavigation();
         ReviewPanel.Padding = shortWindow ? new Thickness(18) : new Thickness(24);
-        var compact = ActualWidth < 1040;
+        var headerWidth = HeaderContent.ActualWidth;
+        var compact = headerWidth > 0 ? headerWidth < 900 : ActualWidth < 1040;
+        Grid.SetColumnSpan(HeaderTitleStack, compact ? 2 : 1);
         Grid.SetRow(Toolbar, compact ? 1 : 0);
         Grid.SetColumn(Toolbar, compact ? 0 : 1);
         Grid.SetColumnSpan(Toolbar, compact ? 2 : 1);
@@ -108,6 +113,7 @@ public partial class MainWindow
     void ApplyInterfaceMode(bool refreshView = true)
     {
         UpdateHeaderResponsive();
+        Cards.UpdateCellWidth();
         var classic = UiTheme.IsClassicMode;
         var navigationStyle = (Style)FindResource(classic ? "Nav" : "NavModern");
         foreach (var item in new[] { LibraryNav, AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, RolesNav, ScrapeNav, ReviewNav, OnlineNav, PluginsNav, SettingsNav })
@@ -117,6 +123,8 @@ public partial class MainWindow
             if (!ReferenceEquals(item.Style, pagerStyle)) item.Style = pagerStyle;
         foreach (var item in new[] { reviewPreviousPageButton, reviewNextPageButton, reviewTopPreviousPageButton, reviewTopNextPageButton })
             if (item is not null && !ReferenceEquals(item.Style, pagerStyle)) item.Style = pagerStyle;
+        Pager.HorizontalAlignment = classic ? System.Windows.HorizontalAlignment.Center : System.Windows.HorizontalAlignment.Right;
+        Pager.Margin = classic ? new Thickness(0, 8, 0, 20) : new Thickness(0, 12, 40, 20);
         LibraryNav.Visibility = classic ? Visibility.Collapsed : Visibility.Visible;
         AllNav.Visibility = classic ? Visibility.Visible : Visibility.Collapsed;
         RecentNav.Visibility = classic ? Visibility.Visible : Visibility.Collapsed;
@@ -159,16 +167,50 @@ public partial class MainWindow
     {
         if (librarySegments is not null) return;
         librarySegments = new WrapPanel { Margin = new Thickness(0, 0, 0, 12) };
+        librarySegmentButtons = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+        var segmentFrame = new Border
+        {
+            Child = librarySegmentButtons,
+            CornerRadius = new CornerRadius(11), BorderThickness = new Thickness(1),
+            Padding = new Thickness(2), Margin = new Thickness(0, 0, 4, 0)
+        };
+        segmentFrame.SetBinding(Border.BackgroundProperty,
+            new System.Windows.Data.Binding("SurfaceBrush") { Source = UiThemeState.Instance });
+        segmentFrame.SetBinding(Border.BorderBrushProperty,
+            new System.Windows.Data.Binding("BorderBrushToken") { Source = UiThemeState.Instance });
+        librarySegments.Children.Add(segmentFrame);
         foreach (var (id, label) in new[] { ("all", "全部"), ("recent", "最近"), ("favorites", "收藏") })
         {
             var button = new System.Windows.Controls.Button
             {
                 Content = label, Style = (Style)FindResource("Action"), Tag = id,
-                MinWidth = 72
+                MinWidth = 72, Margin = new Thickness(0), BorderThickness = new Thickness(0)
             };
             button.Click += (_, _) => ShowView(id);
-            librarySegments.Children.Add(button);
+            librarySegmentButtons.Children.Add(button);
         }
+        var selectFiltered = new System.Windows.Controls.Button
+        {
+            Content = "全选当前结果", Style = (Style)FindResource("Action"),
+            Tag = "select", Margin = new Thickness(15, 0, 0, 0),
+            ToolTip = "选择当前筛选条件匹配的全部视频，包括未显示的页面"
+        };
+        selectFiltered.Click += SelectFilteredVideos;
+        librarySegments.Children.Add(selectFiltered);
+        var selectLibrary = new System.Windows.Controls.Button
+        {
+            Content = "全选全库", Style = (Style)FindResource("Action"), Tag = "select-library",
+            ToolTip = "选择整个视频库，包括其他分类与搜索条件以外的视频"
+        };
+        selectLibrary.Click += SelectAllLibraryVideos;
+        librarySegments.Children.Add(selectLibrary);
+        var browseTags = new System.Windows.Controls.Button
+        {
+            Content = "浏览标签", Style = (Style)FindResource("Action"), Tag = "tags",
+            ToolTip = "浏览全库标签并按标签筛选"
+        };
+        browseTags.Click += BrowseAllTags;
+        librarySegments.Children.Add(browseTags);
         // Insert right under the section header of the library page.
         if (Cards.Parent is Panel host) host.Children.Insert(1, librarySegments);
     }
@@ -180,7 +222,7 @@ public partial class MainWindow
             ? new Thickness(0, 0, 0, 4) : new Thickness(0, 0, 0, 12);
         librarySegments.Visibility = !UiTheme.IsClassicMode && view is "all" or "recent" or "favorites"
             ? Visibility.Visible : Visibility.Collapsed;
-        foreach (var child in librarySegments.Children.OfType<System.Windows.Controls.Button>())
+        foreach (var child in librarySegmentButtons!.Children.OfType<System.Windows.Controls.Button>())
         {
             var active = child.Tag as string == view;
             child.SetBinding(System.Windows.Controls.Button.BackgroundProperty,

@@ -13,6 +13,24 @@ namespace YinggeVideoLibrary;
 /// </summary>
 public sealed class RecycledCardRow : StackPanel
 {
+    public static readonly DependencyProperty CellWidthProperty = DependencyProperty.Register(
+        nameof(CellWidth), typeof(double), typeof(RecycledCardRow), new PropertyMetadata(170d));
+
+    public static readonly DependencyProperty PosterHeightProperty = DependencyProperty.Register(
+        nameof(PosterHeight), typeof(double), typeof(RecycledCardRow), new PropertyMetadata(255d));
+
+    public double CellWidth
+    {
+        get => (double)GetValue(CellWidthProperty);
+        private set => SetValue(CellWidthProperty, value);
+    }
+
+    public double PosterHeight
+    {
+        get => (double)GetValue(PosterHeightProperty);
+        private set => SetValue(PosterHeightProperty, value);
+    }
+
     static int diagnosticsEnabled;
     static long diagnosticRowsCreated;
     static long diagnosticCardsCreated;
@@ -47,7 +65,29 @@ public sealed class RecycledCardRow : StackPanel
     public RecycledCardRow()
     {
         Orientation = System.Windows.Controls.Orientation.Horizontal;
+        HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch;
+        Loaded += (_, _) => UpdateCellWidth();
+        SizeChanged += (_, _) => UpdateCellWidth();
         if (Volatile.Read(ref diagnosticsEnabled) != 0) Interlocked.Increment(ref diagnosticRowsCreated);
+    }
+
+    void UpdateCellWidth()
+    {
+        var available = ActualWidth;
+        if (!double.IsFinite(available) || available <= 0) return;
+        var gap = UiTheme.Num(UiTheme.CardGap);
+        var minimum = UiTheme.Num(UiTheme.CardWidth);
+        if (UiTheme.IsClassicMode)
+        {
+            CellWidth = minimum;
+            PosterHeight = UiTheme.Num(UiTheme.CardHeight);
+            return;
+        }
+        var columns = Math.Max(1, (int)Math.Floor((available + gap) / (minimum + gap)));
+        var width = Math.Min(240, Math.Max(minimum, (available - columns * gap) / columns));
+        if (Math.Abs(CellWidth - width) > 0.5) CellWidth = width;
+        var height = Math.Round(width * 1.5);
+        if (Math.Abs(PosterHeight - height) > 0.5) PosterHeight = height;
     }
 
     internal static void BeginScrollDiagnostic()

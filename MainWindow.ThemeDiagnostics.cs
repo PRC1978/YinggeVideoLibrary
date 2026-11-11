@@ -222,7 +222,7 @@ public partial class MainWindow
                             card.TranslatePoint(new System.Windows.Point(0, card.ActualHeight), this).Y > height)
                             throw new InvalidOperationException($"{mode} 分类关系图卡片超出窗口底部");
                         if (page == "all" && Cards.VisibleCardCount > 0)
-                            measuredCardWidths.Add((mode, UiTheme.Num(UiTheme.CardWidth),
+                            measuredCardWidths.Add((mode, Cards.CellWidth,
                                 ((FrameworkElement)Cards.Children[0]).ActualWidth));
                         if (page == "all" && videos.Count > 0 && mode == UiTheme.Compact &&
                             (CompactRows.Visibility != Visibility.Visible || CompactRows.Items.Count == 0 ||

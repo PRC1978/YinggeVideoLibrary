@@ -65,6 +65,18 @@
   </ItemGroup>
   <ItemGroup><None Update="LICENSE" Pack="true" PackagePath="" /></ItemGroup>
 
+  <!-- A published EXE must not be mistaken for a complete portable package. -->
+  <Target Name="IncludePrivatePostgresInPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <PrivatePostgresFile Include="artifacts\postgres-runtime\**\*" />
+    </ItemGroup>
+    <Error Condition="'@(PrivatePostgresFile)' == ''"
+           Text="PostgreSQL runtime is missing. Prepare artifacts/postgres-runtime before publishing." />
+    <Copy SourceFiles="@(PrivatePostgresFile)"
+          DestinationFiles="@(PrivatePostgresFile->'$(PublishDir)postgres\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>
 
 

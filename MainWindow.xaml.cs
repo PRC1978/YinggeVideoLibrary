@@ -503,6 +503,7 @@ public partial class MainWindow : Window
         // as the real content has been presented.
         ContentRendered += (_, _) => StartupVeil.Visibility = Visibility.Collapsed;
         SizeChanged += (_, _) => UpdateHeaderResponsive();
+        HeaderContent.SizeChanged += (_, _) => UpdateHeaderResponsive();
         InitializeFolderExternalDrop();
         Directory.CreateDirectory(DataDir);
         var cacheMigration = postgresSession is null ? TryMigrateLegacyCaches(DataDir) : "";
@@ -2070,7 +2071,9 @@ public partial class MainWindow : Window
         var count = selectedVideoIds.Count;
         var hasLibraryView = view is "all" or "recent" or "favorites" or "categories";
         var hasScope = hasLibraryView && currentFilteredVideos.Count > 0;
-        var visibility = hasLibraryView && videos.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        var visibility = hasLibraryView && videos.Count > 0 &&
+            (UiTheme.IsClassicMode || count > 0 || batchOperationInProgress)
+            ? Visibility.Visible : Visibility.Collapsed;
         SelectionSummary.Text = batchOperationInProgress ? batchProgressText : count == 0
             ? $"当前 {currentFilteredVideos.Count:N0} 部 · 全库 {videos.Count:N0} 部"
             : $"已选 {count:N0} 部 · 全库 {videos.Count:N0} 部";
@@ -3918,11 +3921,11 @@ public partial class MainWindow : Window
     void ToggleSidebar(object sender, RoutedEventArgs e)
     {
         var collapsed = SidebarColumn.Width.Value > 28;
-        SidebarColumn.Width = new GridLength(collapsed ? 28 : 88);
+        SidebarColumn.Width = new GridLength(collapsed ? 28 : UiTheme.IsClassicMode ? 78 : 72);
         SidebarToggle.Content = collapsed ? "›" : "‹";
         SidebarToggle.ToolTip = collapsed ? "展开侧栏" : "收缩侧栏";
         LogoMark.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
-        HeaderToggle.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
+        HeaderToggle.Visibility = collapsed || !UiTheme.IsClassicMode ? Visibility.Collapsed : Visibility.Visible;
         SidebarToggle.Width = collapsed ? 28 : 50;
         foreach (var button in new[] { AllNav, RecentNav, FavoriteNav, RecommendationsNav, CategoriesNav, FoldersNav, StatusNav, ScrapeNav, OnlineNav, SettingsNav, LibraryNav, ReviewNav, RolesNav, PluginsNav, AccountNav })
         {

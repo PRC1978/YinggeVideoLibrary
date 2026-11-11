@@ -126,27 +126,25 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="TabItem">
-                        <Border x:Name="TabChrome" Background="Transparent" CornerRadius="10,10,0,0"
-                                BorderBrush="{Binding BorderBrushToken, Source={x:Static local:UiThemeState.Instance}}"
-                                BorderThickness="1,1,1,0" Padding="16,9" Margin="0,0,4,0">
-                            <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="3"/></Grid.RowDefinitions>
+                        <Border x:Name="TabChrome" Background="Transparent" BorderThickness="0"
+                                Padding="14,9" Margin="0,0,6,0">
+                            <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="2"/></Grid.RowDefinitions>
                                 <ContentPresenter ContentSource="Header" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                                <Border x:Name="TabMarker" Grid.Row="1" Margin="0,7,0,-8" CornerRadius="2" Background="{Binding AccentBrush, Source={x:Static local:UiThemeState.Instance}}" Visibility="Collapsed"/>
+                                <Border x:Name="TabMarker" Grid.Row="1" Background="{Binding AccentBrush, Source={x:Static local:UiThemeState.Instance}}" Visibility="Collapsed"/>
                             </Grid>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="TabChrome" Property="Background" Value="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"/>
                                 <Setter TargetName="TabMarker" Property="Visibility" Value="Visible"/>
                                 <Setter Property="Foreground" Value="{Binding TextPrimaryBrush, Source={x:Static local:UiThemeState.Instance}}"/>
                                 <Setter Property="FontWeight" Value="SemiBold"/>
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="TabChrome" Property="Background" Value="{Binding AccentSoftBackgroundBrush, Source={x:Static local:UiThemeState.Instance}}"/>
+                                <Setter Property="Foreground" Value="{Binding TextPrimaryBrush, Source={x:Static local:UiThemeState.Instance}}"/>
                             </Trigger>
                             <Trigger Property="IsKeyboardFocused" Value="True">
                                 <Setter TargetName="TabChrome" Property="BorderBrush" Value="{Binding FocusRingBrush, Source={x:Static local:UiThemeState.Instance}}"/>
-                                <Setter TargetName="TabChrome" Property="BorderThickness" Value="2,2,2,0"/>
+                                <Setter TargetName="TabChrome" Property="BorderThickness" Value="0,0,0,2"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

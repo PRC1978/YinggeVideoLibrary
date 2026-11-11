@@ -3400,6 +3400,15 @@ public partial class MainWindow : Window
         var play = new MenuItem { Header = "▶ 播放视频" };
         play.Click += (_, _) => LaunchVideo(video);
         menu.Items.Add(play);
+        var categories = new MenuItem { Header = "查看分类…", DataContext = video };
+        categories.Click += ShowVideoCategories;
+        menu.Items.Add(categories);
+        var viewTags = new MenuItem { Header = "查看标签…", DataContext = video };
+        viewTags.Click += ShowVideoTags;
+        menu.Items.Add(viewTags);
+        var scrape = new MenuItem { Header = "重新搜刮…", DataContext = video };
+        scrape.Click += ScrapeVideo;
+        menu.Items.Add(scrape);
         var status = new MenuItem { Header = "观看状态" };
         foreach (var value in new[] { "未看", "观看中", "已看" })
         {

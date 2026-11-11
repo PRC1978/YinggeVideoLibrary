@@ -472,7 +472,7 @@ public sealed class UiThemeState : INotifyPropertyChanged
     static readonly FontFamily chineseHeadingFont = new("Microsoft YaHei UI");
     static readonly FontFamily serifHeadingFont = new("SimSun");
     static readonly FontFamily atlasHeadingFont = new("Segoe UI, Microsoft YaHei UI");
-    static readonly FontFamily cinemaDisplayFont = new("SimSun, Microsoft YaHei UI");
+    static readonly FontFamily cinemaDisplayFont = new("Microsoft YaHei UI, Segoe UI");
     static readonly FontFamily chineseBodyFont = new("Microsoft YaHei UI, Segoe UI");
     static readonly FontFamily compactBodyFont = new("Segoe UI, Microsoft YaHei UI");
     static readonly FontFamily dataFont = new("Segoe UI, Microsoft YaHei UI");
@@ -487,7 +487,8 @@ public sealed class UiThemeState : INotifyPropertyChanged
     };
     public FontFamily HeadingFontFamily => UiTheme.Current switch
     {
-        UiTheme.Editorial or UiTheme.Cinema => serifHeadingFont,
+        UiTheme.Editorial => serifHeadingFont,
+        UiTheme.Cinema => cinemaDisplayFont,
         UiTheme.LineField or UiTheme.Atlas => atlasHeadingFont,
         _ => chineseHeadingFont
     };

@@ -2,6 +2,8 @@
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using Binding = System.Windows.Data.Binding;
+using Control = System.Windows.Controls.Control;
 using Button = System.Windows.Controls.Button;
 using TextBox = System.Windows.Controls.TextBox;
 using CheckBox = System.Windows.Controls.CheckBox;
@@ -78,10 +80,10 @@ public partial class MainWindow
 
         panel.Children.Clear();
         panel.Width = double.NaN;
-        panel.MaxWidth = 940;
+        panel.MaxWidth = double.PositiveInfinity;
         panel.HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch;
         SettingsPanel.Padding = new Thickness(0);
-        SettingsPanel.MaxWidth = 940;
+        SettingsPanel.MaxWidth = double.PositiveInfinity;
         SettingsPanel.Background = Brushes.Transparent;
         SettingsPanel.BorderThickness = new Thickness(0);
         SettingsPanel.HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch;
@@ -116,26 +118,19 @@ public partial class MainWindow
 
     FrameworkElement CreateSettingsIntro()
     {
-        var grid = new Grid { Margin = new Thickness(2, 0, 2, 18) };
+        var grid = new Grid { Margin = new Thickness(0, 0, 0, 16) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var introduction = new StackPanel();
-        introduction.Children.Add(new TextBlock
-        {
-            Text = "按主题找到需要的选项", FontSize = 16, FontWeight = FontWeights.SemiBold,
-            Foreground = Tint("#24344F")
-        });
-        introduction.Children.Add(new TextBlock
-        {
-            Text = "展开卡片调整设置；需要手动保存的选项保留保存按钮。",
-            FontSize = 12, Foreground = Tint("#75859E"), Margin = new Thickness(0, 5, 0, 0)
-        });
+        introduction.Children.Add(ThemedLabel("搜索设置", 14, nameof(UiThemeState.TextPrimaryBrush)));
         var saveFeedback = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
         settingsSaveStatus = new TextBlock
         {
-            Text = "设置更改会自动保存", FontSize = 11, Foreground = UiTheme.TextSecondaryBrush,
+            Text = "设置更改会自动保存", FontSize = 12,
             VerticalAlignment = VerticalAlignment.Center
         };
+        settingsSaveStatus.SetBinding(TextBlock.ForegroundProperty,
+            new Binding(nameof(UiThemeState.TextSecondaryBrush)) { Source = UiThemeState.Instance });
         System.Windows.Automation.AutomationProperties.SetLiveSetting(settingsSaveStatus,
             System.Windows.Automation.AutomationLiveSetting.Polite);
         settingsSaveRetryButton = new Button
@@ -152,9 +147,12 @@ public partial class MainWindow
         var search = new TextBox
         {
             Width = 210, Height = 36, Padding = new Thickness(10, 6, 10, 6),
-            BorderBrush = Tint("#DDE6F2"), Background = UiTheme.SurfaceBrush,
             ToolTip = "搜索设置主题，例如缓存、AI、更新"
         };
+        search.SetBinding(Control.BorderBrushProperty,
+            new Binding(nameof(UiThemeState.BorderBrushToken)) { Source = UiThemeState.Instance });
+        search.SetBinding(Control.BackgroundProperty,
+            new Binding(nameof(UiThemeState.SurfaceBrush)) { Source = UiThemeState.Instance });
         search.TextChanged += (_, _) =>
         {
             var query = search.Text.Trim();
@@ -216,14 +214,18 @@ public partial class MainWindow
         };
         header.Children.Add(iconPlate);
         var labels = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        labels.Children.Add(new TextBlock { Text = title, FontSize = 15, FontWeight = FontWeights.SemiBold,
-            Foreground = Tint("#273851") });
-        labels.Children.Add(new TextBlock { Text = detail, FontSize = 11, Foreground = Tint("#8190A6"),
-            Margin = new Thickness(0, 3, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis });
+        var titleLabel = ThemedLabel(title, 15, nameof(UiThemeState.TextPrimaryBrush));
+        titleLabel.FontWeight = FontWeights.SemiBold;
+        labels.Children.Add(titleLabel);
+        var detailLabel = ThemedLabel(detail, 12, nameof(UiThemeState.TextSecondaryBrush));
+        detailLabel.Margin = new Thickness(0, 3, 0, 0);
+        detailLabel.TextTrimming = TextTrimming.CharacterEllipsis;
+        labels.Children.Add(detailLabel);
         Grid.SetColumn(labels, 1);
         header.Children.Add(labels);
-        var chevron = new TextBlock { Text = "⌄", FontSize = 20, Foreground = Tint("#7B8AA0"),
-            VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = System.Windows.HorizontalAlignment.Center };
+        var chevron = ThemedLabel("⌄", 20, nameof(UiThemeState.TextSecondaryBrush));
+        chevron.VerticalAlignment = VerticalAlignment.Center;
+        chevron.HorizontalAlignment = System.Windows.HorizontalAlignment.Center;
         Grid.SetColumn(chevron, 2);
         header.Children.Add(chevron);
         var section = new Expander
@@ -259,6 +261,14 @@ public partial class MainWindow
     }
 
     static System.Windows.Media.Brush Tint(string color) => UiTheme.FromLegacyHex(color);
+
+    static TextBlock ThemedLabel(string text, double size, string brushProperty)
+    {
+        var label = new TextBlock { Text = text, FontSize = size };
+        label.SetBinding(TextBlock.ForegroundProperty,
+            new Binding(brushProperty) { Source = UiThemeState.Instance });
+        return label;
+    }
 
     internal (bool Valid, string Detail) VerifySettingsLayout()
     {

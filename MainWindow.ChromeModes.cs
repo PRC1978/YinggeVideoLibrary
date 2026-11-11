@@ -20,6 +20,7 @@ public partial class MainWindow
     RoleProfilesView? embeddedRoles;
     readonly List<TextBlock> modernSidebarHeadings = [];
     bool? arrangedClassicMode;
+    bool? raisedSidebarBorder;
 
     void EnsureSidebarGroups()
     {
@@ -47,6 +48,18 @@ public partial class MainWindow
         EnsureSidebarGroups();
         var collapsed = SidebarColumn.Width.Value <= 28;
         var wide = !UiTheme.IsClassicMode && !collapsed && ActualWidth >= 1100;
+        var floatingGlass = !UiTheme.IsClassicMode && !collapsed && UiThemeState.Instance.IsGlass;
+        Sidebar.Margin = floatingGlass ? new Thickness(8, 8, 0, 8) : new Thickness(0);
+        Sidebar.CornerRadius = floatingGlass ? new CornerRadius(16) : new CornerRadius(0);
+        Sidebar.BorderThickness = floatingGlass ? new Thickness(1) : new Thickness(0, 0, 1, 0);
+        var materialEdge = floatingGlass || !UiTheme.IsClassicMode && UiThemeState.Instance.IsNeumorphism;
+        if (raisedSidebarBorder != materialEdge)
+        {
+            Sidebar.SetBinding(Border.BorderBrushProperty, new System.Windows.Data.Binding(materialEdge
+                ? nameof(UiThemeState.PanelEdgeBrush) : nameof(UiThemeState.BorderBrushToken))
+                { Source = UiThemeState.Instance });
+            raisedSidebarBorder = materialEdge;
+        }
         if (!collapsed)
             SidebarColumn.Width = new GridLength(UiTheme.IsClassicMode ? UiTheme.Num(UiTheme.SidebarWidth) : wide ? 200 : 72);
         foreach (var heading in modernSidebarHeadings)

@@ -128,8 +128,7 @@ public partial class MainWindow
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var introduction = new StackPanel();
-        introduction.Children.Add(ThemedLabel("搜索设置", 14, nameof(UiThemeState.TextPrimaryBrush)));
-        var saveFeedback = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+        var saveFeedback = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
         settingsSaveStatus = new TextBlock
         {
             Text = "设置更改会自动保存", FontSize = 12,
@@ -189,8 +188,8 @@ public partial class MainWindow
                 ? labels.Children.OfType<TextBlock>().FirstOrDefault()?.Text ?? key : key;
             var button = new Button
             {
-                Content = label, Tag = key, Style = (Style)FindResource("Action"),
-                Height = 42, Margin = new Thickness(0, 0, 0, 5),
+                Content = label, Tag = key, Style = (Style)FindResource("SettingsRailNav"),
+                Height = 40, Margin = new Thickness(0, 0, 0, 3),
                 HorizontalContentAlignment = System.Windows.HorizontalAlignment.Left,
                 Padding = new Thickness(12, 0, 10, 0)
             };
@@ -230,6 +229,16 @@ public partial class MainWindow
             button.FontWeight = key == activeSettingsSection ? FontWeights.SemiBold : FontWeights.Normal;
             button.SetBinding(Control.ForegroundProperty, new Binding(key == activeSettingsSection
                 ? nameof(UiThemeState.AccentBrush) : nameof(UiThemeState.TextSecondaryBrush)) { Source = UiThemeState.Instance });
+            if (key == activeSettingsSection)
+            {
+                button.SetBinding(Control.BackgroundProperty, new Binding(nameof(UiThemeState.AccentSoftBackgroundBrush)) { Source = UiThemeState.Instance });
+                button.SetBinding(Control.BorderBrushProperty, new Binding(nameof(UiThemeState.AccentBrush)) { Source = UiThemeState.Instance });
+            }
+            else
+            {
+                button.ClearValue(Control.BackgroundProperty);
+                button.ClearValue(Control.BorderBrushProperty);
+            }
         }
     }
 

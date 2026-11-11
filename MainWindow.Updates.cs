@@ -681,6 +681,8 @@ public partial class MainWindow
             {
                 if (batchOperationInProgress)
                     throw new InvalidOperationException("正在保存批量操作，完成后再重试更新。");
+                if (!await FlushSettingsSavesBeforeUpdateAsync())
+                    throw new InvalidOperationException("更改尚未保存；请先在页头重试保存，再更新软件。");
                 // Check write access before closing; the replacement itself is
                 // done by the verified new binary after this process exits.
                 var probe = Path.Combine(Path.GetDirectoryName(current)!, $".yingge-write-{Guid.NewGuid():N}.tmp");

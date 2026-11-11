@@ -10,6 +10,7 @@ public partial class MainWindow
     DispatcherTimer? settingsSaveTimer;
     bool settingsSaveQueued;
     bool settingsSaveInProgress;
+    TaskCompletionSource<bool>? settingsSaveCompletion;
     bool closeAfterSettingsSave;
     bool discardUnsavedSettingsOnClose;
     TextBlock? settingsSaveStatus;
@@ -63,10 +64,25 @@ public partial class MainWindow
         return true;
     }
 
+    async Task<bool> FlushSettingsSavesBeforeUpdateAsync()
+    {
+        settingsSaveTimer?.Stop();
+        if (settingsSaveInProgress)
+        {
+            var completed = settingsSaveCompletion;
+            if (completed is null || !await completed.Task) return false;
+        }
+        if (settingsSaveQueued)
+            await DrainSettingsSavesAsync();
+        return !settingsSaveQueued && !settingsSaveInProgress;
+    }
+
     async Task DrainSettingsSavesAsync()
     {
         if (settingsSaveInProgress) return;
         settingsSaveInProgress = true;
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        settingsSaveCompletion = completion;
         try
         {
             // Give WPF a chance to paint the newly selected value first.
@@ -111,6 +127,7 @@ public partial class MainWindow
         finally
         {
             settingsSaveInProgress = false;
+            completion.TrySetResult(!settingsSaveQueued);
             if (closeAfterSettingsSave && !settingsSaveQueued)
             {
                 closeAfterSettingsSave = false;

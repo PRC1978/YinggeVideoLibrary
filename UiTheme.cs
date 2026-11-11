@@ -194,7 +194,7 @@ public static class UiTheme
         [Tech] = (new Palette(
             "#F3F5FB", "#FFFFFF", "#FFFFFF", "#EEF3FE", "#DFE6F2", "#B9C6E4",
             "#16233B", "#4A5B76", "#596881",
-            "#2B4BEB", "#1B2FBF", "#FFFFFF", "#E9EEFE", "#2440C9", "#7C5CFC",
+            "#2B4BEB", "#1B2FBF", "#FFFFFF", "#E9EEFE", "#2440C9", "#46556E",
             "#E9EEFE", "#2440C9",
             "#985915", "#B4232A", "#0E7A5F",
             "#2B4BEB", "#5D74C9", "#8014223B"),
@@ -203,7 +203,7 @@ public static class UiTheme
         [Cinema] = (new Palette(
             "#0A0A0A", "#101010", "#171717", "#202020", "#303030", "#585858",
             "#F5F5F5", "#C6C6C6", "#A8A8A8",
-            "#E75469", "#F0697E", "#0A0A0A", "#2B191D", "#F5F5F5", "#D4AF37",
+            "#E75469", "#F0697E", "#0A0A0A", "#2B191D", "#F5F5F5", "#BDBDBD",
             "#29181B", "#FFFFFF",
             "#D4AF37", "#F05A69", "#71B89C",
             "#A8A8A8", "#3E3E3E", "#C9000000"),
@@ -229,7 +229,7 @@ public static class UiTheme
         [Neumorphism] = (new Palette(
             "#E0E5EC", "#E0E5EC", "#E0E5EC", "#E9EDF3", "#C8D0DA", "#AAB7C8",
             "#263449", "#4C5C72", "#506078",
-            "#6652BD", "#5340A5", "#F4F1FC", "#DCD5F4", "#493796", "#7865C5",
+            "#6652BD", "#5340A5", "#F4F1FC", "#DCD5F4", "#493796", "#4A5870",
             "#DCD5F4", "#352477",
             "#8F5418", "#AA3745", "#277456",
             "#6652BD", "#8D9BAE", "#701B2538"),
@@ -237,7 +237,7 @@ public static class UiTheme
         [Glass] = (new Palette(
             "#0B1322", "#11FFFFFF", "#14FFFFFF", "#1FFFFFFF", "#28FFFFFF", "#4DFFFFFF",
             "#F5F7FB", "#D6E0ED", "#B6C5D7",
-            "#E4B863", "#F0CA7F", "#0B1322", "#25FFFFFF", "#E4B863", "#7C9CC4",
+            "#E4B863", "#F0CA7F", "#0B1322", "#25FFFFFF", "#E4B863", "#94B0D6",
             "#2EFFFFFF", "#FFFFFF", "#E4B863", "#F07882", "#7BC9A8",
             "#D6E0ED", "#33517A", "#C9060A13"),
             new Density(13.5, 12, 11, 27, 17, 178, 238, 16, 88, 54, 40, 46, 38, 20)),
@@ -453,12 +453,17 @@ public sealed class UiThemeState : INotifyPropertyChanged
     // Neumorphism all three resolve to the plain surface, so no other theme
     // changes appearance and SoftHighlight stays null.
     public Brush CardRaisedSurfaceBrush => IsNeumorphism ? RaisedSurfaceBrush : SurfaceBrush;
-    public Brush PosterSurfaceBrush => IsGlass
-        ? posterSurfaceCache ??= Frozen(new LinearGradientBrush(Color.FromArgb(52, 255, 255, 255),
+    public Brush PosterSurfaceBrush => posterSurfaceCache ??= IsGlass
+        ? Frozen(new LinearGradientBrush(Color.FromArgb(52, 255, 255, 255),
             Color.FromArgb(18, 255, 255, 255), 115))
-        : PosterFallbackBrush;
-    public Brush PosterFallbackForegroundBrush => IsGlass && !UiTheme.IsDarkPalette
-        ? TextPrimaryBrush : Brushes.White;
+        : IsNeumorphism
+            ? Frozen(new LinearGradientBrush(Color.FromRgb(215, 222, 232), Color.FromRgb(235, 239, 245), 135))
+            : UiTheme.Current == UiTheme.Tech
+                ? Frozen(new LinearGradientBrush(Color.FromRgb(232, 237, 246), Color.FromRgb(211, 222, 240), 130))
+                : PosterFallbackBrush;
+    public Brush PosterFallbackForegroundBrush => UiTheme.IsDarkPalette ? Brushes.White : TextPrimaryBrush;
+    public Brush CardActiveBorderBrush => AccentBrush;
+    public CornerRadius ControlCornerRadius => new(IsNeumorphism ? 14 : IsGlass ? 10 : UiTheme.Current == UiTheme.Tech ? 6 : 7);
     public Thickness GlassCardBorderThickness => IsGlass ? new Thickness(1) : new Thickness(0);
     public Brush CardPressedSurfaceBrush => IsNeumorphism ? PressedSurfaceBrush : SurfaceBrush;
     public Brush CardDisabledSurfaceBrush => IsNeumorphism ? SurfaceAltBrush : SurfaceBrush;

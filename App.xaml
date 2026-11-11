@@ -156,9 +156,45 @@
         </Style>
         <Style TargetType="CheckBox">
             <Setter Property="Foreground" Value="{Binding TextPrimaryBrush, Source={x:Static local:UiThemeState.Instance}}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Grid Background="Transparent">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Border x:Name="MarkBox" Width="17" Height="17" VerticalAlignment="Center" CornerRadius="4" Background="{Binding InputSurfaceBrush, Source={x:Static local:UiThemeState.Instance}}" BorderBrush="{Binding BorderStrongBrush, Source={x:Static local:UiThemeState.Instance}}" BorderThickness="1"/>
+                            <Path x:Name="CheckMark" Data="M 3,8 L 7,12 L 14,4" Stroke="{Binding AccentForegroundBrush, Source={x:Static local:UiThemeState.Instance}}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="1,0,0,0"/>
+                            <ContentPresenter Grid.Column="1" Margin="7,0,0,0" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True"><Setter TargetName="MarkBox" Property="Background" Value="{Binding AccentBrush, Source={x:Static local:UiThemeState.Instance}}"/><Setter TargetName="MarkBox" Property="BorderBrush" Value="{Binding AccentBrush, Source={x:Static local:UiThemeState.Instance}}"/><Setter TargetName="CheckMark" Property="Visibility" Value="Visible"/></Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="MarkBox" Property="BorderBrush" Value="{Binding FocusRingBrush, Source={x:Static local:UiThemeState.Instance}}"/><Setter TargetName="MarkBox" Property="BorderThickness" Value="2"/></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style TargetType="RadioButton">
             <Setter Property="Foreground" Value="{Binding TextPrimaryBrush, Source={x:Static local:UiThemeState.Instance}}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Grid Background="Transparent">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Ellipse x:Name="RadioRing" Width="17" Height="17" VerticalAlignment="Center" Fill="{Binding InputSurfaceBrush, Source={x:Static local:UiThemeState.Instance}}" Stroke="{Binding BorderStrongBrush, Source={x:Static local:UiThemeState.Instance}}" StrokeThickness="1"/>
+                            <Ellipse x:Name="RadioDot" Width="9" Height="9" VerticalAlignment="Center" HorizontalAlignment="Center" Fill="{Binding AccentBrush, Source={x:Static local:UiThemeState.Instance}}" Visibility="Collapsed"/>
+                            <ContentPresenter Grid.Column="1" Margin="7,0,0,0" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True"><Setter TargetName="RadioRing" Property="Stroke" Value="{Binding AccentBrush, Source={x:Static local:UiThemeState.Instance}}"/><Setter TargetName="RadioDot" Property="Visibility" Value="Visible"/></Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="RadioRing" Property="Stroke" Value="{Binding FocusRingBrush, Source={x:Static local:UiThemeState.Instance}}"/><Setter TargetName="RadioRing" Property="StrokeThickness" Value="2"/></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style x:Key="ThemeChoiceRadio" TargetType="RadioButton">
             <Setter Property="Foreground" Value="{Binding TextPrimaryBrush, Source={x:Static local:UiThemeState.Instance}}"/>
@@ -167,7 +203,7 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="RadioButton">
 
-                        <Grid><Border IsHitTestVisible="False" Background="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}" CornerRadius="12" Effect="{Binding SoftShadow, Source={x:Static local:UiThemeState.Instance}}"/><Border IsHitTestVisible="False" Background="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}" CornerRadius="12" Effect="{Binding SoftHighlight, Source={x:Static local:UiThemeState.Instance}}"/><Border x:Name="FocusOutline" IsHitTestVisible="False" Visibility="Collapsed" BorderBrush="{Binding FocusRingBrush, Source={x:Static local:UiThemeState.Instance}}" BorderThickness="2" CornerRadius="15" Margin="-3,-3,5,5"/><Border x:Name="ThemeCard" Background="{Binding CardRaisedSurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"                                BorderBrush="{Binding BorderBrushToken, Source={x:Static local:UiThemeState.Instance}}"
+                        <Grid><Border IsHitTestVisible="False" Margin="0,0,8,8" Background="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}" CornerRadius="12" Effect="{Binding SoftShadow, Source={x:Static local:UiThemeState.Instance}}"/><Border IsHitTestVisible="False" Margin="0,0,8,8" Background="{Binding SurfaceBrush, Source={x:Static local:UiThemeState.Instance}}" CornerRadius="12" Effect="{Binding SoftHighlight, Source={x:Static local:UiThemeState.Instance}}"/><Border x:Name="FocusOutline" IsHitTestVisible="False" Visibility="Collapsed" BorderBrush="{Binding FocusRingBrush, Source={x:Static local:UiThemeState.Instance}}" BorderThickness="2" CornerRadius="15" Margin="-3,-3,5,5"/><Border x:Name="ThemeCard" Background="{Binding CardRaisedSurfaceBrush, Source={x:Static local:UiThemeState.Instance}}"                                BorderBrush="{Binding BorderBrushToken, Source={x:Static local:UiThemeState.Instance}}"
                                 BorderThickness="1" CornerRadius="12" Padding="9" Margin="0,0,8,8">
                             <ContentPresenter HorizontalAlignment="Stretch"/>
                         </Border></Grid>
@@ -250,11 +286,14 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="Chrome" Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
-                                CornerRadius="7" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
+                        <Grid>
+                            <Border x:Name="Chrome" Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="{Binding ControlCornerRadius, Source={x:Static local:UiThemeState.Instance}}" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}" RecognizesAccessKey="True"/>
+                            </Border>
+                            <Border x:Name="FocusOutline" IsHitTestVisible="False" Visibility="Collapsed" BorderBrush="{Binding FocusRingBrush, Source={x:Static local:UiThemeState.Instance}}" BorderThickness="2" CornerRadius="{Binding ControlCornerRadius, Source={x:Static local:UiThemeState.Instance}}"/>
+                        </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Chrome" Property="Background" Value="{Binding AccentSoftBackgroundBrush, Source={x:Static local:UiThemeState.Instance}}"/>
@@ -265,7 +304,7 @@
                             </Trigger>
                             <MultiTrigger><MultiTrigger.Conditions><Condition Property="Tag" Value="primary"/><Condition Property="IsMouseOver" Value="True"/></MultiTrigger.Conditions><Setter TargetName="Chrome" Property="Background" Value="{Binding AccentHoverBrush, Source={x:Static local:UiThemeState.Instance}}"/><Setter TargetName="Chrome" Property="BorderBrush" Value="{Binding AccentHoverBrush, Source={x:Static local:UiThemeState.Instance}}"/></MultiTrigger>
                             <MultiTrigger><MultiTrigger.Conditions><Condition Property="Tag" Value="primary"/><Condition Property="IsPressed" Value="True"/></MultiTrigger.Conditions><Setter TargetName="Chrome" Property="Background" Value="{Binding AccentBrush, Source={x:Static local:UiThemeState.Instance}}"/></MultiTrigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="{Binding FocusRingBrush, Source={x:Static local:UiThemeState.Instance}}"/><Setter TargetName="Chrome" Property="BorderThickness" Value="2"/></Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="FocusOutline" Property="Visibility" Value="Visible"/></Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.45"/>
                             </Trigger>

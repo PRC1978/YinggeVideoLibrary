@@ -1,4 +1,4 @@
-#define MyAppVersion "1.7.3.4-beta.1"
+#define MyAppVersion "1.7.3.4"
 #ifndef PortableSource
   #define PortableSource "..\发布\映格视频库.exe"
 #endif

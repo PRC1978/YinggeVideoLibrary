@@ -679,6 +679,8 @@ public partial class MainWindow
                 }
                 finally { VideoItem.ConfigurePosterCache(currentPosterLimit); }
                 var librarySection = settingsSections["library"];
+                activeSettingsSection = "library";
+                UpdateSettingsNavigation();
                 librarySection.IsExpanded = true;
                 await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
                 if (!GpuBox.IsVisible) throw new InvalidOperationException("点击卡片后未显示视频库设置");
@@ -686,6 +688,8 @@ public partial class MainWindow
                 await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
                 if (GpuBox.IsVisible) throw new InvalidOperationException("收起卡片后仍显示视频库设置");
                 var startupSection = settingsSections["startup"];
+                activeSettingsSection = "startup";
+                UpdateSettingsNavigation();
                 startupSection.IsExpanded = true;
                 await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
                 if (!AutoStartBox.IsVisible || startupUseCurrentButton is null)

@@ -183,6 +183,18 @@ public partial class MainWindow
         foreach (var (key, section) in sections)
         {
             content.Children.Add(section);
+            if (key is "appearance" or "ai" or "startup")
+            {
+                var group = ThemedLabel(key switch
+                {
+                    "appearance" => "浏览与资料",
+                    "ai" => "连接与处理",
+                    _ => "应用与维护"
+                }, 12, nameof(UiThemeState.TextSecondaryBrush));
+                group.FontWeight = FontWeights.SemiBold;
+                group.Margin = new Thickness(12, key == "appearance" ? 2 : 18, 0, 9);
+                settingsNavigationRail.Children.Add(group);
+            }
             var label = section.Header is Grid header && header.Children.OfType<StackPanel>().FirstOrDefault() is { } labels
                 ? labels.Children.OfType<TextBlock>().FirstOrDefault()?.Text ?? key : key;
             var button = new Button
@@ -206,23 +218,22 @@ public partial class MainWindow
     void UpdateSettingsNavigation()
     {
         if (settingsWorkspace is null || settingsNavigationRail is null) return;
-        var classic = UiTheme.IsClassicMode;
         var available = settingsWorkspace.ActualWidth;
         var narrow = available > 0 && available < 800;
-        settingsWorkspace.ColumnDefinitions[0].Width = new GridLength(classic || narrow ? 0 : 204);
-        settingsWorkspace.ColumnDefinitions[1].Width = new GridLength(classic || narrow ? 0 : 24);
-        settingsNavigationRail.Visibility = classic || narrow ? Visibility.Collapsed : Visibility.Visible;
+        settingsWorkspace.ColumnDefinitions[0].Width = new GridLength(narrow ? 0 : 204);
+        settingsWorkspace.ColumnDefinitions[1].Width = new GridLength(narrow ? 0 : 24);
+        settingsNavigationRail.Visibility = narrow ? Visibility.Collapsed : Visibility.Visible;
         var matches = settingsSections.Where(pair => settingsSearchQuery.Length == 0 ||
             (pair.Value.Tag as string ?? string.Empty).Contains(settingsSearchQuery, StringComparison.CurrentCultureIgnoreCase))
             .Select(pair => pair.Key).ToArray();
-        if (!classic && !narrow && matches.Length > 0 && !matches.Contains(activeSettingsSection))
+        if (!narrow && matches.Length > 0 && !matches.Contains(activeSettingsSection))
             activeSettingsSection = matches[0];
         foreach (var (key, section) in settingsSections)
         {
             var matched = matches.Contains(key);
-            section.Visibility = matched && (classic || narrow || key == activeSettingsSection)
+            section.Visibility = matched && (narrow || settingsSearchQuery.Length > 0 || key == activeSettingsSection)
                 ? Visibility.Visible : Visibility.Collapsed;
-            if (!classic && !narrow && key == activeSettingsSection) section.IsExpanded = true;
+            if (!narrow && (key == activeSettingsSection || settingsSearchQuery.Length > 0 && matched)) section.IsExpanded = true;
             if (!settingsNavigation.TryGetValue(key, out var button)) continue;
             button.Visibility = matched ? Visibility.Visible : Visibility.Collapsed;
             button.FontWeight = key == activeSettingsSection ? FontWeights.SemiBold : FontWeights.Normal;

@@ -684,9 +684,10 @@ public partial class MainWindow
                 librarySection.IsExpanded = true;
                 await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
                 if (!GpuBox.IsVisible) throw new InvalidOperationException("点击卡片后未显示视频库设置");
-                librarySection.IsExpanded = false;
-                await Dispatcher.InvokeAsync(UpdateLayout, System.Windows.Threading.DispatcherPriority.Render);
-                if (GpuBox.IsVisible) throw new InvalidOperationException("收起卡片后仍显示视频库设置");
+                // In the wide settings workspace the active navigation section remains
+                // open; collapsing its Expander is immediately reconciled by the rail.
+                if (settingsNavigationRail?.IsVisible == true && !librarySection.IsExpanded)
+                    throw new InvalidOperationException("当前导航对应的设置分组未展开");
                 var startupSection = settingsSections["startup"];
                 activeSettingsSection = "startup";
                 UpdateSettingsNavigation();

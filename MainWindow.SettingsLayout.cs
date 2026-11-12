@@ -94,9 +94,9 @@ public partial class MainWindow
         SettingsPanel.HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch;
 
         panel.Children.Add(CreateSettingsIntro());
-        AddSection(panel, "appearance", "外观与浏览", "卡片密度、显示方式和界面布局", "◫", "#EAF0FF", "#4C6BDC", buckets["appearance"], true);
-        AddSection(panel, "library", "视频库与缓存", "索引、缩略图和重复视频", "▣", "#EAF6F3", "#2D9A82", buckets["library"]);
-        AddSection(panel, "scrape", "搜刮与审核", "来源凭据和批量搜刮范围", "⌕", "#FFF3E9", "#CB7A33", buckets["scrape"]);
+        AddSection(panel, "appearance", "外观与浏览", "卡片密度、显示方式和界面布局", buckets["appearance"], true);
+        AddSection(panel, "library", "视频库与缓存", "索引、缩略图和重复视频", buckets["library"]);
+        AddSection(panel, "scrape", "搜刮与审核", "来源凭据和批量搜刮范围", buckets["scrape"]);
         // Plugin management is a page of its own; this card is the discoverable entry.
         var pluginHint = new TextBlock
         {
@@ -110,14 +110,13 @@ public partial class MainWindow
             HorizontalAlignment = System.Windows.HorizontalAlignment.Left, Margin = new Thickness(0, 10, 0, 0)
         };
         pluginOpen.Click += OpenPluginsFromSettings;
-        AddSection(panel, "plugins", "插件", "第三方搜刮来源：发现、启停、权限与最近错误",
-            "⧉", "#EEF3FF", "#4C6BDC", [pluginHint, pluginOpen]);
-        AddSection(panel, "ai", "AI 接口与费用", "本地或兼容接口、限速和预算", "✦", "#F2ECFC", "#8660BD", buckets["ai"]);
-        AddSection(panel, "playback", "播放与封面", "播放器位置和缩略图生成状态", "▶", "#EBF5FD", "#3987B6", buckets["playback"]);
-        AddSection(panel, "online", "在线与扩展", "内嵌浏览器的扩展设置", "◎", "#EEF2FB", "#5879BA", buckets["online"]);
-        AddSection(panel, "startup", "启动", "开机自启、最小化与启动页", "↗", "#ECF7F0", "#4A9E67", buckets["startup"]);
-        AddSection(panel, "updates", "软件更新", "检查新版本并在应用内更新、重启", "↻", "#EAF2FF", "#4D7BCB", buckets["updates"]);
-        AddSection(panel, "data", "数据与备份", "本地备份、恢复和数据目录", "▤", "#F9F0EC", "#B6785A", buckets["data"]);
+        AddSection(panel, "plugins", "插件", "第三方搜刮来源：发现、启停、权限与最近错误", [pluginHint, pluginOpen]);
+        AddSection(panel, "ai", "AI 接口与费用", "本地或兼容接口、限速和预算", buckets["ai"]);
+        AddSection(panel, "playback", "播放与封面", "播放器位置和缩略图生成状态", buckets["playback"]);
+        AddSection(panel, "online", "在线与扩展", "内嵌浏览器的扩展设置", buckets["online"]);
+        AddSection(panel, "startup", "启动", "开机自启、最小化与启动页", buckets["startup"]);
+        AddSection(panel, "updates", "软件更新", "检查新版本并在应用内更新、重启", buckets["updates"]);
+        AddSection(panel, "data", "数据与备份", "本地备份、恢复和数据目录", buckets["data"]);
         panel.Children.Add(BuildAboutFooter());
         BuildSettingsWorkspace(panel);
     }
@@ -242,8 +241,22 @@ public partial class MainWindow
         }
     }
 
-    void AddSection(StackPanel host, string key, string title, string detail, string icon,
-        string iconBackground, string iconForeground, List<UIElement> controls, bool expanded = false)
+    static readonly Dictionary<string, Geometry> sectionIconGeometries = new(StringComparer.Ordinal)
+    {
+        ["appearance"] = Geometry.Parse("M3,4 L21,4 L21,20 L3,20 Z M10,4 L10,20 M13,8 L18,8 M13,12 L18,12"),
+        ["library"] = Geometry.Parse("M3,7 L10,7 L12,9 L21,9 L21,19 L3,19 Z M3,11 L21,11"),
+        ["scrape"] = Geometry.Parse("M10,3 A7,7 0 1 1 10,17 A7,7 0 1 1 10,3 M15,15 L21,21"),
+        ["plugins"] = Geometry.Parse("M4,4 L11,4 L11,11 L4,11 Z M13,4 L20,4 L20,11 L13,11 Z M4,13 L11,13 L11,20 L4,20 Z M13,13 L20,13 L20,20 L13,20 Z"),
+        ["ai"] = Geometry.Parse("M12,2 L14,9 L21,12 L14,14 L12,21 L10,14 L3,12 L10,9 Z"),
+        ["playback"] = Geometry.Parse("M5,3 L20,12 L5,21 Z"),
+        ["online"] = Geometry.Parse("M12,3 A9,9 0 1 1 12,21 A9,9 0 1 1 12,3 M3,12 L21,12 M12,3 C8,7 8,17 12,21 M12,3 C16,7 16,17 12,21"),
+        ["startup"] = Geometry.Parse("M4,20 L20,4 M10,4 L20,4 L20,14"),
+        ["updates"] = Geometry.Parse("M20,8 A8,8 0 1 0 20,16 M20,3 L20,8 L15,8"),
+        ["data"] = Geometry.Parse("M4,4 L20,4 L20,20 L4,20 Z M8,8 L16,8 M8,12 L16,12 M8,16 L13,16")
+    };
+
+    void AddSection(StackPanel host, string key, string title, string detail,
+        List<UIElement> controls, bool expanded = false)
     {
         if (controls.Count == 0) return;
         var body = new StackPanel();
@@ -278,12 +291,22 @@ public partial class MainWindow
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
         var iconPlate = new Border
         {
-            Background = Tint(iconBackground), Width = 42, Height = 42,
+            Width = 42, Height = 42,
             CornerRadius = new CornerRadius(12), HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
-            Child = new TextBlock { Text = icon, FontSize = 20, FontWeight = FontWeights.SemiBold,
-                Foreground = Tint(iconForeground), HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center }
+            Child = new System.Windows.Shapes.Path
+            {
+                Data = sectionIconGeometries[key], Width = 21, Height = 21,
+                Stretch = Stretch.Uniform, StrokeThickness = 1.8,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                StrokeLineJoin = PenLineJoin.Round,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
         };
+        iconPlate.SetBinding(Border.BackgroundProperty,
+            new Binding(nameof(UiThemeState.AccentSoftBackgroundBrush)) { Source = UiThemeState.Instance });
+        ((System.Windows.Shapes.Path)iconPlate.Child).SetBinding(System.Windows.Shapes.Path.StrokeProperty,
+            new Binding(nameof(UiThemeState.AccentBrush)) { Source = UiThemeState.Instance });
         header.Children.Add(iconPlate);
         var labels = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         var titleLabel = ThemedLabel(title, 15, nameof(UiThemeState.TextPrimaryBrush));

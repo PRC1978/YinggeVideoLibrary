@@ -4518,9 +4518,11 @@ public partial class MainWindow : Window
             var detail = new StackPanel();
             detail.Children.Add(new TextBlock { Text = review.CandidateTitle, FontWeight = FontWeights.SemiBold, FontSize = 14, Foreground = UiTheme.TextPrimaryBrush, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = review.CandidateTitle });
             var localVideo = available[review.VideoId];
-            detail.Children.Add(new TextBlock { Text = $"本地：{localVideo.DisplayTitle}", Foreground = UiTheme.TextSecondaryBrush, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis });
-            detail.Children.Add(new TextBlock { Text = localVideo.Path, Foreground = UiTheme.TextTertiaryBrush,
-                FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = localVideo.Path });
+            var parentFolder = System.IO.Path.GetDirectoryName(localVideo.Path);
+            var folderName = string.IsNullOrWhiteSpace(parentFolder) ? "未知目录" : System.IO.Path.GetFileName(parentFolder.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar));
+            if (string.IsNullOrWhiteSpace(folderName)) folderName = parentFolder ?? "未知目录";
+            detail.Children.Add(new TextBlock { Text = $"本地：{localVideo.DisplayTitle}  ·  目录：{folderName}", Foreground = UiTheme.TextSecondaryBrush,
+                FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = localVideo.Path });
             detail.Children.Add(new TextBlock { Text = $"来源：{review.CandidateSource}    编号：{review.CandidateCode}", Foreground = UiTheme.TextTertiaryBrush, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis });
             detail.Children.Add(new TextBlock { Text = $"匹配依据：{review.Reason}", Foreground = UiTheme.TextTertiaryBrush, FontSize = 12, TextWrapping = TextWrapping.Wrap, MaxHeight = 42, ToolTip = review.Reason });
             var compareCovers = new Button { Content = "对比封面", Style = (Style)FindResource("Action"),
@@ -4595,7 +4597,14 @@ public partial class MainWindow : Window
             System.Windows.Automation.AutomationProperties.SetAutomationId(information, "ReviewRowInfo");
             approve.IsEnabled = review.Status is "pending" or "rejected";
             reject.IsEnabled = review.Status is "pending" or "rejected";
-            actions.Children.Add(information); actions.Children.Add(approve); actions.Children.Add(reject); Grid.SetColumn(actions, 4); grid.Children.Add(actions);
+            if (ReviewPanel.ActualWidth is > 0 and < 900)
+            {
+                information.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
+                information.Margin = new Thickness(6, 4, 0, 0);
+                quickActions.Children.Insert(0, information);
+            }
+            else actions.Children.Add(information);
+            actions.Children.Add(approve); actions.Children.Add(reject); Grid.SetColumn(actions, 4); grid.Children.Add(actions);
             row.Child = grid;
             nextRows.Add(row);
         }
